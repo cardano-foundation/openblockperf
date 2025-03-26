@@ -1,9 +1,11 @@
-import requests
-from typing import Optional, Dict, Any
 import time
+from collections.abc import Mapping
+from typing import Any
+
+import requests
 
 
-class Client:
+class APIClient:
     """
     A client for the openblockperf backend.
 
@@ -15,13 +17,14 @@ class Client:
         self.base_url = base_url.rstrip("/")
         self.client_id = client_id
         self.client_secret = client_secret
-        self._token: Optional[str] = None
+        self._token: str | None = None
         self._token_expiry: float = 0
 
     def _get_challenge(self) -> str:
         """Get a challenge from the server for authentication."""
         response = requests.get(
-            f"{self.base_url}/auth/challenge", params={"client_id": self.client_id}
+            f"{self.base_url}/auth/challenge",
+            params={"client_id": self.client_id},
         )
         response.raise_for_status()
         return response.json()["challenge"]
@@ -58,7 +61,9 @@ class Client:
         if not self._token or time.time() >= self._token_expiry:
             self._authenticate()
 
-    def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
+    def _make_request(
+        self, method: str, endpoint: str, **kwargs
+    ) -> requests.Response:
         """Make an authenticated request to the API."""
         self._ensure_valid_token()
 
@@ -66,7 +71,10 @@ class Client:
         headers["Authorization"] = f"Bearer {self._token}"
 
         response = requests.request(
-            method, f"{self.base_url}/{endpoint.lstrip('/')}", headers=headers, **kwargs
+            method,
+            f"{self.base_url}/{endpoint.lstrip('/')}",
+            headers=headers,
+            **kwargs,
         )
 
         if response.status_code == 401:
@@ -84,12 +92,12 @@ class Client:
         response.raise_for_status()
         return response
 
-    def get(self, endpoint: str, **kwargs) -> Dict[str, Any]:
+    def get(self, endpoint: str, **kwargs) -> Mapping[str, Any]:
         """Perform GET request to the API."""
         response = self._make_request("GET", endpoint, **kwargs)
         return response.json()
 
-    def post(self, endpoint: str, **kwargs) -> Dict[str, Any]:
+    def post(self, endpoint: str, **kwargs) -> Mapping[str, Any]:
         """Perform POST request to the API."""
         response = self._make_request("POST", endpoint, **kwargs)
         return response.json()

@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info
 
 # Environment variables
 .envrc
@@ -17,3 +18,8 @@ Thumbs.db
 # IDE files
 .idea/
 .vscode/
+
+# mdbook
+book/
+_version.py
+logeventexamples/

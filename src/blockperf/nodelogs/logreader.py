@@ -1,5 +1,21 @@
+"""
+logreader
+
+
+Read cardano-node log events from multiple sources.
+
+The cardano-node can be configured to write its log events to either a logfile
+or to the journald system over stdout. This logreader module implements the
+ability to read log events from both. It provides a generic NodeLogReader
+abstraction that will have the two concrete implementtations for the file
+and the journald based source.
+
+
+"""
+
 import abc
 import os
+
 import systemd.journal
 
 

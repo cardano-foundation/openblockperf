@@ -1,0 +1,6 @@
+[book]
+authors = ["Manuel Schmidt"]
+language = "en"
+multilingual = false
+src = "docs"
+title = "The openBlockPerf Client"

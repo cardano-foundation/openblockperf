@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    pass
+    openblockperf_api_key: str
 
 
 # see BaseSettings for more details

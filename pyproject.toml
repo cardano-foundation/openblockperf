@@ -1,11 +1,74 @@
 [project]
-name = "openblockperf-py"
-version = "0.1.0"
-description = "Add your description here"
+name = "blockperf"
+dynamic = ["version"]
+description = "The openBlockperf client"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "click>=8.1.8",
     "cryptography>=44.0.1",
     "pydantic-settings>=2.8.0",
+    "python-systemd>=0.0.9",
+    "typer>=0.15.2",
 ]
+keywords = ["cardano", "cardano-foundation", "ops"]
+authors = [
+  {name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" }
+]
+maintainers = [
+  {name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" }
+]
+
+[project.scripts]
+blockperf = "blockperf.main:app"
+
+[project.urls]
+"Homepage" = "X"
+"Bug Reports" = "X"
+
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.setuptools_scm]
+# Will be generated during build (installation) process.
+write_to = "src/blockperf/_version.py"
+
+[tool.ruff]
+# Enable all rules by default, then selectively disable
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "PL"]
+ignore = ["E501"]  # Ignore line length violations
+# Assume Python 3.12
+target-version = "py312"
+
+# Exclude a variety of commonly ignored directories
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+]
+
+# Set the line length to 88 (match black)
+line-length = 80
+
+# Sort imports
+[tool.ruff.isort]
+known-first-party = ["app", "cli"]
+
+#[tool.ruff.lint]
+#extend-select = ["E", "W", "F", "B"]
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Docstring settings
+[tool.ruff.pydocstyle]
+convention = "google"  # Or "numpy", "pep257"
