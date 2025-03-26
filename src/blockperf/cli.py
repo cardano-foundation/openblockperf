@@ -5,34 +5,27 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from blockperf.commands import base
+from blockperf.commands.analyze import analyze_app
+from blockperf.commands.base import version_cmd
+from blockperf.commands.monitor import monitor_app
 
 console = Console()
 
 
-def setup_cli(app: typer.Typer) -> None:
-    """Set up the CLI with all command groups and commands.
+# Initialize the Typer application
+blockperf_app = typer.Typer(
+    name="blockperf",
+    help="A CLI application for block performance analysis",
+    add_completion=True,
+    no_args_is_help=True,
+)
 
-    Args:
-        app: The Typer application instance
-    """
-    # Add base commands directly to the app
-    app.command()(base.version)
+# Add base commands directly to the app
+blockperf_app.command("version")(version_cmd)
+blockperf_app.add_typer(analyze_app)
+blockperf_app.add_typer(monitor_app)
 
-    # Create the analyze command group
-    analyze_app = typer.Typer(
-        name="analyze", help="Performance analysis commands"
-    )
-    app.add_typer(analyze_app)
 
-    # Add analyze commands
-    analyze_app.command(name="blocks")(base.analyze_blocks)
-
-    # Create the monitor command group
-    monitor_app = typer.Typer(
-        name="monitor", help="Real-time monitoring commands"
-    )
-    app.add_typer(monitor_app)
-
-    # Add monitor commands
-    monitor_app.command(name="blocks")(base.monitor_blocks)
+def mycallback():
+    """Creates a single user Hiro Hamada. In the next version it will create 5 more users."""
+    console.print("Y A Y")

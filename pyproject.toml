@@ -20,7 +20,7 @@ maintainers = [
 ]
 
 [project.scripts]
-blockperf = "blockperf.main:app"
+blockperf = "blockperf.main:run"
 
 [project.urls]
 "Homepage" = "X"

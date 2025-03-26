@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings
 
 
-class Settings(BaseSettings):
+class BlockperfSettings(BaseSettings):
     openblockperf_api_key: str
 
 
