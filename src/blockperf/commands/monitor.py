@@ -10,17 +10,17 @@ from blockperf.core.async_utils import run_async
 console = Console()
 
 
-def monitor_app_callback(verboze: bool = False):
-    console.print("My farts stink hard")
-
-
 # Create the monitor command group
 monitor_app = typer.Typer(
     name="monitor",
     help="Real-time monitoring commands",
     invoke_without_command=True,
-    callback=monitor_app_callback,
 )
+
+
+@monitor_app.callback()
+def monitor_app_callback(verboze: bool = False):
+    pass
 
 
 @monitor_app.command(name="blocks")

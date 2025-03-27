@@ -1,15 +1,9 @@
-"""Main entry point for the BlockPerf CLI application."""
+"""
+main
 
-from typing import Optional
-
-from rich.console import Console
+The main module is the main entrypoint for the BlockPerf application."""
 
 from blockperf.cli import blockperf_app
-
-# Initialize console for rich output
-console = Console()
-
-# Set up the CLI commands
 
 
 def run():
