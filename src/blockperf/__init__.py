@@ -1,8 +1,19 @@
-from importlib.metadata import PackageNotFoundError, version
+# Version information for blockperf
+# Version is read from pyproject.toml - edit the version there
 
-try:
-    __version__ = version(
-        __name__
-    )  # Use __name__ if it's installed as a package
-except PackageNotFoundError:
-    __version__ = "0.0.0"  # Default version when running in development
+import tomllib
+from pathlib import Path
+
+
+def _get_version():
+    """Read version from pyproject.toml"""
+    pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
+    try:
+        with open(pyproject_path, "rb") as f:
+            pyproject = tomllib.load(f)
+        return pyproject["project"]["version"]
+    except Exception:
+        return "unknown"
+
+
+__version__ = _get_version()

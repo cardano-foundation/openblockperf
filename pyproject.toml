@@ -1,13 +1,16 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "blockperf"
-dynamic = ["version"]
-description = "The openBlockperf client"
+version = "0.1.2"
+description = "The OpenBlockperf client"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "click>=8.1.8",
     "cryptography>=44.0.1",
-    "ipython>=9.0.2",
     "pudb>=2024.1.3",
     "pydantic-settings>=2.8.0",
     "systemd-python>=235",
@@ -25,19 +28,24 @@ maintainers = [
 blockperf = "blockperf.main:run"
 
 [project.urls]
-"Homepage" = "X"
-"Bug Reports" = "X"
+"Homepage" = "https://github.com/cardano-foundation/openblockperf"
+"Bug Reports" = "https://github.com/cardano-foundation/openblockperf/issues"
 
-[build-system]
-requires = ["setuptools", "setuptools-scm"]
-build-backend = "setuptools.build_meta"
+[dependency-groups]
+dev = [
+    "ipython>=9.5.0",
+    "pytest>=8.4.2",
+]
 
 [tool.mypy]
 ignore_missing_imports = true
 
-[tool.setuptools_scm]
-# Will be generated during build (installation) process.
-write_to = "src/blockperf/_version.py"
+# Provide test pypi index configuration for use with uv publish --index testpypi
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
 
 [tool.ruff]
 # Enable all rules by default, then selectively disable
