@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from collections.abc import AsyncGenerator
 from pprint import pprint
 from typing import Any
@@ -77,113 +78,133 @@ class FileLogReader(NodeLogReader):
 
 class JournaldLogReader(NodeLogReader):
     """
-    Reads logs from the systemd journal.
+    Reads logs from a syslog service identified by its syslog identifier.
+    This must be the value you specify in the service unit file with the
+    `SyslogIdentifier` field. Assuming this is only ever going to be used
+    in the cardano-tracer context the default syslog identigier is `cardano-tracer`.
     """
 
-    def __init__(self, syslog_identifier: str, cursor: str | None = None):
+    def __init__(self, syslog_identifier: str | None):
         """
         Initialize the journald source adapter.
 
         Args:
-            unit_name: The systemd unit name to read logs from
-            cursor: Optional cursor to start reading from a specific position
+            syslog_identifier: The syslog identifier of the service to read logs from.
+
         """
-        self.syslog_identifier = syslog_identifier
-        self.cursor = cursor
-        self._reader = None
-        print("created JournaldLogReader %s", self)
+        self.syslog_identifier = syslog_identifier or "cardano-tracer"
+        self.reader = None
+        print(f"created JournaldLogReader for {self.syslog_identifier}", self)
 
     async def connect(self) -> None:
         """Connect to journald."""
         try:
-            print("connecting to JournaldLogReader")
-            # import pudb
-
-            # pu.db
-            # Create journal reader
-            self._reader = journal.Reader()
-            if self.syslog_identifier:
-                self._reader.add_match(SYSLOG_IDENTIFIER=self.syslog_identifier)
-                print(f"Add match for {self.syslog_identifier=}")
-            # If cursor provided, seek to that position
-            if self.cursor:
-                self._reader.seek_cursor(self.cursor)
-            else:
-                # Otherwise start from the end
-                self._reader.seek_tail()
-                # Back up a bit to get a couple of entries for context
-                # self._reader.get_previous(15)
-
-            logger.info("connected to journald")
-
+            print("connecting to journald")
+            self.reader = journal.Reader()  # Create journal reader
+            self.reader.seek_tail()
+            self.reader.add_match(SYSLOG_IDENTIFIER=self.syslog_identifier)
+            print(f"Add match for {self.syslog_identifier=}")
+            print("connected to journald")
         except ImportError as e:
             raise ImportError(
                 "systemd-python package is required for journald support"
             ) from e
 
+    async def close(self) -> None:
+        """Close the reader connection to journald if there is one."""
+        if not self.reader:
+            return
+        self.reader.close()
+        self.reader = None
+        print(f"Closed journald connection for unit: {self.syslog_identifier}")
+
+    def get_all_available_entries(self):
+        """Get all currently available entries as a list."""
+        entries = []
+        while True:
+            entry = self.reader.get_next()
+            if not entry:
+                break
+            entries.append(entry)
+        print(f"Found {len(entries)} entries")
+        return entries
+
     async def read_events(self) -> AsyncGenerator[dict[str, Any], None]:
         """Read events from journald as an async generator."""
-        print("Reading events")
-        if not self._reader:
-            raise RuntimeError(
-                "Not connected to journald. Call connect() first."
-            )
-        import pudb
-
+        assert self.reader, "Not connected to journald. Call connect() first."
         while True:
-            # pu.db
-            # Process available entries
-            entry = self._reader.get_next()
+            try:
+                entries = self.get_all_available_entries()
+                for entry in entries:
+                    print(f"found new entry {entry.keys()}")
+                    try:
+                        # Extract the JSON message from the journal entry
+                        # Assuming the log entry is a JSON string in the MESSAGE field
+                        message = entry.get("MESSAGE")
+                        print(message)
+                        if not message:
+                            print(f"no {message=}")
+                            continue
 
-            if entry:
-                # print(entry)
-                try:
-                    # Extract the JSON message from the journal entry
-                    # Assuming the log entry is a JSON string in the MESSAGE field
-                    message = entry.get("MESSAGE_JSON")
-                    # print(message)
-                    if not message:
-                        continue
+                        # Parse the JSON message
+                        if isinstance(message, bytes):
+                            message = message.decode("utf-8")
 
-                    # Parse the JSON message
-                    if isinstance(message, bytes):
-                        message = message.decode("utf-8")
+                        event_data = json.loads(message)
 
-                    # pu.db
-                    event_data = json.loads(message)
+                        # pprint(event_data)
 
-                    # pprint(event_data)
+                        # Maybe store for future repickup of where we left of?
+                        # self.cursor = entry.get("__CURSOR")
 
-                    # Save cursor for future resumption
-                    self.cursor = entry.get("__CURSOR")
+                        yield event_data
 
-                    yield event_data
+                    except json.JSONDecodeError:
+                        print(f"Received non-JSON log entry: {message}")
+                    except Exception as e:
+                        print(f"Error processing journal entry: {str(e)}")
 
-                except json.JSONDecodeError:
-                    logger.warning(f"Received non-JSON log entry: {message}")
-
-                except Exception as e:
-                    logger.error(f"Error processing journal entry: {str(e)}")
-
-            else:
-                # No new entries, wait a bit before checking again
+                # If no more entries left, wait for new ones
+                await self._wait_for_new_entries()
+            except Exception as e:
+                print(f"ERROR: {e}")
                 await asyncio.sleep(0.1)
 
-    async def close(self) -> None:
-        """Close the connection to journald."""
-        if self._reader:
-            self._reader.close()
-            self._reader = None
-            logger.info(
-                f"Closed journald connection for unit: {self.unit_name}"
-            )
+    async def _wait_for_new_entries(self) -> None:
+        """
+        Wait for new journal entries to become available.
+        This implements the polling mechanism similar to journalctl -f
+        Uses systemd's built-in waiting mechanism
+        """
+        try:
+            # Wait for journal changes with timeout in seconds
+            result = self.reader.wait(timeout=1.0)
+            if not result:
+                # No result within timeout
+                return
+            elif result == journal.APPEND:
+                # New entries are available
+                print("New journal entries detected")
+                for e in self.reader:
+                    print(e)
+
+            elif result == journal.INVALIDATE:
+                # Journal was rotated/invalidated, need to re-seek
+                print("Journal invalidated, re-seeking...")
+                self.reader.seek_tail()
+
+        except Exception as e:
+            print(f"Error waiting for journal entries: {e}")
+            # Fall back to simple sleep
+            await asyncio.sleep(0.5)
 
 
-def create_log_reader(source_type, source):
-    if source_type == "file":
+def create_log_reader(reader_type: str, source: str | None):
+    """Creates a log reader of the given type."""
+    if reader_type == "file":
         return FileLogReader(source)
-    elif source_type == "journald":
-        return JournaldLogReader(syslog_identifier="custom_unit_name")
+    elif reader_type == "journald":
+        return JournaldLogReader(syslog_identifier="cardano-tracer")
     else:
         raise ValueError(
             "Unsupported log source type. Use 'file' or 'journald'."

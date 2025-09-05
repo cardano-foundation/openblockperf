@@ -7,8 +7,6 @@ It is implemented in a single class that takes a NodeLogReader from which
 it will start reading the raw log lines. Every line is then parsed and converted
 into one of the LogEvents.
 
-
-
 """
 
 import asyncio
@@ -22,6 +20,7 @@ class EventProcessor:
         self.log_reader = log_reader
 
     async def start(self):
+        print("Started Event Processor")
         self.running = True
         while self.running:
             await self.process_logs()
@@ -29,13 +28,15 @@ class EventProcessor:
 
     async def process_logs(self):
         """Uses the logreader to process the logs."""
-        print("process logs ... ")
         async with self.log_reader as source:
-            now
+            print(f"process logs from {source.syslog_identifier} ")
+            print(" ### ")
+            print()
             async for raw_event in source.read_events():
-                print("Now do something with this event %s", id(raw_event))
-                # print(raw_event)
                 print()
+                print(
+                    f"Now do something with this event {raw_event.get('at') + ' ' + raw_event.get('ns')}"
+                )
 
         # await asyncio.sleep(1)
 
