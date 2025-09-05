@@ -18,9 +18,7 @@ import asyncio
 import json
 import logging
 import os
-import sys
 from collections.abc import AsyncGenerator
-from pprint import pprint
 from typing import Any
 
 # Move to actuall Reader for less hard depenency
@@ -71,7 +69,7 @@ class FileLogReader(NodeLogReader):
             raise FileNotFoundError(f"Log file {file_path} does not exist.")
 
     def read_logs(self):
-        with open(self.file_path, "r") as file:
+        with open(self.file_path) as file:
             for line in file:
                 yield line.strip()
 
@@ -101,9 +99,17 @@ class JournaldLogReader(NodeLogReader):
         try:
             print("connecting to journald")
             self.reader = journal.Reader()  # Create journal reader
-            self.reader.seek_tail()
             self.reader.add_match(SYSLOG_IDENTIFIER=self.syslog_identifier)
             print(f"Add match for {self.syslog_identifier=}")
+
+            # Position at end and consume any existing entries to start fresh
+            self.reader.seek_tail()
+            self.reader.get_previous()  # Position at the actual last entry
+
+            # Consume any remaining entries to ensure we only get new ones
+            while self.reader.get_next():
+                pass
+
             print("connected to journald")
         except ImportError as e:
             raise ImportError(
@@ -118,15 +124,15 @@ class JournaldLogReader(NodeLogReader):
         self.reader = None
         print(f"Closed journald connection for unit: {self.syslog_identifier}")
 
-    def get_all_available_entries(self):
-        """Get all currently available entries as a list."""
+    def get_new_entries(self):
+        """Get all new entries that have arrived since last check."""
         entries = []
         while True:
             entry = self.reader.get_next()
             if not entry:
                 break
             entries.append(entry)
-        print(f"Found {len(entries)} entries")
+        print(f"Found {len(entries)} new entries")
         return entries
 
     async def read_events(self) -> AsyncGenerator[dict[str, Any], None]:
@@ -134,16 +140,19 @@ class JournaldLogReader(NodeLogReader):
         assert self.reader, "Not connected to journald. Call connect() first."
         while True:
             try:
-                entries = self.get_all_available_entries()
+                # Wait for new entries to become available
+                await self._wait_for_new_entries()
+
+                # Get all new entries that arrived
+                entries = self.get_new_entries()
+
                 for entry in entries:
-                    print(f"found new entry {entry.keys()}")
+                    print(f"found new entry {list(entry.keys())[:5]}...")  # Show first 5 keys
                     try:
                         # Extract the JSON message from the journal entry
-                        # Assuming the log entry is a JSON string in the MESSAGE field
                         message = entry.get("MESSAGE")
-                        print(message)
                         if not message:
-                            print(f"no {message=}")
+                            print("no message in entry")
                             continue
 
                         # Parse the JSON message
@@ -152,22 +161,18 @@ class JournaldLogReader(NodeLogReader):
 
                         event_data = json.loads(message)
 
-                        # pprint(event_data)
-
-                        # Maybe store for future repickup of where we left of?
+                        # Maybe store for future repickup of where we left off?
                         # self.cursor = entry.get("__CURSOR")
 
                         yield event_data
 
                     except json.JSONDecodeError:
-                        print(f"Received non-JSON log entry: {message}")
+                        print(f"Received non-JSON log entry: {message[:100]}...")
                     except Exception as e:
                         print(f"Error processing journal entry: {str(e)}")
 
-                # If no more entries left, wait for new ones
-                await self._wait_for_new_entries()
             except Exception as e:
-                print(f"ERROR: {e}")
+                print(f"ERROR in read_events: {e}")
                 await asyncio.sleep(0.1)
 
     async def _wait_for_new_entries(self) -> None:
@@ -180,18 +185,20 @@ class JournaldLogReader(NodeLogReader):
             # Wait for journal changes with timeout in seconds
             result = self.reader.wait(timeout=1.0)
             if not result:
-                # No result within timeout
+                # No result within timeout, just return
                 return
             elif result == journal.APPEND:
-                # New entries are available
+                # New entries are available - don't iterate here, just return
                 print("New journal entries detected")
-                for e in self.reader:
-                    print(e)
-
+                return
             elif result == journal.INVALIDATE:
                 # Journal was rotated/invalidated, need to re-seek
                 print("Journal invalidated, re-seeking...")
                 self.reader.seek_tail()
+                self.reader.get_previous()
+                # Consume any existing entries
+                while self.reader.get_next():
+                    pass
 
         except Exception as e:
             print(f"Error waiting for journal entries: {e}")
