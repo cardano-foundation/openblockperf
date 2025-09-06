@@ -11,6 +11,7 @@ into one of the LogEvents.
 
 import asyncio
 
+from blockperf.nodelogs.events import parse_log_message
 from blockperf.nodelogs.logreader import NodeLogReader
 
 
@@ -29,14 +30,12 @@ class EventProcessor:
     async def process_logs(self):
         """Uses the logreader to process the logs."""
         async with self.log_reader as source:
-            print(f"process logs from {source.syslog_identifier} ")
+            print("Start processing logs")
             print(" ### ")
             print()
-            async for raw_event in source.read_events():
-                print()
-                print(
-                    f"Now do something with this event {raw_event.get('at') + ' ' + raw_event.get('ns')}"
-                )
+            async for message in source.read_messages():
+                event = parse_log_message(message)
+                print(f"Now do something with this event {event}")
 
         # await asyncio.sleep(1)
 

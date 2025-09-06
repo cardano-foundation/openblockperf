@@ -18,7 +18,7 @@ class BaseLogEvent(BaseModel):
     """
 
     at: datetime
-    ns: list[str]
+    ns: str
     data: dict[str, Any]
     sev: str
     thread: str
@@ -34,7 +34,8 @@ class BaseLogEvent(BaseModel):
     @property
     def namespace_path(self) -> str:
         """Return the namespace path as a dot-joined string."""
-        return ".".join(self.ns)
+        # return ".".join(self.ns)
+        return self.ns
 
 
 # Specific event models that all inherit from LogEvent
@@ -74,33 +75,33 @@ class ConnectionErrorEvent(BaseLogEvent):
     pass
 
 
-def parse_log_event(log_json: Mapping[str, Any]) -> BaseLogEvent:
-    """Parse a log event JSON into the appropriate Pydantic model."""
+def parse_log_message(log_message: Mapping[str, Any]) -> BaseLogEvent:
+    """Parse a log message JSON into the appropriate Pydantic event model."""
 
     # First, validate it as a basic log event
-    base_event = BaseLogEvent(**log_json)
+    base_event = BaseLogEvent(**log_message)
 
     # Get the namespace path
     ns_path = base_event.namespace_path
+    event = None
+
+    print(ns_path)
 
     # Determine the specific event type based on namespaces
     if "Reflection.TracerInfo" in ns_path:
-        return TracerInfoEvent(**log_json)
-
+        event = TracerInfoEvent(**log_message)
     elif "ChainDB.OpenEvent" in ns_path:
-        return ChainDBOpenEvent(**log_json)
-
+        event = ChainDBOpenEvent(**log_message)
     elif "ChainDB.AddBlockEvent.AddBlockValidation.ValidCandidate" in ns_path:
-        return BlockValidationEvent(**log_json)
-
+        event = BlockValidationEvent(**log_message)
     elif "ChainDB.AddBlockEvent.AddedToCurrentChain" in ns_path:
-        return AddedToCurrentChainEvent(**log_json)
-
+        event = AddedToCurrentChainEvent(**log_message)
     elif "Net.PeerSelection" in ns_path:
-        return PeerSelectionEvent(**log_json)
-
+        event = PeerSelectionEvent(**log_message)
     elif "Net.PeerSelection.Actions.ConnectionError" in ns_path:
-        return ConnectionErrorEvent(**log_json)
+        event = ConnectionErrorEvent(**log_message)
 
-    # Default case - return as generic LogEvent
-    return base_event
+    if not event:
+        print(f"Error: could not determine event {log_message}")
+
+    return event or base_event
