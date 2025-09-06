@@ -25,7 +25,7 @@ def run_app_callback():
     The event processor is run inside an asyncio
     """
     try:
-        log_reader = create_log_reader("journald", "cardano-logs")
+        log_reader = create_log_reader("journalctl", "cardano-logs")
         event_processor = EventProcessor(log_reader=log_reader)
         run_async(_run_event_processor(event_processor))
     except KeyboardInterrupt:

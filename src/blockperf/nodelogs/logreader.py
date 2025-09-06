@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -203,13 +204,152 @@ class JournaldLogReader(NodeLogReader):
             await asyncio.sleep(0.5)
 
 
+class JournalCtlLogReader(NodeLogReader):
+    """
+    Reads logs from journald using the journalctl CLI tool.
+    This implementation uses subprocess to call 'journalctl -fu <service>'.
+    """
+
+    def __init__(self, syslog_identifier: str | None):
+        """
+        Initialize the journalctl-based log reader.
+
+        Args:
+            syslog_identifier: The syslog identifier of the service to read logs from.
+        """
+        self.syslog_identifier = syslog_identifier or "cardano-tracer"
+        self.process = None
+        print(f"created JournalCtlLogReader for {self.syslog_identifier}")
+
+    async def connect(self) -> None:
+        """Connect by starting the journalctl subprocess."""
+        try:
+            print("connecting via journalctl subprocess")
+            # Build the journalctl command: journalctl -f -u <service> -o json
+            # and create a Process instance
+            cmd = [
+                "journalctl",
+                "-f",  # Follow (like tail -f)
+                "--identifier",
+                self.syslog_identifier,  # Filter by syslog identifier
+                "-o",
+                "json",  # Output in JSON format
+                "--no-pager",  # Don't use pager
+                "--since",
+                "now",  # Only show entries from now on
+            ]
+            self.process: asyncio.subprocess.Process = (
+                await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            )
+
+            print("connected via journalctl subprocess")
+
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to start journalctl subprocess: {e}"
+            ) from e
+
+    async def close(self) -> None:
+        """Close the journalctl subprocess."""
+        if not self.process:
+            return
+
+        self.process.terminate()
+        try:
+            await asyncio.wait_for(self.process.wait(), timeout=5.0)
+        except TimeoutError:
+            print("journalctl process didn't terminate, now killing it!")
+            self.process.kill()
+            await self.process.wait()
+
+        self.process = None
+        print(
+            f"Closed journalctl connection for identifier: {self.syslog_identifier}"
+        )
+
+    async def read_events(self) -> AsyncGenerator[dict[str, Any], None]:
+        """Read events from journalctl subprocess as an async generator."""
+        assert self.process, "Not connected. Call connect() first."
+        assert self.process.stdout, "Process stdout not available"
+
+        print("Starting to read events from journalctl")
+
+        try:
+            while True:
+                # Read a line from the subprocess stdout
+                line = await self.process.stdout.readline()
+                print(line)
+
+                if not line:
+                    # EOF reached, subprocess probably ended
+                    print("EOF reached from journalctl subprocess")
+                    break
+
+                try:
+                    # Decode the line and strip whitespace
+                    line_str = line.decode("utf-8").strip()
+
+                    if not line_str:
+                        continue
+
+                    # Parse as JSON
+                    event_data = json.loads(line_str)
+
+                    print(
+                        f"Received event from journalctl: {event_data.get('MESSAGE', 'No MESSAGE')[:50]}..."
+                    )
+
+                    # Extract the actual log message and parse it as JSON if it's structured
+                    message = event_data.get("MESSAGE")
+                    if message:
+                        try:
+                            # Try to parse the message as JSON (for structured logs)
+                            if isinstance(message, str) and (
+                                message.startswith("{")
+                                or message.startswith("[")
+                            ):
+                                structured_data = json.loads(message)
+                                yield structured_data
+                            else:
+                                # If not JSON, yield the whole journalctl entry
+                                yield event_data
+                        except json.JSONDecodeError:
+                            # Message is not JSON, yield the whole journalctl entry
+                            yield event_data
+
+                except json.JSONDecodeError as e:
+                    print(f"Failed to parse journalctl output as JSON: {e}")
+                    print(f"Raw line: {line_str}")
+                except Exception as e:
+                    print(f"Error processing journalctl line: {e}")
+
+        except Exception as e:
+            print(f"Error reading from journalctl subprocess: {e}")
+        finally:
+            # Check if process is still running
+            if self.process and self.process.returncode is None:
+                print(
+                    "journalctl subprocess still running after read loop ended"
+                )
+            elif self.process:
+                print(
+                    f"journalctl subprocess ended with return code: {self.process.returncode}"
+                )
+
+
 def create_log_reader(reader_type: str, source: str | None):
     """Creates a log reader of the given type."""
     if reader_type == "file":
         return FileLogReader(source)
     elif reader_type == "journald":
-        return JournaldLogReader(syslog_identifier="cardano-tracer")
+        return JournaldLogReader(syslog_identifier=source or "cardano-tracer")
+    elif reader_type == "journalctl":
+        return JournalCtlLogReader(syslog_identifier=source or "cardano-tracer")
     else:
         raise ValueError(
-            "Unsupported log source type. Use 'file' or 'journald'."
+            "Unsupported log source type. Use 'file', 'journald', or 'journalctl'."
         )
