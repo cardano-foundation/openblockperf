@@ -102,15 +102,17 @@ class JournaldLogReader(NodeLogReader):
             self.reader.add_match(SYSLOG_IDENTIFIER=self.syslog_identifier)
             print(f"Add match for {self.syslog_identifier=}")
 
-            # Position at end and consume any existing entries to start fresh
+            # Position at the very end of the journal for this service
             self.reader.seek_tail()
-            self.reader.get_previous()  # Position at the actual last entry
+            # Skip any existing entries by moving to the actual end
+            while self.reader.get_previous():
+                pass  # This moves us to the very beginning
 
-            # Consume any remaining entries to ensure we only get new ones
+            # Now go to the actual end by consuming all entries
             while self.reader.get_next():
-                pass
+                pass  # Now we're truly at the end
 
-            print("connected to journald")
+            print("connected to journald, positioned at end of stream")
         except ImportError as e:
             raise ImportError(
                 "systemd-python package is required for journald support"
@@ -132,7 +134,8 @@ class JournaldLogReader(NodeLogReader):
             if not entry:
                 break
             entries.append(entry)
-        print(f"Found {len(entries)} new entries")
+        if entries:
+            print(f"Found {len(entries)} new entries")
         return entries
 
     async def read_events(self) -> AsyncGenerator[dict[str, Any], None]:
@@ -140,57 +143,51 @@ class JournaldLogReader(NodeLogReader):
         assert self.reader, "Not connected to journald. Call connect() first."
         while True:
             try:
-                # Wait for new entries to become available
-                await self._wait_for_new_entries()
-
-                # Get all new entries that arrived
+                # Check for new entries first (without waiting)
                 entries = self.get_new_entries()
 
-                for entry in entries:
-                    print(f"found new entry {list(entry.keys())[:5]}...")  # Show first 5 keys
-                    try:
-                        # Extract the JSON message from the journal entry
-                        message = entry.get("MESSAGE")
-                        if not message:
-                            print("no message in entry")
-                            continue
+                if entries:
+                    for entry in entries:
+                        print(f"found new entry {list(entry.keys())[:5]}...")
+                        try:
+                            # Extract the JSON message from the journal entry
+                            message = entry.get("MESSAGE")
+                            if not message:
+                                print("no message in entry")
+                                continue
 
-                        # Parse the JSON message
-                        if isinstance(message, bytes):
-                            message = message.decode("utf-8")
+                            # Parse the JSON message
+                            if isinstance(message, bytes):
+                                message = message.decode("utf-8")
 
-                        event_data = json.loads(message)
+                            event_data = json.loads(message)
 
-                        # Maybe store for future repickup of where we left off?
-                        # self.cursor = entry.get("__CURSOR")
+                            # Maybe store for future repickup of where we left off?
+                            # self.cursor = entry.get("__CURSOR")
 
-                        yield event_data
+                            yield event_data
 
-                    except json.JSONDecodeError:
-                        print(f"Received non-JSON log entry: {message[:100]}...")
-                    except Exception as e:
-                        print(f"Error processing journal entry: {str(e)}")
+                        except json.JSONDecodeError:
+                            print(
+                                f"Received non-JSON log entry: {message[:100]}..."
+                            )
+                        except Exception as e:
+                            print(f"Error processing journal entry: {str(e)}")
+                else:
+                    # No entries available, wait for new ones
+                    await self._wait_for_new_entries()
 
             except Exception as e:
                 print(f"ERROR in read_events: {e}")
                 await asyncio.sleep(0.1)
 
     async def _wait_for_new_entries(self) -> None:
-        """
-        Wait for new journal entries to become available.
-        This implements the polling mechanism similar to journalctl -f
-        Uses systemd's built-in waiting mechanism
-        """
+        """Wait for new journal entries to become available."""
         try:
-            # Wait for journal changes with timeout in seconds
             result = self.reader.wait(timeout=1.0)
-            if not result:
-                # No result within timeout, just return
-                return
-            elif result == journal.APPEND:
+            if result == journal.APPEND:
                 # New entries are available - don't iterate here, just return
                 print("New journal entries detected")
-                return
             elif result == journal.INVALIDATE:
                 # Journal was rotated/invalidated, need to re-seek
                 print("Journal invalidated, re-seeking...")
