@@ -45,11 +45,12 @@ class EventProcessor:
 
     async def process_log_messages(self):
         """Creates a task group and starts the two tasks to collect the events
-        and to process them. This
+        and to process them.
+
         """
-        async with asyncio.TaskGroup() as tg:
-            collection_task = tg.create_task(self.collect_events())
-            inspection_task = tg.create_task(self.inspect_groups())
+        collection_task = asyncio.create_task(self.collect_events())
+        inspection_task = asyncio.create_task(self.inspect_groups())
+        await asyncio.gather(collection_task, inspection_task)
 
     async def collect_events(self):
         """Collects events from message of the logreader."""
@@ -112,7 +113,7 @@ class EventProcessor:
 
     async def process_group(self, group: EventGroup):
         print(f"Process group {group.block_hash}")
-        asyncio.sleep(3)
+        await asyncio.sleep(3)
         sample = group.sample()
         rich.print(sample)
         self.event_collector.remove_group(group)

@@ -99,13 +99,13 @@ class JournalCtlLogReader(NodeLogReader):
         if not self.process:
             return
 
-        self.process.terminate()
         try:
-            await asyncio.wait_for(self.process.wait(), timeout=5.0)
+            self.process.terminate()
+            await asyncio.wait_for(self.process.wait(), timeout=2.0)
         except TimeoutError:
-            print("journalctl process didn't terminate, now killing it!")
-            self.process.kill()
-            await self.process.wait()
+            print("journalctl didn't terminate, now killing it!")
+            self.process.kill()  # sends SIGKILL
+            await self.process.wait()  # ensure OS has time to kill
 
         self.process = None
         print(f"Closed journalctl connection for identifier: {self.unit}")
@@ -128,19 +128,8 @@ class JournalCtlLogReader(NodeLogReader):
                     print(f"Raw line: {line}")
                 except Exception as e:
                     print(f"Error processing journalctl line: {e}")
-
         except Exception as e:
             print(f"Error reading from journalctl subprocess: {e}")
-        finally:
-            # Check if process is still running
-            if self.process and self.process.returncode is None:
-                print(
-                    "journalctl subprocess still running after read loop ended"
-                )
-            elif self.process:
-                print(
-                    f"journalctl subprocess ended with return code: {self.process.returncode}"
-                )
 
 
 def create_log_reader(reader_type: str, unit: str | None):
