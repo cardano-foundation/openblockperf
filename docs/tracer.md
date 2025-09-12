@@ -1,6 +1,8 @@
 # New Tracer system
 
-## Empower the node
+## General Setup
+
+### Configure the node
 
 The node needs to be configured to use the new tracing system. This is done
 by:
@@ -9,8 +11,6 @@ by:
 * Providing the socket of the tracer in the startup options
 * Having A tracer configuration in the nodes config.json for the tracer
     to pick up and know what and where to trace logs to.
-
-### Tracer socket path
 
 The cardano-node binary takes two options for the tracer socket path:
 `--tracer-socket-path-accept FILEPATH` and `--tracer-socket-path-connect FILEPATH`.
@@ -23,11 +23,12 @@ I chose to have the node accept connects from tracer instance which means
 that the node will create the socket file! The cardano-tracer service
 will the connect to that socket and receive logs.
 
-### Node TracerOptions
+## Node TracerOptions
 
-Besides enabling the tracer in the node it also needs to get some config
-about what it should log. That is done through the `TracerOptions` in
-the nodes config.json. A simple example might look like this:
+Once enabled the node will need to receive the configuration for the
+tracer system. That is provided through the `TracerOptions` block.
+
+A simple example might look like this:
 
 ```json
 "TraceOptions": {
@@ -35,9 +36,9 @@ the nodes config.json. A simple example might look like this:
         "severity": "Notice",
         "detail": "DNormal",
         "backends": [
-        "Stdout MachineFormat",
-        "EKGBackend",
-        "Forwarder"
+          "Stdout MachineFormat",
+          "EKGBackend",
+          "Forwarder"
         ]
     },
     "ChainDB": {

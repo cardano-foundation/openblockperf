@@ -3,8 +3,8 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "blockperf"
-version = "0.1.3"
+name = "openblockperfopenblockperf"
+version = "0.0.1"
 description = "The OpenBlockperf client"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,10 +18,10 @@ dependencies = [
 ]
 keywords = ["cardano", "cardano-foundation", "ops"]
 authors = [
-  {name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" }
+  {name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" },
 ]
 maintainers = [
-  {name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" }
+  {name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" },
 ]
 
 [project.scripts]
