@@ -101,7 +101,7 @@ class JournalCtlLogReader(NodeLogReader):
 
         try:
             self.process.terminate()
-            await asyncio.wait_for(self.process.wait(), timeout=2.0)
+            await asyncio.wait_for(self.process.wait(), timeout=1.0)
         except TimeoutError:
             print("journalctl didn't terminate, now killing it!")
             self.process.kill()  # sends SIGKILL
