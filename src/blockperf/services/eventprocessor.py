@@ -13,6 +13,7 @@ import asyncio
 
 import rich
 
+from blockperf.core.config import settings
 from blockperf.core.eventcollector import EventCollector, EventGroup
 from blockperf.core.events import (
     AddedToCurrentChainEvent,
@@ -30,7 +31,7 @@ class EventProcessor:
     def __init__(self, log_reader: NodeLogReader):
         self.running = False
         self.log_reader = log_reader
-        self.collector = EventCollector()
+        self.event_collector = EventCollector()
 
     async def start(self):
         print("Started Event Processor")
@@ -43,20 +44,46 @@ class EventProcessor:
         self.running = False
 
     async def process_log_messages(self):
-        """Uses the logreader to process the logs."""
+        """Creates a task group and starts the two tasks to collect the events
+        and to process them. This
+        """
+        async with asyncio.TaskGroup() as tg:
+            collection_task = tg.create_task(self.collect_events())
+            inspection_task = tg.create_task(self.inspect_groups())
+
+    async def collect_events(self):
+        """Collects events from message of the logreader."""
         async with self.log_reader as log_reader:
             print("Start processing logs ...")
             async for message in log_reader.read_messages():
                 event = parse_log_message(message)
                 if not event or type(event) is BaseLogEvent:
                     continue
-                self.handle_event(event)
-        # await asyncio.sleep(1)
+                self.insert_event(event)
 
-    def handle_event(self, event):
+    async def inspect_groups(self):
+        """Inspects all groups for ones that are ready to get processed.."""
+        while True:
+            await asyncio.sleep(settings.eventgroup_inspection_interval)
+
+            # Inspect all collected groups
+            ready_groups = []
+            for group in self.event_collector.get_all_groups():
+                if (
+                    group.is_complete()
+                    and group.age() > settings.eventgroup_min_age
+                ):
+                    ready_groups.append(group)
+            print(f"no. of ready groups {len(ready_groups)}")
+            for group in ready_groups:
+                await self.process_group(group)
+
+    def insert_event(self, event):
+        """Inserts given event into the event collector"""
         # group is either the group the event was added to or None if it could
         # not get added.
-        group = self.collector.add_event(event)
+        # breakpoint()
+        group = self.event_collector.add_event(event)
         if group and group.event_count() == 1:
             rich.print(
                 f"[bold magenta]New block {group.block_hash[:8]} [/bold magenta]"
@@ -77,12 +104,15 @@ class EventProcessor:
             if not group:
                 # That should not happen.
                 raise RuntimeError(f"No group return for {event}")
-            self.handle_added_to_chain(group)
+            print(f"Calculate blockperf payload for {group.block_hash[:8]}")
         elif isinstance(event, SwitchedToAForkEvent):
             rich.print(f"Switched to fork {event.block_hash[:8]} to chain")
         else:
             event.print_debug()
 
-    def handle_added_to_chain(self, group: EventGroup):
-        # process the group by calculating the blockperf values
-        print(f"Calculate blockperf payload for {group.block_hash[:8]}")
+    async def process_group(self, group: EventGroup):
+        print(f"Process group {group.block_hash}")
+        asyncio.sleep(3)
+        sample = group.sample()
+        rich.print(sample)
+        self.event_collector.remove_group(group)

@@ -17,7 +17,9 @@ Connection = namedtuple("Connection", "lip, lport rip rport")
 class BaseLogEvent(BaseModel):
     """Base model for all log events.
 
-    T
+    The below fields are what i think every message will always have. The
+    sec and thread fields are not of interested for now, so i did not include
+    them.
     """
 
     at: datetime
@@ -52,24 +54,33 @@ class BaseLogEvent(BaseModel):
         """
         return None
 
+    @property
+    def block_number(self) -> str | None:
+        return None
+
+    @property
+    def slot_number(self) -> str | None:
+        return None
+
 
 class CompletedBlockFetchEvent(BaseLogEvent):
     """
-    CompletedBlockFetchEvent(
-        at=datetime.datetime(2025, 9, 6, 21, 27, 23, 334299, tzinfo=datetime.timezone.utc),
-        ns='BlockFetch.Client.CompletedBlockFetch',
-        data={
-            'block': '6e3288ea3f13757b37e0b060d13236f05bb0571f0f95d0fbd3a3a237b8eb6a6b',
-            'delay': 0.33412554,
-            'kind': 'CompletedBlockFetch',
-            'peer': {'connectionId': '172.0.118.125:30002 24.192.179.116:5000'},
-            'size': 1999
+    {
+        "at": "2025-09-12T16:52:11.263418188Z",
+        "ns": "BlockFetch.Client.CompletedBlockFetch",
+        "data": {
+            "block": "e175320a3488c661d1b921b9cf4fb81d1c00d1b6650bf27536c859b90a1692b4",
+            "delay": 0.26330237,
+            "kind": "CompletedBlockFetch",
+            "peer": {
+                "connectionId": "172.0.118.125:30002 73.222.122.247:23002"
+            },
+            "size": 2345
         },
-        sev='Info',
-        thread='1456',
-        host='openblockperf-dev-database1'
-    )
-
+        "sev": "Info",
+        "thread": "88863",
+        "host": "openblockperf-dev-database1"
+    }
     """
 
     @property
@@ -96,19 +107,21 @@ class CompletedBlockFetchEvent(BaseLogEvent):
 
 class SendFetchRequestEvent(BaseLogEvent):
     """
-    SendFetchRequestEvent(
-        at=datetime.datetime(2025, 9, 6, 21, 31, 54, 68449, tzinfo=datetime.timezone.utc),
-        ns='BlockFetch.Client.SendFetchRequest',
-        data={
-            'head': '695607fd6954c3dafc255f005501fa1746d1ee6ca960a56e3cc38e3cf74e09e6',
-            'kind': 'SendFetchRequest',
-            'length': 1,
-            'peer': {'connectionId': '172.0.118.125:30002 152.53.139.165:3001'}
+    {
+        "at": "2025-09-12T16:52:11.098464254Z",
+        "ns": "BlockFetch.Client.SendFetchRequest",
+        "data": {
+            "head": "e175320a3488c661d1b921b9cf4fb81d1c00d1b6650bf27536c859b90a1692b4",
+            "kind": "SendFetchRequest",
+            "length": 1,
+            "peer": {
+                "connectionId": "172.0.118.125:30002 73.222.122.247:23002"
+            }
         },
-        sev='Info',
-        thread='1537',
-        host='openblockperf-dev-database1'
-    )
+        "sev": "Info",
+        "thread": "88864",
+        "host": "openblockperf-dev-database1"
+    }
     """
 
     @property
@@ -119,20 +132,22 @@ class SendFetchRequestEvent(BaseLogEvent):
 
 class DownloadedHeaderEvent(BaseLogEvent):
     """
-    DownloadedHeaderEvent(
-        at=datetime.datetime(2025, 9, 6, 21, 8, 19, 564977, tzinfo=datetime.timezone.utc),
-        ns='ChainSync.Client.DownloadedHeader',
-        data={
-            'block': 'f825861a675f36184516f5d1eba691251fc3f58ddf0256d6df9c50e4f693795d',
-            'blockNo': 3583696,
-            'kind': 'DownloadedHeader',
-            'peer': {'connectionId': '172.0.118.125:30002 113.43.234.98:4001'},
-            'slot': 90536899
+    {
+        "at": "2025-09-12T16:51:39.269022269Z",
+        "ns": "ChainSync.Client.DownloadedHeader",
+        "data": {
+            "block": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1",
+            "blockNo": 3600148,
+            "kind": "DownloadedHeader",
+            "peer": {
+                "connectionId": "172.0.118.125:30002 167.235.223.34:5355"
+            },
+            "slot": 91039899
         },
-        sev='Info',
-        thread='1408',
-        host='openblockperf-dev-database1'
-    )
+        "sev": "Info",
+        "thread": "96913",
+        "host": "openblockperf-dev-database1"
+    }
     """
 
     @property
@@ -140,8 +155,12 @@ class DownloadedHeaderEvent(BaseLogEvent):
         return self.data.get("block")
 
     @property
+    def block_number(self) -> int:
+        return int(self.data.get("blockNo"))
+
+    @property
     def slot(self) -> int:
-        return self.data.get("slot")
+        return int(self.data.get("slot"))
 
     @property
     def peer_ip(self) -> dict:
@@ -156,48 +175,44 @@ class DownloadedHeaderEvent(BaseLogEvent):
 
 class AddedToCurrentChainEvent(BaseLogEvent):
     """
-        AddedToCurrentChainEvent(
-        at=datetime.datetime(2025, 9, 6, 21, 22, 1, 210917, tzinfo=datetime.timezone.utc),
-        ns='ChainDB.AddBlockEvent.AddedToCurrentChain',
-        data={
-            'headers': [
+    {
+        "at": "2025-09-12T16:51:39.255697717Z",
+        "ns": "ChainDB.AddBlockEvent.AddedToCurrentChain",
+        "data": {
+            "headers": [
                 {
-                    'blockNo': '3583723',
-                    'hash': '"92fbe0b805a718e9269052a37ca38fe78cc90a7a704428ed1e008be90fbf2356"',
-                    'kind': 'ShelleyBlock',
-                    'slotNo': '90537721'
+                    "blockNo": "3600148",
+                    "hash": "\"9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1\"",
+                    "kind": "ShelleyBlock",
+                    "slotNo": "91039899"
                 }
             ],
-            'kind': 'AddedToCurrentChain',
-            'newTipSelectView': {
-                'chainLength': 3583723,
-                'issueNo': 10,
-                'issuerHash': '23f86b0081f90dafb554c97da5be11a33b124018863ab7308a835587',
-                'kind': 'PraosChainSelectView',
-                'slotNo': 90537721,
-                'tieBreakVRF':
-    '4500d5375faeb22da9643a189123c392ad35cd1740acf6fb7eb778c5a68f5aaeeb3d163eb3405a33101009da46eddd8f49dba8bdea05cf8b533c
-    a1bb3d66c6a8'
+            "kind": "AddedToCurrentChain",
+            "newTipSelectView": {
+                "chainLength": 3600148,
+                "issueNo": 4,
+                "issuerHash": "8019d8ef42bb1c92db7ccdbc88748625a62668ff5a0000e42bdb5030",
+                "kind": "PraosChainSelectView",
+                "slotNo": 91039899,
+                "tieBreakVRF": "d58c41d2fd1710d5396411765743470bb13027a9c82f0d893e261b2748c404bb801587c06730834bd1e1d29c6b7abd71b1b36021f599a73526c1441d6c6a4ae6"
             },
-            'newtip': '92fbe0b805a718e9269052a37ca38fe78cc90a7a704428ed1e008be90fbf2356@90537721',
-            'oldTipSelectView': {
-                'chainLength': 3583722,
-                'issueNo': 10,
-                'issuerHash': '23f86b0081f90dafb554c97da5be11a33b124018863ab7308a835587',
-                'kind': 'PraosChainSelectView',
-                'slotNo': 90537650,
-                'tieBreakVRF':
-    '1a5c97cc633afac6a99a92d584ee812588f8676ca36e7b5e4412a6d7a8e28ae293edbe8a9dd030f5060231c7dcc9a40ae273a1055304008e858b
-    8e7afeacc484'
+            "newtip": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1@91039899",
+            "oldTipSelectView": {
+                "chainLength": 3600147,
+                "issueNo": 5,
+                "issuerHash": "059388faa651bd3596c8892819c88e02a7a82e47a9df985286902566",
+                "kind": "PraosChainSelectView",
+                "slotNo": 91039878,
+                "tieBreakVRF": "d2ee74b145193dfe6ec96dcdc2865aac42a9b14ee5b1f17d8b036be52ecf79e2f4d6de3ef9644f04e4a40dd516a299a239ee1f9c45e0311ffe1770547c87c2db"
             },
-            'tipBlockHash': '92fbe0b805a718e9269052a37ca38fe78cc90a7a704428ed1e008be90fbf2356',
-            'tipBlockIssuerVKeyHash': '23f86b0081f90dafb554c97da5be11a33b124018863ab7308a835587',
-            'tipBlockParentHash': '86ea9256c637217c6ab74388802b191d5cdd7e5d830b0e7feb67a2db93ef8cfe'
+            "tipBlockHash": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1",
+            "tipBlockIssuerVKeyHash": "8019d8ef42bb1c92db7ccdbc88748625a62668ff5a0000e42bdb5030",
+            "tipBlockParentHash": "838498b0cc666026ec366199ec89afd67a2febc932816acef9bbd2a1f59689a5"
         },
-        sev='Notice',
-        thread='34',
-        host='openblockperf-dev-database1'
-    )
+        "sev": "Notice",
+        "thread": "27",
+        "host": "openblockperf-dev-database1"
+    }
     """
 
     @property
@@ -212,10 +227,80 @@ class AddedToCurrentChainEvent(BaseLogEvent):
         return _hash
 
 
+class TrySwitchToAForkEvent:
+    """
+    {
+        "at": "2025-09-12T16:51:18.695700181Z",
+        "ns": "ChainDB.AddBlockEvent.TrySwitchToAFork",
+        "data": {
+            "block": {
+                "hash": "838498b0cc666026ec366199ec89afd67a2febc932816acef9bbd2a1f59689a5",
+                "kind": "Point",
+                "slot": 91039878
+            },
+            "kind": "TraceAddBlockEvent.TrySwitchToAFork"
+        },
+        "sev": "Info",
+        "thread": "27",
+        "host": "openblockperf-dev-database1"
+    }
+    """
+
+    pass
+
+
 class SwitchedToAForkEvent(BaseLogEvent):
+    """
+    {
+        "at": "2025-09-12T16:51:18.698911267Z",
+        "ns": "ChainDB.AddBlockEvent.SwitchedToAFork",
+        "data": {
+            "headers": [
+                {
+                    "blockNo": "3600147",
+                    "hash": "\"838498b0cc666026ec366199ec89afd67a2febc932816acef9bbd2a1f59689a5\"",
+                    "kind": "ShelleyBlock",
+                    "slotNo": "91039878"
+                }
+            ],
+            "kind": "TraceAddBlockEvent.SwitchedToAFork",
+            "newTipSelectView": {
+                "chainLength": 3600147,
+                "issueNo": 5,
+                "issuerHash": "059388faa651bd3596c8892819c88e02a7a82e47a9df985286902566",
+                "kind": "PraosChainSelectView",
+                "slotNo": 91039878,
+                "tieBreakVRF": "d2ee74b145193dfe6ec96dcdc2865aac42a9b14ee5b1f17d8b036be52ecf79e2f4d6de3ef9644f04e4a40dd516a299a239ee1f9c45e0311ffe1770547c87c2db"
+            },
+            "newtip": "838498b0cc666026ec366199ec89afd67a2febc932816acef9bbd2a1f59689a5@91039878",
+            "oldTipSelectView": {
+                "chainLength": 3600147,
+                "issueNo": 11,
+                "issuerHash": "3867a09729a1f954762eea035a82e2d9d3a14f1fa791a022ef0da242",
+                "kind": "PraosChainSelectView",
+                "slotNo": 91039878,
+                "tieBreakVRF": "d4e7a472bd5d387277867906dbbed1d0a4a7d261043384f7728000f87b095d4b7b6924fc6207ee615b537361d2b2007f4f16147a4668035b433e559d4702abb1"
+            },
+            "tipBlockHash": "838498b0cc666026ec366199ec89afd67a2febc932816acef9bbd2a1f59689a5",
+            "tipBlockIssuerVKeyHash": "059388faa651bd3596c8892819c88e02a7a82e47a9df985286902566",
+            "tipBlockParentHash": "9bea882f9be9bcce376eb16e263e9e0aa9a488a46fccbcae3c9e449378b35ee5"
+        },
+        "sev": "Notice",
+        "thread": "27",
+        "host": "openblockperf-dev-database1"
+    }
+    """
+
     @property
     def block_hash(self) -> str:
-        return "NotImplemented"
+        # TODO: Thats so ugly, Why is the header block hash with extra
+        #       double quotes ???
+        _hash = self.data.get("headers")[0].get("hash")
+        if _hash.startswith('"'):
+            _hash = _hash[1:]
+        if _hash.endswith('"'):
+            _hash = _hash[:-1]
+        return _hash
 
 
 """
@@ -226,7 +311,7 @@ EVENT_REGISTRY = {
     "BlockFetch.Client.CompletedBlockFetch": CompletedBlockFetchEvent,
     "BlockFetch.Client.SendFetchRequest": SendFetchRequestEvent,
     # "BlockFetch.Remote.Receive.ClientDone": ClientDoneEvent,
-    "BlockFetch.Remote.Send.Block": None,
+    # "BlockFetch.Remote.Send.Block": None,
     "ChainDB.AddBlockEvent.AddedToCurrentChain": AddedToCurrentChainEvent,
     # "ChainDB.AddBlockEvent.BlockInTheFuture": BlockInTheFutureEvent,
     "ChainDB.AddBlockEvent.SwitchedToAFork": SwitchedToAForkEvent,

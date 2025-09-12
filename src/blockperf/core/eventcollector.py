@@ -11,6 +11,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
+import rich
+
 from blockperf.core.events import (
     AddedToCurrentChainEvent,
     CompletedBlockFetchEvent,
@@ -23,7 +25,7 @@ from blockperf.core.events import (
 class EventGroup:
     """A group of log events for a given block hash."""
 
-    block_hash: str | None = None
+    block_hash: str
     events: list[Any] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
@@ -32,6 +34,16 @@ class EventGroup:
         """Add an event to this group."""
         self.events.append(event)
         self.last_updated = time.time()
+
+    def age(self) -> int:
+        """Returns age of this group in seconds"""
+
+        current_timestamp = int(time.time())
+        age = current_timestamp - int(self.created_at)
+        print(
+            f"Group age {age} - created {self.created_at} - now {current_timestamp}"
+        )
+        return age
 
     def event_count(self) -> int:
         """Return the number of events in this group."""
@@ -82,9 +94,13 @@ class EventGroup:
             the block was downloaded from
         * Must be adopted to the chain. Either AddedToCurrentChain or SwitchedToAFork
         """
+        return True
+
+    def sample(self):
+        return {"some": 1, "dictionary": True}
 
     def __str__(self):
-        return f"EventGroup(block_hash={self.block_hash[:8] if self.block_hash else None}, events={len(self.events)})"
+        return f"EventGroup(block_hash={self.block_hash if self.block_hash else None}, events={len(self.events)})"
 
 
 class EventCollector:
@@ -131,6 +147,7 @@ class EventCollector:
         if group_key in self.groups:
             group = self.groups[group_key]
         else:
+            print(f"Create group: {block_hash}")
             group = EventGroup(block_hash=block_hash)
             self.groups[group_key] = group
             self.total_groups_created += 1
@@ -184,6 +201,13 @@ class EventCollector:
 
         return removed_count
 
+    def _remove_group_by_hash(self, block_hash):
+        if block_hash in self.groups:
+            del self.groups[block_hash]
+
+    def remove_group(self, group: EventGroup):
+        self._remove_group_by_hash(group.block_hash)
+
     def get_statistics(self) -> dict[str, Any]:
         """Get collector statistics."""
         return {
@@ -211,14 +235,6 @@ class EventCollector:
                 }
             )
         return summary
-
-    def _remove_group(self, group: EventGroup):
-        """Remove a group from all indexes."""
-        group_key = group.block_hash
-
-        # Remove from main storage
-        if group_key in self.groups:
-            del self.groups[group_key]
 
     def __len__(self):
         """Return total number of groups."""
