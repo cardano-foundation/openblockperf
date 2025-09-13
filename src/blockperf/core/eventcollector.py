@@ -7,12 +7,10 @@ organize events into logical groups for analysis and processing.
 """
 
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-import rich
-
+from blockperf.core.config import settings
 from blockperf.core.events import (
     AddedToCurrentChainEvent,
     CompletedBlockFetchEvent,
@@ -22,10 +20,12 @@ from blockperf.core.events import (
 
 
 @dataclass
-class EventGroup:
+class BlockEventGroup:
     """A group of log events for a given block hash."""
 
     block_hash: str
+    slot: int | None = None
+    slot_time: int | None = None
     events: list[Any] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
@@ -34,6 +34,15 @@ class EventGroup:
         """Add an event to this group."""
         self.events.append(event)
         self.last_updated = time.time()
+        if isinstance(event, DownloadedHeaderEvent):
+            if not self.slot:
+                self.slot = event.slot
+            # if not self.slot_time:
+            #    self.slot_time = settings.network_time
+
+            print(
+                f"Network start time is {settings().network_config.starttime}"
+            )
 
     def age(self) -> int:
         """Returns age of this group in seconds"""
@@ -100,7 +109,7 @@ class EventGroup:
         return {"some": 1, "dictionary": True}
 
     def __str__(self):
-        return f"EventGroup(block_hash={self.block_hash if self.block_hash else None}, events={len(self.events)})"
+        return f"BlockEventGroup(block_hash={self.block_hash if self.block_hash else None}, events={len(self.events)})"
 
 
 class EventCollector:
@@ -113,7 +122,7 @@ class EventCollector:
 
     def __init__(self):
         # Groups of events indexed by the block hash they belong to
-        self.groups: dict[str, EventGroup] = {}
+        self.groups: dict[str, BlockEventGroup] = {}
 
         # Group of events that couldn't be grouped by a block hash
         self.ungrouped_events: list[Any] = []
@@ -122,7 +131,7 @@ class EventCollector:
         self.total_events_processed = 0
         self.total_groups_created = 0
 
-    def add_event(self, event: Any) -> EventGroup | None:
+    def add_event(self, event: Any) -> BlockEventGroup | None:
         """
         Add an event to the collector. Attempts to group it by block attributes.
 
@@ -133,45 +142,49 @@ class EventCollector:
             The EventGroup the event was added to, or None if ungrouped
         """
         self.total_events_processed += 1
-
-        # get block hash from event, but not all events have a block hash.
+        # Get events block_hash, but not all have one. Add these to ungrouped_events
         block_hash = event.block_hash
         if not block_hash:
             self.ungrouped_events.append(event)
             return None
 
-        # Create group key
-        group_key = block_hash
-
-        # Get or create the group
-        if group_key in self.groups:
-            group = self.groups[group_key]
-        else:
-            print(f"Create group: {block_hash}")
-            group = EventGroup(block_hash=block_hash)
-            self.groups[group_key] = group
-            self.total_groups_created += 1
+        group = self._get_or_create_group(block_hash)
 
         # Add event to group
         group.add_event(event)
         return group
 
+    def _get_or_create_group(self, block_hash) -> BlockEventGroup:
+        """Returns the group with given hash, creates a new group if needed."""
+        if block_hash in self.groups:
+            group = self.groups[block_hash]
+        else:
+            print(f"Create group: {block_hash}")
+            group = BlockEventGroup(block_hash=block_hash)
+            self.groups[block_hash] = group
+            self.total_groups_created += 1
+
+        if not group:
+            raise RuntimeError(f"Could not find group for {block_hash}")
+
+        return group
+
     def get_group(
         self,
         block_hash: str | None = None,
-    ) -> EventGroup | None:
+    ) -> BlockEventGroup | None:
         """Get a specific event group by block number and/or hash."""
         if block_hash is not None:
             return self.groups.get(block_hash)
         return None
 
-    def get_all_groups(self) -> list[EventGroup]:
+    def get_all_groups(self) -> list[BlockEventGroup]:
         """Get all event groups."""
         return list(self.groups.values())
 
     def get_recent_groups(
         self, max_age_seconds: float = 300
-    ) -> list[EventGroup]:
+    ) -> list[BlockEventGroup]:
         """Get groups created within the last max_age_seconds."""
         current_time = time.time()
         return [
@@ -182,7 +195,7 @@ class EventCollector:
 
     def get_stale_groups(
         self, max_age_seconds: float = 3600
-    ) -> list[EventGroup]:
+    ) -> list[BlockEventGroup]:
         """Get groups that haven't been updated in max_age_seconds."""
         return [
             group
@@ -205,7 +218,7 @@ class EventCollector:
         if block_hash in self.groups:
             del self.groups[block_hash]
 
-    def remove_group(self, group: EventGroup):
+    def remove_group(self, group: BlockEventGroup):
         self._remove_group_by_hash(group.block_hash)
 
     def get_statistics(self) -> dict[str, Any]:

@@ -4,8 +4,8 @@ import typer
 from rich.console import Console
 
 from blockperf.core.async_utils import run_async
-from blockperf.core.logreader import create_log_reader
 from blockperf.core.eventprocessor import EventProcessor
+from blockperf.core.logreader import create_log_reader
 
 console = Console()
 

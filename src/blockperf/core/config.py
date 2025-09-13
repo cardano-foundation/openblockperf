@@ -1,17 +1,63 @@
 import os
+from dataclasses import dataclass
+from enum import Enum
+from typing import ClassVar
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Network(Enum):
+    """All known networks"""
+
+    MAINNET: str = "mainnet"
+    PREPROD: str = "preprod"
+    PREVIEW: str = "preview"
+
+
+@dataclass(frozen=True)
+class NetworkConfig:
+    """Network specific configurations"""
+
+    magic: int
+    starttime: int
+
 
 ENV_PREFIX = "OPENBLOCKPERF_"
 
 
 class AppSettings(BaseSettings):
-    # openblockperf_api_key: str
-    # Interval in seconds to check groups for whether they are ready to process
-    eventgroup_inspection_interval: int = 6
-    # To not process groups that may be just added right now, i wanted
-    # to have some control over when a certain group will get processed.
-    eventgroup_min_age: int = 10
+    check_interval: int = 6  # Interval in seconds to check for groups/blocks
+    min_age: int = 10  # Wait x seconds before even processing a group/block
+
+    # Specifiy Field manually to ensure the value can only ever be a valid
+    # value of the Network enum.
+    network: Network = Field(
+        default=Network.PREPROD, validation_alias="network"
+    )
+
+    # Class-level dictionary to store network specific configurations
+    _NETWORK_CONFIGS: ClassVar[dict[Network, NetworkConfig]] = {
+        Network.MAINNET.value: NetworkConfig(
+            magic=764824073,
+            starttime=1591566291,
+        ),
+        Network.PREPROD.value: NetworkConfig(
+            magic=1,
+            starttime=1655683200,
+        ),
+        Network.PREVIEW.value: NetworkConfig(
+            magic=2,
+            starttime=1666656000,
+        ),
+    }
+
+    @property
+    def network_config(self) -> NetworkConfig:
+        """Retrieve configuration for the current network."""
+        # The field validation from self.network ensures it will always the
+        # value will always be a valid network
+        return self._NETWORK_CONFIGS[self.network.value]
 
 
 class AppSettingsDev(AppSettings):
@@ -32,13 +78,14 @@ class AppSettingsProd(AppSettings):
     )
 
 
-def load_settings():
-    settings_envs = {
+def settings() -> AppSettings:
+    settings_env_map = {
         "dev": AppSettingsDev,
-        # "test": AppSettingsProd,
-        # "production": AppSettingsProd,
+        "test": AppSettingsProd,
+        "production": AppSettingsProd,
     }
-    return settings_envs[os.environ.get("ENV", "dev")]()
-
-
-settings = load_settings()
+    env = os.environ.get("ENV", "dev")
+    settings_class = settings_env_map.get(env)
+    if not settings_class:
+        raise RuntimeError(f"No settings found for {env}")
+    return settings_class()

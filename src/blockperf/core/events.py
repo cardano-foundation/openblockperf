@@ -7,11 +7,16 @@ The logevent module
 from collections import namedtuple
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, NamedTuple, Optional, Union
 
 from pydantic import BaseModel, Field, validator
 
-Connection = namedtuple("Connection", "lip, lport rip rport")
+
+class Connection(NamedTuple):
+    lip: str  # Local IP
+    lport: int  # Local Port
+    rip: str  # Remote IP
+    rport: int  # Remote Port
 
 
 class BaseLogEvent(BaseModel):
@@ -63,6 +68,81 @@ class BaseLogEvent(BaseModel):
         return None
 
 
+class DownloadedHeaderEvent(BaseLogEvent):
+    """
+    {
+        "at": "2025-09-12T16:51:39.269022269Z",
+        "ns": "ChainSync.Client.DownloadedHeader",
+        "data": {
+            "block": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1",
+            "blockNo": 3600148,
+            "kind": "DownloadedHeader",
+            "peer": {
+                "connectionId": "172.0.118.125:30002 167.235.223.34:5355"
+            },
+            "slot": 91039899
+        },
+        "sev": "Info",
+        "thread": "96913",
+        "host": "openblockperf-dev-database1"
+    }
+    """
+
+    @property
+    def block_hash(self) -> str:
+        return self.data.get("block")
+
+    @property
+    def block_number(self) -> int:
+        return int(self.data.get("blockNo"))
+
+    @property
+    def slot(self) -> int:
+        return int(self.data.get("slot"))
+
+    @property
+    def connection(self) -> Connection | None:
+        connection_string = self.data.get("peer").get("connectionId")
+        if not connection_string:
+            raise RuntimeError("Could not find connection string in data")
+        connection = parse_connectionid(connection_string)
+        return connection
+
+    @property
+    def peer_ip(self) -> str:
+        """Ip address of peer the header was downloaded from"""
+        return self.connection.rip
+
+    @property
+    def peer_port(self) -> int:
+        return self.connection.rport
+
+
+class SendFetchRequestEvent(BaseLogEvent):
+    """
+    {
+        "at": "2025-09-12T16:52:11.098464254Z",
+        "ns": "BlockFetch.Client.SendFetchRequest",
+        "data": {
+            "head": "e175320a3488c661d1b921b9cf4fb81d1c00d1b6650bf27536c859b90a1692b4",
+            "kind": "SendFetchRequest",
+            "length": 1,
+            "peer": {
+                "connectionId": "172.0.118.125:30002 73.222.122.247:23002"
+            }
+        },
+        "sev": "Info",
+        "thread": "88864",
+        "host": "openblockperf-dev-database1"
+    }
+    """
+
+    @property
+    def block_hash(self):
+        """The block hash this fetch request tries to receive"""
+        return self.data.get("head")
+
+
 class CompletedBlockFetchEvent(BaseLogEvent):
     """
     {
@@ -101,74 +181,6 @@ class CompletedBlockFetchEvent(BaseLogEvent):
         connection_string = self.data.get("peer").get("connectionId")
         if not connection_string:
             return None
-        connection = parse_connectionid(connection_string)
-        return connection.rip
-
-
-class SendFetchRequestEvent(BaseLogEvent):
-    """
-    {
-        "at": "2025-09-12T16:52:11.098464254Z",
-        "ns": "BlockFetch.Client.SendFetchRequest",
-        "data": {
-            "head": "e175320a3488c661d1b921b9cf4fb81d1c00d1b6650bf27536c859b90a1692b4",
-            "kind": "SendFetchRequest",
-            "length": 1,
-            "peer": {
-                "connectionId": "172.0.118.125:30002 73.222.122.247:23002"
-            }
-        },
-        "sev": "Info",
-        "thread": "88864",
-        "host": "openblockperf-dev-database1"
-    }
-    """
-
-    @property
-    def block_hash(self):
-        """The block hash this fetch request tries to receive"""
-        return self.data.get("head")
-
-
-class DownloadedHeaderEvent(BaseLogEvent):
-    """
-    {
-        "at": "2025-09-12T16:51:39.269022269Z",
-        "ns": "ChainSync.Client.DownloadedHeader",
-        "data": {
-            "block": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1",
-            "blockNo": 3600148,
-            "kind": "DownloadedHeader",
-            "peer": {
-                "connectionId": "172.0.118.125:30002 167.235.223.34:5355"
-            },
-            "slot": 91039899
-        },
-        "sev": "Info",
-        "thread": "96913",
-        "host": "openblockperf-dev-database1"
-    }
-    """
-
-    @property
-    def block_hash(self) -> str:
-        return self.data.get("block")
-
-    @property
-    def block_number(self) -> int:
-        return int(self.data.get("blockNo"))
-
-    @property
-    def slot(self) -> int:
-        return int(self.data.get("slot"))
-
-    @property
-    def peer_ip(self) -> dict:
-        """Ip address of peer the header was downloaded from"""
-        connection_string = self.data.get("peer").get("connectionId")
-        if not connection_string:
-            return None
-
         connection = parse_connectionid(connection_string)
         return connection.rip
 

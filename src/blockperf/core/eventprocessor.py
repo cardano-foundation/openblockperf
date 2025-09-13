@@ -14,7 +14,7 @@ import asyncio
 import rich
 
 from blockperf.core.config import settings
-from blockperf.core.eventcollector import EventCollector, EventGroup
+from blockperf.core.eventcollector import BlockEventGroup, EventCollector
 from blockperf.core.events import (
     AddedToCurrentChainEvent,
     BaseLogEvent,
@@ -35,6 +35,9 @@ class EventProcessor:
 
     async def start(self):
         print("Started Event Processor")
+        print(f"{settings().network}")
+        print(f"{settings().network_config.magic}")
+        print(f"{settings().network_config.starttime}")
         self.running = True
         while self.running:
             await self.process_log_messages()
@@ -65,15 +68,12 @@ class EventProcessor:
     async def inspect_groups(self):
         """Inspects all groups for ones that are ready to get processed.."""
         while True:
-            await asyncio.sleep(settings.eventgroup_inspection_interval)
+            await asyncio.sleep(settings().check_interval)
 
             # Inspect all collected groups
             ready_groups = []
             for group in self.event_collector.get_all_groups():
-                if (
-                    group.is_complete()
-                    and group.age() > settings.eventgroup_min_age
-                ):
+                if group.is_complete() and group.age() > settings().min_age:
                     ready_groups.append(group)
             print(f"no. of ready groups {len(ready_groups)}")
             for group in ready_groups:
@@ -85,9 +85,10 @@ class EventProcessor:
         # not get added.
         # breakpoint()
         group = self.event_collector.add_event(event)
+        # Print that a new block (group) was found (created)
         if group and group.event_count() == 1:
             rich.print(
-                f"[bold magenta]New block {group.block_hash[:8]} [/bold magenta]"
+                f"[bold magenta]New group for {group.block_hash[:8]} [/bold magenta]"
             )
 
         if isinstance(event, DownloadedHeaderEvent):
@@ -111,7 +112,7 @@ class EventProcessor:
         else:
             event.print_debug()
 
-    async def process_group(self, group: EventGroup):
+    async def process_group(self, group: BlockEventGroup):
         print(f"Process group {group.block_hash}")
         await asyncio.sleep(3)
         sample = group.sample()
