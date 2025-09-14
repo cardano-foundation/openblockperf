@@ -1,9 +1,12 @@
 import asyncio
+from datetime import datetime
 
+import rich
 import typer
 from rich.console import Console
 
 from blockperf.core.async_utils import run_async
+from blockperf.core.config import settings
 from blockperf.core.eventprocessor import EventProcessor
 from blockperf.core.logreader import create_log_reader
 
@@ -25,6 +28,10 @@ def run_app_callback():
     The event processor is run inside an asyncio
     """
     try:
+        rich.print(
+            f"[bold]Network[/]: [color red]{settings().network.value.capitalize()}[/] [bold]Magic[/]: {settings().network_config.magic} [bold]Startime[/]: {datetime.fromtimestamp(settings().network_config.starttime).isoformat()}",
+        )
+
         log_reader = create_log_reader("journalctl", "cardano-tracer")
         event_processor = EventProcessor(log_reader=log_reader)
         run_async(_run_event_processor(event_processor))

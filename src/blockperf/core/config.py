@@ -29,22 +29,21 @@ ENV_PREFIX = "OPENBLOCKPERF_"
 class AppSettings(BaseSettings):
     check_interval: int = 6  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
-
-    # Specifiy Field manually to ensure the value can only ever be a valid
-    # value of the Network enum.
+    # Using Field to validate input values match one of the possible enum values
     network: Network = Field(
-        default=Network.PREPROD, validation_alias="network"
+        default=Network.PREVIEW, validation_alias="network"
     )
 
     # Class-level dictionary to store network specific configurations
     _NETWORK_CONFIGS: ClassVar[dict[Network, NetworkConfig]] = {
+        # Took network starttimes from shelly-genesis.json
         Network.MAINNET.value: NetworkConfig(
             magic=764824073,
             starttime=1591566291,
         ),
         Network.PREPROD.value: NetworkConfig(
             magic=1,
-            starttime=1655683200,
+            starttime=1654041600,
         ),
         Network.PREVIEW.value: NetworkConfig(
             magic=2,

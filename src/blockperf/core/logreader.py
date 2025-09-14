@@ -11,8 +11,7 @@ import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
-# Move to actuall Reader for less hard depenency
-from systemd import journal
+import rich
 
 logger = logging.getLogger()
 
@@ -82,6 +81,7 @@ class JournalCtlLogReader(NodeLogReader):
                 "--since",
                 "now",  # Only show entries from now on
             ]
+            rich.print(cmd)
             self.process: asyncio.subprocess.Process = (
                 await asyncio.create_subprocess_exec(
                     *cmd,
@@ -117,6 +117,7 @@ class JournalCtlLogReader(NodeLogReader):
         try:
             while True:
                 line = await self.process.stdout.readline()
+                # rich.print(line)
                 if not line:
                     print("EOF reached from journalctl subprocess")
                     break

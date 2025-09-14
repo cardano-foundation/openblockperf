@@ -4,23 +4,24 @@ logevent
 The logevent module
 """
 
-from collections import namedtuple
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, NamedTuple, Optional, Union
+from typing import Any, Dict, Optional, Union
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ValidationError, validator
 
 
-class Connection(NamedTuple):
+@dataclass(frozen=True)
+class Connection:
     lip: str  # Local IP
     lport: int  # Local Port
     rip: str  # Remote IP
     rport: int  # Remote Port
 
 
-class BaseLogEvent(BaseModel):
-    """Base model for all log events.
+class BaseBlockEvent(BaseModel):
+    """Base model for all block events that will be produced by the log reader.
 
     The below fields are what i think every message will always have. The
     sec and thread fields are not of interested for now, so i did not include
@@ -37,9 +38,9 @@ class BaseLogEvent(BaseModel):
     @validator("at", pre=True)
     def parse_datetime(cls, value):
         """Convert ISO format string to datetime object."""
-        if isinstance(value, str):
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return value
+        if not isinstance(value, str):
+            raise ValidationError(f"Timestamp is not a string [{value}]")
+        return datetime.fromisoformat(value)  # this is tz aware!
 
     @property
     def namespace(self) -> str:
@@ -64,11 +65,23 @@ class BaseLogEvent(BaseModel):
         return None
 
     @property
-    def slot_number(self) -> str | None:
+    def block_size(self):
         return None
 
+    @property
+    def slot(self) -> str | None:
+        return None
 
-class DownloadedHeaderEvent(BaseLogEvent):
+    @property
+    def peer_connection(self) -> Connection | None:
+        # connection_string = self.data.get("peer").get("connectionId")
+        if not self.connection_string:
+            raise RuntimeError(f"No connection_string defined in {self.__class__.__name__}")  # fmt: off
+        connection = parse_connectionid(self.connection_string)
+        return connection
+
+
+class DownloadedHeaderEvent(BaseBlockEvent):
     """
     {
         "at": "2025-09-12T16:51:39.269022269Z",
@@ -89,6 +102,10 @@ class DownloadedHeaderEvent(BaseLogEvent):
     """
 
     @property
+    def connection_string(self):
+        return self.data.get("peer").get("connectionId")
+
+    @property
     def block_hash(self) -> str:
         return self.data.get("block")
 
@@ -101,24 +118,17 @@ class DownloadedHeaderEvent(BaseLogEvent):
         return int(self.data.get("slot"))
 
     @property
-    def connection(self) -> Connection | None:
-        connection_string = self.data.get("peer").get("connectionId")
-        if not connection_string:
-            raise RuntimeError("Could not find connection string in data")
-        connection = parse_connectionid(connection_string)
-        return connection
-
-    @property
     def peer_ip(self) -> str:
         """Ip address of peer the header was downloaded from"""
-        return self.connection.rip
+        return self.peer_connection.rip
 
     @property
     def peer_port(self) -> int:
-        return self.connection.rport
+        """Port number of peer the header was downloaded from"""
+        return self.peer_connection.rport
 
 
-class SendFetchRequestEvent(BaseLogEvent):
+class SendFetchRequestEvent(BaseBlockEvent):
     """
     {
         "at": "2025-09-12T16:52:11.098464254Z",
@@ -138,12 +148,26 @@ class SendFetchRequestEvent(BaseLogEvent):
     """
 
     @property
+    def connection_string(self):
+        return self.data.get("peer").get("connectionId")
+
+    @property
     def block_hash(self):
         """The block hash this fetch request tries to receive"""
         return self.data.get("head")
 
+    @property
+    def peer_ip(self) -> str:
+        """Ip address of peer asked to download the block from"""
+        return self.peer_connection.rip
 
-class CompletedBlockFetchEvent(BaseLogEvent):
+    @property
+    def peer_port(self) -> int:
+        """Port number of peer asked to download the block from"""
+        return self.peer_connection.rport
+
+
+class CompletedBlockFetchEvent(BaseBlockEvent):
     """
     {
         "at": "2025-09-12T16:52:11.263418188Z",
@@ -164,28 +188,33 @@ class CompletedBlockFetchEvent(BaseLogEvent):
     """
 
     @property
-    def block_hash(self):
+    def connection_string(self):
+        return self.data.get("peer").get("connectionId")
+
+    @property
+    def block_hash(self) -> str:
         return self.data.get("block")
 
     @property
     def delay(self) -> float:
-        return self.data.get("delay")
+        return float(self.data.get("delay"))
 
     @property
-    def block_size(self):
-        return self.data.get("size")
+    def block_size(self) -> int:
+        return int(self.data.get("size"))
 
     @property
-    def peer_ip(self) -> dict:
+    def peer_ip(self) -> str:
         """Ip address of peer the block was downloaded from"""
-        connection_string = self.data.get("peer").get("connectionId")
-        if not connection_string:
-            return None
-        connection = parse_connectionid(connection_string)
-        return connection.rip
+        return self.peer_connection.rip
+
+    @property
+    def peer_port(self) -> int:
+        """Port number of peer the block was downloaded from"""
+        return self.peer_connection.rport
 
 
-class AddedToCurrentChainEvent(BaseLogEvent):
+class AddedToCurrentChainEvent(BaseBlockEvent):
     """
     {
         "at": "2025-09-12T16:51:39.255697717Z",
@@ -230,7 +259,7 @@ class AddedToCurrentChainEvent(BaseLogEvent):
     @property
     def block_hash(self) -> str:
         # TODO: What if there are more or less then one header?
-        # TODO: Where is this qeird double quote coming from?
+        # TODO: Why is this weird double quote here in the first place?
         _hash = self.data.get("headers")[0].get("hash")
         if _hash.startswith('"'):
             _hash = _hash[1:]
@@ -261,7 +290,7 @@ class TrySwitchToAForkEvent:
     pass
 
 
-class SwitchedToAForkEvent(BaseLogEvent):
+class SwitchedToAForkEvent(BaseBlockEvent):
     """
     {
         "at": "2025-09-12T16:51:18.698911267Z",
@@ -331,6 +360,7 @@ EVENT_REGISTRY = {
     # "ChainDB.AddBlockEvent.TryAddToCurrentChain": TryAddToCurrentChainEvent,
     "ChainSync.Client.DownloadedHeader": DownloadedHeaderEvent,
     # "ChainSync.Client.RolledBack": RolledBackEvent,
+    # "ChainSync.Remote.Send.RequestNext":
     # "NodeState.NodeAddBlock": NodeAddBlockEvent,
 }
 
@@ -345,7 +375,7 @@ def parse_log_message(log_message: Mapping[str, Any]) -> Any:
     base event created in the beginning.
     """
 
-    base_event = BaseLogEvent(**log_message)
+    base_event = BaseBlockEvent(**log_message)
     namespace = base_event.namespace
 
     if event_class := EVENT_REGISTRY.get(namespace):
