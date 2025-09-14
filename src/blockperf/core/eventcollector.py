@@ -222,7 +222,7 @@ class BlockEventGroup:
             "local_addr": None,
             "local_port": None,
             "magic": settings().network_config.magic,
-            "blockperf_version": __version__,
+            "client_version": __version__,
         }
     # fmt: on
 
