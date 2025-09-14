@@ -19,6 +19,7 @@ from blockperf.core.events import (
     AddedToCurrentChainEvent,
     CompletedBlockFetchEvent,
     DownloadedHeaderEvent,
+    EventError,
     SendFetchRequestEvent,
     SwitchedToAForkEvent,
 )
@@ -258,7 +259,7 @@ class EventCollector:
         self.total_events_processed = 0
         self.total_groups_created = 0
 
-    def add_event(self, event: Any) -> None:
+    def add_event(self, event: Any) -> bool:
         """
         Add an event to the collector. Attempts to group it by block attributes.
 
@@ -268,14 +269,18 @@ class EventCollector:
         Returns:
             The EventGroup the event was added to, or None if ungrouped
         """
-        self.total_events_processed += 1
-        block_hash = event.block_hash
-        if not block_hash:
-            self.ungrouped_events.append(event)
-            rich.print(f"[bold yellow]Found ungrouped event {event}[/]")
-            return None
-        group = self._get_or_create_group(block_hash)
-        group.add_event(event)
+        try:
+            self.total_events_processed += 1
+            block_hash = event.block_hash
+            if not block_hash:
+                self.ungrouped_events.append(event)
+                rich.print(f"[bold yellow]Found ungrouped event {event}[/]")
+                return None
+            group = self._get_or_create_group(block_hash)
+            group.add_event(event)
+            return True
+        except EventError:
+            return False
 
     def _get_or_create_group(self, block_hash) -> BlockEventGroup:
         """Returns the group with given hash, creates a new group if needed."""
@@ -288,7 +293,7 @@ class EventCollector:
             self.total_groups_created += 1
 
         if not group:
-            raise RuntimeError(f"Could not find group for {block_hash}")
+            raise EventError(f"Could not find group for {block_hash}")
 
         return group
 

@@ -55,7 +55,9 @@ class EventProcessor:
                 if not event or type(event) is BaseBlockEvent:
                     continue
 
-                self.event_collector.add_event(event)
+                success = self.event_collector.add_event(event)
+                if not success:
+                    rich.print(f"[bold red]Failed to add event {event}[/]")
 
     async def inspect_groups(self):
         """Inspects all groups for ones that are ready to get processed.."""

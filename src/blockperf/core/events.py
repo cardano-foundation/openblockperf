@@ -12,6 +12,10 @@ from typing import Any, Dict, Optional, Union
 from pydantic import BaseModel, Field, ValidationError, validator
 
 
+class EventError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class Connection:
     lip: str  # Local IP
@@ -260,7 +264,12 @@ class AddedToCurrentChainEvent(BaseBlockEvent):
     def block_hash(self) -> str:
         # TODO: What if there are more or less then one header?
         # TODO: Why is this weird double quote here in the first place?
-        _hash = self.data.get("headers")[0].get("hash")
+        _headers = self.data.get("headers")
+        if not _headers:
+            raise EventError(
+                f"No or invalid headers in {self.__class__.__name__} at: '{self.at}' "
+            )
+        _hash = _headers[0].get("hash")
         if _hash.startswith('"'):
             _hash = _hash[1:]
         if _hash.endswith('"'):
@@ -336,7 +345,12 @@ class SwitchedToAForkEvent(BaseBlockEvent):
     def block_hash(self) -> str:
         # TODO: Thats so ugly, Why is the header block hash with extra
         #       double quotes ???
-        _hash = self.data.get("headers")[0].get("hash")
+        _headers = self.data.get("headers")
+        if not _headers:
+            raise EventError(
+                f"No or invalid headers in {self.__class__.__name__} at: '{self.at}' "
+            )
+        _hash = _headers[0].get("hash")
         if _hash.startswith('"'):
             _hash = _hash[1:]
         if _hash.endswith('"'):
