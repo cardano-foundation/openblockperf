@@ -1,4 +1,12 @@
-# OpenBlockperf Client
+<!--<p align="center"></p> -->
+
+<p align="center"><strong>OpenBlockperf</strong> <em>- A cli tool to collect and share cardano network metrics.</em></p>
+
+<p align="center">
+<a href="https://pypi.org/project/openblockperf/">
+    <img src="https://badge.fury.io/py/openblockperf.svg" alt="Package version">
+</a>
+</p>
 
 The OpenBlockperf Client is a cli tool that collects various metrics from
 a cardano node. If you dont know what a cardano-node is or dont run one
