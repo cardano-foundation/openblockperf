@@ -80,7 +80,7 @@ class BaseBlockEvent(BaseModel):
     def peer_connection(self) -> Connection | None:
         # connection_string = self.data.get("peer").get("connectionId")
         if not self.connection_string:
-            raise RuntimeError(f"No connection_string defined in {self.__class__.__name__}")  # fmt: off
+            raise EventError(f"No connection_string defined in {self.__class__.__name__}")  # fmt: off
         connection = parse_connectionid(self.connection_string)
         return connection
 

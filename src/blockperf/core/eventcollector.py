@@ -85,7 +85,7 @@ class BlockEventGroup:
                 if not block_requested:
                     # This should not happen! We can not have a completed
                     # block event without having asked for it before
-                    raise RuntimeError(f"No send fetch found for {event}")
+                    raise EventError(f"No send fetch found for {event}")
                 self.block_requested = block_requested
             if not self.block_size:
                 self.block_size = event.block_size
@@ -279,7 +279,8 @@ class EventCollector:
             group = self._get_or_create_group(block_hash)
             group.add_event(event)
             return True
-        except EventError:
+        except EventError as e:
+            rich.print(e)
             return False
 
     def _get_or_create_group(self, block_hash) -> BlockEventGroup:
