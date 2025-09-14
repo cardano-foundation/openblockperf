@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 
 [[package]]
@@ -147,12 +147,12 @@ wheels = [
 ]
 
 [[package]]
-name = "openblockperfopenblockperf"
+name = "openblockperf"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
-    { name = "pudb" },
+    { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "typer" },
 ]
@@ -160,13 +160,14 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "ipython" },
+    { name = "pudb" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1.8" },
-    { name = "pudb", specifier = ">=2024.1.3" },
+    { name = "pydantic", specifier = ">=2.10.6" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
     { name = "typer", specifier = ">=0.15.2" },
 ]
@@ -174,6 +175,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "ipython", specifier = ">=9.5.0" },
+    { name = "pudb", specifier = ">=2025.1" },
     { name = "pytest", specifier = ">=8.4.2" },
 ]
 
@@ -239,7 +241,7 @@ wheels = [
 
 [[package]]
 name = "pudb"
-version = "2024.1.3"
+version = "2025.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jedi" },
@@ -248,9 +250,9 @@ dependencies = [
     { name = "urwid" },
     { name = "urwid-readline" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/36/27/fb087bdf2cd9c8e56d0347b863ce5995967c15a3e2a0b9245c7a8f6f1598/pudb-2024.1.3.tar.gz", hash = "sha256:264f239e0538e52e83d3d020143100b3171cae17227674bb1b9f8b075f34849c", size = 219443, upload-time = "2024-10-18T17:04:01.267Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/40/8d17b16a1c2a36d8cc1befb5eda13310ad20fcb347e58bef5e104696e14a/pudb-2025.1.tar.gz", hash = "sha256:a528b29c69ce8b182a337872c5f046071f6d68d3415c6d7bf53bd27c264f58d0", size = 220623, upload-time = "2025-05-06T20:43:18.306Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/00/592eeb47eb30d9a4e34512eb1208537546c1073d43cabe7def26d89a7134/pudb-2024.1.3-py3-none-any.whl", hash = "sha256:b1c64447fcee5848d0376231672b97ca8580ca6d3297c82cba6b0ba5bd5ee640", size = 87963, upload-time = "2024-10-18T17:03:59.234Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/01/069766294390d3e10c77dfb553171466d67ffb51bf72a437650c0a5db86a/pudb-2025.1-py3-none-any.whl", hash = "sha256:f642d42e6054c992b43c463742650aa879fe290d7d7ffdeb21f7d00dc4587a21", size = 89208, upload-time = "2025-05-06T20:43:17.101Z" },
 ]
 
 [[package]]
@@ -433,15 +435,14 @@ wheels = [
 
 [[package]]
 name = "urwid"
-version = "2.6.16"
+version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/98/21/ad23c9e961b2d36d57c63686a6f86768dd945d406323fb58c84f09478530/urwid-2.6.16.tar.gz", hash = "sha256:93ad239939e44c385e64aa00027878b9e5c486d59e855ec8ab5b1e1adcdb32a2", size = 848179, upload-time = "2024-10-15T16:07:24.297Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/2d/71550379ed6b34968e14f73b0cf8574dee160acb6b820a066ab238ef2d4f/urwid-3.0.2.tar.gz", hash = "sha256:e7cb70ba1e7ff45779a5a57e43c57581ee7de6ceefb56c432491a4a6ce81eb78", size = 855353, upload-time = "2025-05-07T10:48:51.381Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/cb/271a4f5a1bf4208dbdc96d85b9eae744cf4e5e11ac73eda76dc98c8fd2d7/urwid-2.6.16-py3-none-any.whl", hash = "sha256:de14896c6df9eb759ed1fd93e0384a5279e51e0dde8f621e4083f7a8368c0797", size = 297196, upload-time = "2024-10-15T16:07:22.521Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/ee/2956918f14fd6e4310f7200108b53917f4da713d74c7ccd0d91a2e3a4f18/urwid-3.0.2-py3-none-any.whl", hash = "sha256:94ec1448d0178c881c01845c2b478cdc89f7b71bb65349466dbc99da1965eaac", size = 295994, upload-time = "2025-05-07T10:48:49.173Z" },
 ]
 
 [[package]]

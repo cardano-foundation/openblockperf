@@ -27,3 +27,26 @@ Roughly speaking blockperf needs to do the following
 * **Log Parser** The log parser is able to ingest logs from various sources.
     It is not required to be able to use more than one source at a time.
     It
+
+
+The following are the modules of the application:
+
+### cli
+
+Takes care of all the cli parsing and using the different aspects of the application
+
+### app
+
+Implements the application as a class. This class will be used in the different
+ways that the cli interface provides. Which will mostly be
+
+### client
+
+Will implement the openblockperf backend client. It provides an abstraction
+over the openblockperf api and its use.
+
+
+## Registration
+
+The client can either be registered as an SPO or as an anonymous relay. Either
+way it needs to register with the server to receive a client id.

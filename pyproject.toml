@@ -3,14 +3,14 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openblockperfopenblockperf"
-version = "0.0.1"
+name = "openblockperf"
+version = "0.0.1-1"
 description = "The OpenBlockperf client"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "click>=8.1.8",
-    "pudb>=2024.1.3",
+    "pydantic>=2.10.6",
     "pydantic-settings>=2.8.0",
     "typer>=0.15.2",
 ]
@@ -32,6 +32,7 @@ blockperf = "blockperf.main:run"
 [dependency-groups]
 dev = [
     "ipython>=9.5.0",
+    "pudb>=2025.1",
     "pytest>=8.4.2",
 ]
 

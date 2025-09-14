@@ -1,37 +1,34 @@
 # OpenBlockperf Client
 
-The OpenBlockperf Client is a tool that allows to collect certain metrics from
-a cardano-node, pre-processes them and then sends this data to a rest api.
+The OpenBlockperf Client is a cli tool that collects various metrics from
+a cardano node. If you dont know what a cardano-node is or dont run one
+yourself, this tool is probably not for you.
 
+---
 
-* The client needs to constantly read from either journald or a file the log
-  messages of the node. I need some abstraction over where these logs come
-  from that can be configured.
+Install OpenBlockperf using pip:
 
-* When ingesting these log lines i need a pydantic Model (or more?) that
-  can validate that all fields
+```shell
+$ pip install openblockperf
+```
 
+## Get started
 
-## python modules
+* You will need a `cardano-node` and and the `cardano-tracer` up and running.
+* Set the network via the `NETWORK` environment variable.
+* If you have not yet started to use uv i highly recommend you do. See https://docs.astral.sh/uv/getting-started/installation/
 
-The following are the modules of the application:
+```shell
+export NETWORK="mainnet"
+blockperf run
+```
 
-### cli 
+## Dependencies
 
-Takes care of all the cli parsing and using the different aspects of the application
+We have tried to keep the dependencies as little as possible. Thi
 
-### app
+  * `typer` - We use typer to implement the cli interface
+  * `click` - Typer itself relies on the click library
+  * `pydantic` - For json (and other data) validation
+  * `pydantic-settings` - For the applications configuration
 
-Implements the application as a class. This class will be used in the different
-ways that the cli interface provides. Which will mostly be 
-
-### client
-
-Will implement the openblockperf backend client. It provides an abstraction
-over the openblockperf api and its use. 
-
-
-## Registration
-
-The client can either be registered as an SPO or as an anonymous relay. Either
-way it needs to register with the server to receive a client id. 
