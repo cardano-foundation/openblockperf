@@ -224,11 +224,12 @@ class BlockEventGroup:
             "block_request_delta": int(self.block_request_delta.total_seconds() * 1000),
             "block_response_delta": int(self.block_response_delta.total_seconds() * 1000),
             "block_adopt_delta": int(self.block_adopt_delta.total_seconds() * 1000),
-            "local_addr": None,
-            "local_port": None,
+            "local_addr": "185.175.59.38",
+            "local_port": "3001",
             "magic": settings().network_config.magic,
             "client_version": __version__,
         }
+
     # fmt: on
 
     def _get_fetch_for_completed(self, event: CompletedBlockFetchEvent):

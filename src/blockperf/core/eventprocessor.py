@@ -11,6 +11,7 @@ into one of the LogEvents.
 
 import asyncio
 
+import httpx
 import rich
 
 from blockperf.core.config import settings
@@ -77,6 +78,9 @@ class EventProcessor:
         sample = group.sample()
         if group.is_sane():
             rich.print("[bold green]Sample seems fine[/]")
+            rep = httpx.post("http://127.0.0.1:8080/api/v0/submit", json=sample)
+            # breakpoint()
+            rich.print(rep)
         else:
             rich.print("[bold red]Sample is insane[/]")
         rich.print(sample)
