@@ -29,6 +29,7 @@ from blockperf.core.events import (
 class BlockEventGroup:
     """A group of log events for a given block hash."""
 
+    host: str
     block_hash: str
     block_number: int | None = None
     block_size: int | None = None
@@ -52,6 +53,9 @@ class BlockEventGroup:
         """Add an event to this group. Fill in missing values that only some types of events provide"""
         self.events.append(event)
         self.last_updated = time.time()
+
+        if not self.host:
+            self.host = event.host
 
         if isinstance(event, DownloadedHeaderEvent):
             if not self.block_header:
@@ -205,6 +209,7 @@ class BlockEventGroup:
     # fmt: off
     def sample(self):
         return {
+            "host": self.host,
             "block_hash": self.block_hash,
             "block_number": self.block_number,
             "block_size": self.block_size,
