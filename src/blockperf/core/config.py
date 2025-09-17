@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Network(Enum):
-    """All known networks"""
+    """All supported networks"""
 
     MAINNET: str = "mainnet"
     PREPROD: str = "preprod"
@@ -29,10 +29,10 @@ ENV_PREFIX = "OPENBLOCKPERF_"
 class AppSettings(BaseSettings):
     check_interval: int = 6  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
+    local_addr: str = "0.0.0.0"
+    local_port: int = 3001
     # Using Field to validate input values match one of the possible enum values
-    network: Network = Field(
-        default=Network.PREVIEW, validation_alias="network"
-    )
+    network: Network = Field(default=Network.MAINNET, validation_alias="network")  # fmt: off
 
     # Class-level dictionary to store network specific configurations
     _NETWORK_CONFIGS: ClassVar[dict[Network, NetworkConfig]] = {

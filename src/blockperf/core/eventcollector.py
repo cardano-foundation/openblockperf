@@ -33,7 +33,7 @@ class BlockEventGroup:
     block_hash: str
     block_number: int | None = None
     block_size: int | None = None
-    block_g: str | None = "?"
+    block_g: float | None = 0.1
     slot: int | None = None  # the slot number
     slot_time: datetime | None = None
 
@@ -53,9 +53,6 @@ class BlockEventGroup:
         """Add an event to this group. Fill in missing values that only some types of events provide"""
         self.events.append(event)
         self.last_updated = time.time()
-
-        if not self.host:
-            self.host = event.host
 
         if isinstance(event, DownloadedHeaderEvent):
             if not self.block_header:
@@ -224,8 +221,8 @@ class BlockEventGroup:
             "block_request_delta": int(self.block_request_delta.total_seconds() * 1000),
             "block_response_delta": int(self.block_response_delta.total_seconds() * 1000),
             "block_adopt_delta": int(self.block_adopt_delta.total_seconds() * 1000),
-            "local_addr": "185.175.59.38",
-            "local_port": "3001",
+            "local_addr": settings().local_addr,
+            "local_port": int(settings().local_port),
             "magic": settings().network_config.magic,
             "client_version": __version__,
         }
@@ -277,25 +274,25 @@ class EventCollector:
         """
         try:
             self.total_events_processed += 1
-            block_hash = event.block_hash
+            host, block_hash = event.host, event.block_hash
             if not block_hash:
                 self.ungrouped_events.append(event)
                 rich.print(f"[bold yellow]Found ungrouped event {event}[/]")
                 return None
-            group = self._get_or_create_group(block_hash)
+            group = self._get_or_create_group(host, block_hash)
             group.add_event(event)
             return True
         except EventError as e:
             rich.print(e)
             return False
 
-    def _get_or_create_group(self, block_hash) -> BlockEventGroup:
+    def _get_or_create_group(self, host: str, block_hash: str) -> BlockEventGroup:  # fmt: off
         """Returns the group with given hash, creates a new group if needed."""
         if block_hash in self.groups:
             group = self.groups[block_hash]
         else:
             rich.print(f"[bold magenta]New block: {block_hash}[/]")
-            group = BlockEventGroup(block_hash=block_hash)
+            group = BlockEventGroup(host=host, block_hash=block_hash)
             self.groups[block_hash] = group
             self.total_groups_created += 1
 
@@ -304,10 +301,7 @@ class EventCollector:
 
         return group
 
-    def get_group(
-        self,
-        block_hash: str | None = None,
-    ) -> BlockEventGroup | None:
+    def get_group(self, block_hash: str) -> BlockEventGroup | None:
         """Get a specific event group by block number and/or hash."""
         if block_hash is not None:
             return self.groups.get(block_hash)
