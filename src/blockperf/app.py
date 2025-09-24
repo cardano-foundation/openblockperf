@@ -3,6 +3,8 @@ adding the (sub)commands to it."""
 
 import typer
 from rich.console import Console
+from textual.app import App, ComposeResult
+from textual.widgets import Footer, Header
 
 from blockperf.commands.analyze import analyze_app
 from blockperf.commands.base import version_cmd
@@ -30,3 +32,28 @@ blockperf_app.add_typer(run_app)
 def mycallback():
     """Creates a single user Hiro Hamada. In the next version it will create 5 more users."""
     console.print("Y A Y")
+
+
+class Blockperf(App):
+    BINDINGS = [("d", "toggle_dark", "Toggle dark mode")]
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets for the app."""
+        yield Header()
+        yield Footer()
+
+    def action_toggle_dark(self) -> None:
+        """An action to toggle dark mode."""
+        self.theme = (
+            "textual-dark" if self.theme == "textual-light" else "textual-light"
+        )
+
+
+def make_blockperf_ui():
+    """Return the textual app"""
+    return Blockperf()
+
+
+def make_blockperf_cli():
+    """Just return the typer app instance for now"""
+    return blockperf_app

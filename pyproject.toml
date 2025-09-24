@@ -13,6 +13,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.10.6",
     "pydantic-settings>=2.8.0",
+    "textual>=6.1.0",
     "typer>=0.15.2",
 ]
 keywords = ["cardano", "cardano-foundation", "ops"]
@@ -24,7 +25,8 @@ maintainers = [
 ]
 
 [project.scripts]
-blockperf = "blockperf.main:run"
+blockperf = "blockperf.__main__:cli"
+blockperfui = "blockperf.__main__:ui"
 
 [project.urls]
 "Homepage" = "https://github.com/cardano-foundation/openblockperf"
@@ -33,8 +35,10 @@ blockperf = "blockperf.main:run"
 [dependency-groups]
 dev = [
     "ipython>=9.5.0",
+    "mypy>=1.18.2",
     "pudb>=2025.1",
     "pytest>=8.4.2",
+    "textual-dev>=1.7.0",
 ]
 
 [tool.mypy]
