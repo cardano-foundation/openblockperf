@@ -81,7 +81,7 @@ class BaseBlockEvent(BaseModel):
         # connection_string = self.data.get("peer").get("connectionId")
         if not self.connection_string:
             raise EventError(f"No connection_string defined in {self.__class__.__name__}")  # fmt: off
-        connection = parse_connectionid(self.connection_string)
+        connection = _parse_connectionid(self.connection_string)
         return connection
 
 
@@ -220,6 +220,7 @@ class CompletedBlockFetchEvent(BaseBlockEvent):
 
 class AddedToCurrentChainEvent(BaseBlockEvent):
     """
+
     {
         "at": "2025-09-12T16:51:39.255697717Z",
         "ns": "ChainDB.AddBlockEvent.AddedToCurrentChain",
@@ -358,48 +359,7 @@ class SwitchedToAForkEvent(BaseBlockEvent):
         return _hash
 
 
-"""
-Added some of the events that i think are of interest. See here for more:
-https://github.com/input-output-hk/cardano-node-wiki/blob/main/docs/new-tracing/tracers_doc_generated.md
-"""
-EVENT_REGISTRY = {
-    "BlockFetch.Client.CompletedBlockFetch": CompletedBlockFetchEvent,
-    "BlockFetch.Client.SendFetchRequest": SendFetchRequestEvent,
-    # "BlockFetch.Remote.Receive.ClientDone": ClientDoneEvent,
-    # "BlockFetch.Remote.Send.Block": None,
-    "ChainDB.AddBlockEvent.AddedToCurrentChain": AddedToCurrentChainEvent,
-    # "ChainDB.AddBlockEvent.BlockInTheFuture": BlockInTheFutureEvent,
-    "ChainDB.AddBlockEvent.SwitchedToAFork": SwitchedToAForkEvent,
-    # "ChainDB.AddBlockEvent.TrySwitchToAFork": TrySwitchToAForkEvent,
-    # "ChainDB.AddBlockEvent.TryAddToCurrentChain": TryAddToCurrentChainEvent,
-    "ChainSync.Client.DownloadedHeader": DownloadedHeaderEvent,
-    # "ChainSync.Client.RolledBack": RolledBackEvent,
-    # "ChainSync.Remote.Send.RequestNext":
-    # "NodeState.NodeAddBlock": NodeAddBlockEvent,
-}
-
-
-def parse_log_message(log_message: Mapping[str, Any]) -> Any:
-    """Parse a log message JSON into the appropriate event model.
-
-    The EVENT_REGISTRY dictionary provides a mapping of event namespaces
-    to pydantic models. The code below first retrieves the namespace from the
-    incoming (base) event. It then tries to get that namespaces entry from the
-    registry and returns and instance of the model configured or returns the
-    base event created in the beginning.
-    """
-
-    base_event = BaseBlockEvent(**log_message)
-    namespace = base_event.namespace
-
-    if event_class := EVENT_REGISTRY.get(namespace):
-        return event_class(**log_message)
-
-    # No event class found for namespace
-    return base_event
-
-
-def parse_connectionid(connectionid: str) -> Connection:
+def _parse_connectionid(connectionid: str) -> Connection:
     """Parse connection ID string containing IPv4 or IPv6 addresses with ports.
 
     Supports formats:

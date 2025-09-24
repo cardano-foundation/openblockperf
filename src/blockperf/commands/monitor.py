@@ -5,7 +5,7 @@ import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-from blockperf.core.async_utils import run_async
+from blockperf.async_utils import run_async
 
 console = Console()
 

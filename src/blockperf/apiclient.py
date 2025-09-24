@@ -5,7 +5,7 @@ from typing import Any
 import requests
 
 
-class APIClient:
+class BlockperfApiClient:
     """
     A client for the openblockperf backend.
 

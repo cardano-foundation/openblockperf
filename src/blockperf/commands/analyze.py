@@ -4,7 +4,7 @@ import random
 import typer
 from rich.console import Console
 
-from blockperf.core.async_utils import run_async
+from blockperf.async_utils import run_async
 
 console = Console()
 

@@ -14,8 +14,8 @@ from typing import Any
 import rich
 
 from blockperf import __version__
-from blockperf.core.config import settings
-from blockperf.core.events import (
+from blockperf.config import settings
+from blockperf.events.models import (
     AddedToCurrentChainEvent,
     CompletedBlockFetchEvent,
     DownloadedHeaderEvent,

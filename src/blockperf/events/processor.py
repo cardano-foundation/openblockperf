@@ -10,14 +10,42 @@ into one of the LogEvents.
 """
 
 import asyncio
+from typing import Any
 
 import httpx
 import rich
 
-from blockperf.core.config import settings
-from blockperf.core.eventcollector import BlockEventGroup, EventCollector
-from blockperf.core.events import BaseBlockEvent, parse_log_message
-from blockperf.core.logreader import NodeLogReader
+from blockperf.config import settings
+from blockperf.events.collector import BlockEventGroup, EventCollector
+from blockperf.events.models import (
+    AddedToCurrentChainEvent,
+    BaseBlockEvent,
+    CompletedBlockFetchEvent,
+    DownloadedHeaderEvent,
+    SendFetchRequestEvent,
+    SwitchedToAForkEvent,
+)
+from blockperf.logreader import NodeLogReader
+
+"""
+Added some of the events that i think are of interest. See here for more:
+https://github.com/input-output-hk/cardano-node-wiki/blob/main/docs/new-tracing/tracers_doc_generated.md
+"""
+EVENT_REGISTRY = {
+    "BlockFetch.Client.CompletedBlockFetch": CompletedBlockFetchEvent,
+    "BlockFetch.Client.SendFetchRequest": SendFetchRequestEvent,
+    # "BlockFetch.Remote.Receive.ClientDone": ClientDoneEvent,
+    # "BlockFetch.Remote.Send.Block": None,
+    "ChainDB.AddBlockEvent.AddedToCurrentChain": AddedToCurrentChainEvent,
+    # "ChainDB.AddBlockEvent.BlockInTheFuture": BlockInTheFutureEvent,
+    "ChainDB.AddBlockEvent.SwitchedToAFork": SwitchedToAForkEvent,
+    # "ChainDB.AddBlockEvent.TrySwitchToAFork": TrySwitchToAForkEvent,
+    # "ChainDB.AddBlockEvent.TryAddToCurrentChain": TryAddToCurrentChainEvent,
+    "ChainSync.Client.DownloadedHeader": DownloadedHeaderEvent,
+    # "ChainSync.Client.RolledBack": RolledBackEvent,
+    # "ChainSync.Remote.Send.RequestNext":
+    # "NodeState.NodeAddBlock": NodeAddBlockEvent,
+}
 
 
 class EventProcessor:
@@ -26,8 +54,27 @@ class EventProcessor:
         self.log_reader = log_reader
         self.event_collector = EventCollector()
 
+    def parse_log_message(self, log_message: dict[str, Any]) -> Any:
+        """Parse a log message JSON into the appropriate event model.
+
+        The EVENT_REGISTRY dictionary provides a mapping of event namespaces
+        to pydantic models. The code below first retrieves the namespace from the
+        incoming (base) event. It then tries to get that namespaces entry from the
+        registry and returns and instance of the model configured or returns the
+        base event created in the beginning.
+        """
+
+        base_event = BaseBlockEvent(**log_message)
+        namespace = base_event.namespace
+
+        if event_class := EVENT_REGISTRY.get(namespace):
+            return event_class(**log_message)
+
+        # No event class found for namespace
+        return base_event
+
     async def start(self):
-        print("Started Event Processor")
+        """Starts the event processor."""
         self.running = True
         while self.running:
             await self.process_log_messages()
@@ -35,6 +82,7 @@ class EventProcessor:
             await asyncio.sleep(0.1)
 
     async def stop(self):
+        """Stops the event processor."""
         self.running = False
 
     async def process_log_messages(self):
@@ -52,7 +100,7 @@ class EventProcessor:
         async with self.log_reader as log_reader:
             print("Start processing logs ...")
             async for message in log_reader.read_messages():
-                event = parse_log_message(message)
+                event = self.parse_log_message(message)
                 if not event or type(event) is BaseBlockEvent:
                     continue
 

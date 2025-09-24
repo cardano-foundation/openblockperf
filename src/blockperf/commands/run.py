@@ -5,10 +5,10 @@ import rich
 import typer
 from rich.console import Console
 
-from blockperf.core.async_utils import run_async
-from blockperf.core.config import settings
-from blockperf.core.eventprocessor import EventProcessor
-from blockperf.core.logreader import create_log_reader
+from blockperf.async_utils import run_async
+from blockperf.config import settings
+from blockperf.events.processor import EventProcessor
+from blockperf.logreader import create_log_reader
 
 console = Console()
 
