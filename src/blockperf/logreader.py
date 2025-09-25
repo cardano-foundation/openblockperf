@@ -38,12 +38,10 @@ class NodeLogReader(abc.ABC):
         pass
 
     async def __aenter__(self):
-        print("__aenter__")
         await self.connect()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        print("__aexit__")
         await self.close()
 
 
@@ -108,7 +106,7 @@ class JournalCtlLogReader(NodeLogReader):
             await self.process.wait()  # ensure OS has time to kill
 
         self.process = None
-        print(f"Closed journalctl connection for identifier: {self.unit}")
+        raise RuntimeError(f"Closed journalctl connection for: '{self.unit}'")
 
     async def read_messages(self) -> AsyncGenerator[dict[str, Any], None]:
         """Read messages (lines) from journalctl subprocess as an async generator."""

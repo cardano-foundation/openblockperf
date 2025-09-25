@@ -9,19 +9,49 @@ organize events into logical groups for analysis and processing.
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from enum import Enum
+from typing import Any, Literal
 
 import rich
 
 from blockperf import __version__
 from blockperf.config import settings
+from blockperf.errors import EventError
 from blockperf.events.models import (
     AddedToCurrentChainEvent,
+    BaseBlockEvent,
     CompletedBlockFetchEvent,
+    DemotedToColdRemoteEvent,
+    DemotedToWarmRemoteEvent,
     DownloadedHeaderEvent,
-    EventError,
+    InboundGovernorCountersEvent,
+    Peer,
+    PeerDirection,
+    PeerState,
+    PromotedToHotRemoteEvent,
+    PromotedToWarmRemoteEvent,
     SendFetchRequestEvent,
+    StartedEvent,
+    StatusChangedEvent,
     SwitchedToAForkEvent,
+)
+
+# Relevant events for the block samples
+BLOCKSAMPLE_EVENTS = (
+    CompletedBlockFetchEvent,
+    SendFetchRequestEvent,
+    AddedToCurrentChainEvent,
+    SwitchedToAForkEvent,
+    DownloadedHeaderEvent,
+)
+
+# Relevant events for peer state changes
+PEER_EVENTS = (
+    PromotedToHotRemoteEvent,
+    PromotedToWarmRemoteEvent,
+    DemotedToColdRemoteEvent,
+    DemotedToWarmRemoteEvent,
+    StatusChangedEvent,
 )
 
 
@@ -29,7 +59,6 @@ from blockperf.events.models import (
 class BlockEventGroup:
     """A group of log events for a given block hash."""
 
-    host: str
     block_hash: str
     block_number: int | None = None
     block_size: int | None = None
@@ -206,7 +235,6 @@ class BlockEventGroup:
     # fmt: off
     def sample(self):
         return {
-            "host": self.host,
             "block_hash": self.block_hash,
             "block_number": self.block_number,
             "block_size": self.block_size,
@@ -245,139 +273,97 @@ class BlockEventGroup:
 
 class EventCollector:
     """
-    Main data structure for collecting and organizing log events.
+    Main data structure for collecting and organizing all log events for a specific host.
 
     Groups events by block number and hash, and provides various ways to
     access and analyze these groups.
     """
 
+    host: str
+    peers: dict[str, Peer] = {}
+
     def __init__(self):
         # Groups of events indexed by the block hash they belong to
-        self.groups: dict[str, BlockEventGroup] = {}
-
-        # Group of events that couldn't be grouped by a block hash
-        self.ungrouped_events: list[Any] = []
+        self.block_event_groups: dict[str, BlockEventGroup] = {}
 
         # Statistics
         self.total_events_processed = 0
         self.total_groups_created = 0
 
-    def add_event(self, event: Any) -> bool:
+    def add_event(self, event: BaseBlockEvent) -> None:
         """
-        Add an event to the collector. Attempts to group it by block attributes.
+        Add an event to the collector, depending on the events type.
 
-        Args:
-            event: The event object to add
+        If the event is one of the block sample events it will be stored in
+        an instance of a BlockEventGroup.
 
-        Returns:
-            The EventGroup the event was added to, or None if ungrouped
+        If the event is a change in the nodes peers the peers list of
+        the collector will be updated accordingly. These events are not stored.
         """
+        if isinstance(event, BLOCKSAMPLE_EVENTS):
+            self.add_blocksample_event(event)
+        elif isinstance(event, PEER_EVENTS):
+            self.add_peer_event(event)
+        elif isinstance(event, InboundGovernorCountersEvent):
+            rich.print(event)
+        else:
+            rich.print(event)
+
+    def add_blocksample_event(self, event: BaseBlockEvent):
+        """Add given blocksample to a BlockEventGroup for that events block_hash."""
         try:
-            self.total_events_processed += 1
-            host, block_hash = event.host, event.block_hash
+            block_hash = event.block_hash
             if not block_hash:
-                self.ungrouped_events.append(event)
-                rich.print(f"[bold yellow]Found ungrouped event {event}[/]")
-                return None
-            group = self._get_or_create_group(host, block_hash)
+                raise (
+                    f"[bold yellow]Event without block_hash found {event}[/]"
+                )
+
+            if block_hash not in self.block_event_groups:
+                self.block_event_groups[block_hash] = BlockEventGroup(
+                    block_hash=block_hash
+                )
+            group = self.block_event_groups[block_hash]
             group.add_event(event)
-            return True
         except EventError as e:
             rich.print(e)
-            return False
 
-    def _get_or_create_group(self, host: str, block_hash: str) -> BlockEventGroup:  # fmt: off
-        """Returns the group with given hash, creates a new group if needed."""
-        if block_hash in self.groups:
-            group = self.groups[block_hash]
-        else:
-            rich.print(f"[bold magenta]New block: {block_hash}[/]")
-            group = BlockEventGroup(host=host, block_hash=block_hash)
-            self.groups[block_hash] = group
-            self.total_groups_created += 1
+    def add_peer_event(self, event: BaseBlockEvent):
+        """Add given peer event"""
+        if isinstance(event, StartedEvent):
+            self.peers = {}
+        elif isinstance(event, DemotedToColdRemoteEvent):
+            addr, port = event.peer()
+            peer = None
+            if addr not in self.peers:
+                peer = Peer(
+                    addr=addr,
+                    port=port,
+                    direction=event.direction(),
+                    state=PeerState.COLD.value,
+                    last_updated=datetime.now(),
+                )
 
-        if not group:
-            raise EventError(f"Could not find group for {block_hash}")
-
-        return group
-
-    def get_group(self, block_hash: str) -> BlockEventGroup | None:
-        """Get a specific event group by block number and/or hash."""
-        if block_hash is not None:
-            return self.groups.get(block_hash)
-        return None
+            self.peers[addr] = peer
+        elif isinstance(event, StatusChangedEvent):
+            addr, port = event.peer()
+            rich.print(f"Status changed for {addr}")
+        elif isinstance(event, StatusChangedEvent):
+            pass
+        """
+        PromotedToHotRemoteEvent,
+        PromotedToWarmRemoteEvent,
+        DemotedToColdRemoteEvent,
+        DemotedToWarmRemoteEvent,
+        """
 
     def get_all_groups(self) -> list[BlockEventGroup]:
         """Get all event groups."""
-        return list(self.groups.values())
+        return list(self.block_event_groups.values())
 
-    def get_recent_groups(
-        self, max_age_seconds: float = 300
-    ) -> list[BlockEventGroup]:
-        """Get groups created within the last max_age_seconds."""
-        current_time = time.time()
-        return [
-            group
-            for group in self.groups.values()
-            if (current_time - group.created_at) <= max_age_seconds
-        ]
-
-    def get_stale_groups(
-        self, max_age_seconds: float = 3600
-    ) -> list[BlockEventGroup]:
-        """Get groups that haven't been updated in max_age_seconds."""
-        return [
-            group
-            for group in self.groups.values()
-            if group.time_since_last_update() > max_age_seconds
-        ]
-
-    def cleanup_old_groups(self, max_age_seconds: float = 3600) -> int:
-        """Remove groups older than max_age_seconds. Returns number removed."""
-        stale_groups = self.get_stale_groups(max_age_seconds)
-        removed_count = 0
-
-        for group in stale_groups:
-            self._remove_group(group)
-            removed_count += 1
-
-        return removed_count
-
-    def _remove_group_by_hash(self, block_hash):
-        if block_hash in self.groups:
-            del self.groups[block_hash]
-
-    def remove_group(self, group: BlockEventGroup):
-        self._remove_group_by_hash(group.block_hash)
-
-    def get_statistics(self) -> dict[str, Any]:
-        """Get collector statistics."""
+    def get_peer_statistics(self):
         return {
-            "total_events_processed": self.total_events_processed,
-            "total_groups": len(self.groups),
-            "total_groups_created": self.total_groups_created,
-            "ungrouped_events": len(self.ungrouped_events),
+            "peers": self.peers,
         }
 
-    def get_group_summary(self) -> list[dict[str, Any]]:
-        """Get a summary of all groups for debugging/monitoring."""
-        summary = []
-        for group in self.groups.values():
-            summary.append(
-                {
-                    "block_hash": group.block_hash[:8]
-                    if group.block_hash
-                    else None,
-                    "event_count": group.event_count,
-                    "age_seconds": group.age_seconds,
-                    "event_types": list(group.event_types),
-                }
-            )
-        return summary
-
-    def __len__(self):
-        """Return total number of groups."""
-        return len(self.groups)
-
     def __str__(self):
-        return f"EventCollector(groups={len(self.groups)}, events={self.total_events_processed})"
+        return f"EventCollector(block_event_groups={len(self.block_event_groups)}, events={self.total_events_processed})"

@@ -7,13 +7,12 @@ The logevent module
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, Optional, Union
 
 from pydantic import BaseModel, Field, ValidationError, validator
 
-
-class EventError(RuntimeError):
-    pass
+from blockperf.errors import EventError
 
 
 @dataclass(frozen=True)
@@ -22,6 +21,29 @@ class Connection:
     lport: int  # Local Port
     rip: str  # Remote IP
     rport: int  # Remote Port
+
+
+class PeerDirection(Enum):
+    INBOUND = "inbound"
+    OUTBOUND = "outbound"
+
+
+class PeerState(Enum):
+    COLD = "cold"
+    WARM = "warm"
+    HOT = "hot"
+    COOLING = "cooling"
+
+
+@dataclass
+class Peer:
+    addr: str
+    port: int
+    state: PeerState
+    direction: PeerDirection
+    last_updated: datetime
+    geo_info: dict | None = None
+    probe_results: dict | None = None
 
 
 class BaseBlockEvent(BaseModel):
@@ -81,8 +103,42 @@ class BaseBlockEvent(BaseModel):
         # connection_string = self.data.get("peer").get("connectionId")
         if not self.connection_string:
             raise EventError(f"No connection_string defined in {self.__class__.__name__}")  # fmt: off
-        connection = _parse_connectionid(self.connection_string)
+        connection = self._parse_connectionid(self.connection_string)
         return connection
+
+    def _parse_connectionid(self, connectionid: str) -> Connection:
+        """Parse connection ID string containing IPv4 or IPv6 addresses with ports.
+
+        Supports formats:
+        - IPv4: "192.168.1.1:8080 10.0.0.1:443"
+        - IPv6: "[2001:db8::1]:8080 [::1]:443"
+        """
+        local_str, remote_str = connectionid.split(" ", 1)
+
+        def parse_address_port(addr_port: str) -> tuple[str, int]:
+            if addr_port.startswith("["):
+                # IPv6 format: [address]:port
+                bracket_end = addr_port.rfind("]")
+                if bracket_end == -1:
+                    raise ValueError(f"Invalid IPv6 format: {addr_port}")
+                address = addr_port[1:bracket_end]
+                port = int(addr_port[bracket_end + 2 :])  # Skip ']:'
+            else:
+                # IPv4 format: address:port
+                address, port_str = addr_port.rsplit(":", 1)
+                port = int(port_str)
+
+            return address, port
+
+        local_ip, local_port = parse_address_port(local_str)
+        remote_ip, remote_port = parse_address_port(remote_str)
+
+        return Connection(
+            lip=local_ip,
+            lport=local_port,
+            rip=remote_ip,
+            rport=remote_port,
+        )
 
 
 class DownloadedHeaderEvent(BaseBlockEvent):
@@ -359,36 +415,133 @@ class SwitchedToAForkEvent(BaseBlockEvent):
         return _hash
 
 
-def _parse_connectionid(connectionid: str) -> Connection:
-    """Parse connection ID string containing IPv4 or IPv6 addresses with ports.
-
-    Supports formats:
-    - IPv4: "192.168.1.1:8080 10.0.0.1:443"
-    - IPv6: "[2001:db8::1]:8080 [::1]:443"
+class StatusChangedEvent(BaseBlockEvent):
     """
-    local_str, remote_str = connectionid.split(" ", 1)
+    {
+        "at": "2025-09-24T13:04:05.509293074Z",
+        "ns": "Net.PeerSelection.Actions.StatusChanged",
+        "data": {
+            "kind": "PeerStatusChanged",
+            "peerStatusChangeType": "ColdToWarm (Just 172.0.118.125:3001) 3.228.174.253:6000"
+        },
+        "sev": "Info",
+        "thread": "8915",
+        "host":"openblockperf-dev-database1"
+    }
+    """
 
-    def parse_address_port(addr_port: str) -> tuple[str, int]:
-        if addr_port.startswith("["):
-            # IPv6 format: [address]:port
-            bracket_end = addr_port.rfind("]")
-            if bracket_end == -1:
-                raise ValueError(f"Invalid IPv6 format: {addr_port}")
-            address = addr_port[1:bracket_end]
-            port = int(addr_port[bracket_end + 2 :])  # Skip ']:'
-        else:
-            # IPv4 format: address:port
-            address, port_str = addr_port.rsplit(":", 1)
-            port = int(port_str)
+    def peer(self) -> (str, int):
+        psct = self.data.get("peerStatusChangeType")
+        return (psct, 0)
 
-        return address, port
 
-    local_ip, local_port = parse_address_port(local_str)
-    remote_ip, remote_port = parse_address_port(remote_str)
+class InboundGovernorCountersEvent(BaseBlockEvent):
+    """
+    {
+        "at": "2025-09-24T13:32:19.517600273Z",
+        "ns": "Net.InboundGovernor.Remote.InboundGovernorCounters",
+        "data": {
+            "coldPeers": 53,
+            "hotPeers": 0,
+            "idlePeers": 1,
+            "kind": "InboundGovernorCounters",
+            "warmPeers": 1
+        },
+        "sev": "Info",
+        "thread": "124",
+        "host": "openblockperf-dev-database1"
+    }
+    """
 
-    return Connection(
-        lip=local_ip,
-        lport=local_port,
-        rip=remote_ip,
-        rport=remote_port,
-    )
+    pass
+
+
+class PromotedToWarmRemoteEvent(BaseBlockEvent):
+    """
+        {
+        "at": "2025-09-24T13:32:19.859124767Z",
+        "ns": "Net.InboundGovernor.Remote.PromotedToWarmRemote",
+        "data": {
+            "connectionId": {
+                "localAddress": {
+                    "address": "172.0.118.125",
+                    "port": "3001"
+                },
+                "remoteAddress": {
+                    "address": "85.106.4.146",
+                    "port": "3001"
+                }
+            },
+            "kind": "PromotedToWarmRemote",
+            "result": {
+                "kind": "OperationSuccess",
+                "operationSuccess": {
+                    "dataFlow": "Duplex",
+                    "kind": "InboundIdleSt"
+                }
+            }
+        },
+        "sev": "Info",
+        "thread": "124",
+        "host": "openblockperf-dev-database1"
+    }
+    """
+
+    def peer(self) -> (str, int):
+        con_id = self.data.get("connectionId")
+        remote = con_id.get("remoteAddress")
+        return (remote.get("address"), int(remote.get("port")))
+
+
+class PromotedToHotRemoteEvent(BaseBlockEvent):
+    """
+    {
+        "at": "2025-09-24T13:32:19.888897773Z",
+        "ns": "Net.InboundGovernor.Remote.PromotedToHotRemote",
+        "data": {
+            "connectionId": {
+                "localAddress": {
+                    "address": "172.0.118.125",
+                    "port": "3001"
+                },
+                "remoteAddress": {
+                    "address": "85.106.4.146",
+                    "port": "3001"
+                }
+            },
+            "kind": "PromotedToHotRemote"
+        },
+        "sev": "Info",
+        "thread": "124",
+        "host": "openblockperf-dev-database1"
+    }
+    """
+
+    def peer(self) -> (str, int):
+        con_id = self.data.get("connectionId")
+        remote = con_id.get("remoteAddress")
+        return (remote.get("address"), int(remote.get("port")))
+
+
+class DemotedToColdRemoteEvent(BaseBlockEvent):
+    def peer(self) -> (str, int):
+        con_id = self.data.get("connectionId")
+        remote = con_id.get("remoteAddress")
+        return (remote.get("address"), int(remote.get("port")))
+
+    def direction(self) -> str:
+        if ".Remote" in self.ns:
+            return PeerDirection.OUTBOUND.value
+        elif ".Local" in self.ns:
+            return PeerDirection.INBOUND.value
+
+
+class DemotedToWarmRemoteEvent(BaseBlockEvent):
+    def peer(self) -> (str, int):
+        con_id = self.data.get("connectionId")
+        remote = con_id.get("remoteAddress")
+        return (remote.get("address"), int(remote.get("port")))
+
+
+class StartedEvent(BaseBlockEvent):
+    pass

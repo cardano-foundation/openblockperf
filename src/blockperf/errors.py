@@ -1,0 +1,2 @@
+class EventError(RuntimeError):
+    pass
