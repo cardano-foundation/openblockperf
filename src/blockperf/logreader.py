@@ -85,6 +85,7 @@ class JournalCtlLogReader(NodeLogReader):
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    limit=10000000,  # 10MB Buffer size
                 )
             )
         except Exception as e:
@@ -106,29 +107,29 @@ class JournalCtlLogReader(NodeLogReader):
             await self.process.wait()  # ensure OS has time to kill
 
         self.process = None
-        raise RuntimeError(f"Closed journalctl connection for: '{self.unit}'")
+        raise RuntimeError("Closed journalctl")
 
     async def read_messages(self) -> AsyncGenerator[dict[str, Any], None]:
         """Read messages (lines) from journalctl subprocess as an async generator."""
         if not self.process or not self.process.stdout:
             raise RuntimeError("Process or process stdout not available")
-        try:
-            while True:
-                line = await self.process.stdout.readline()
-                # rich.print(line)
-                if not line:
-                    print("EOF reached from journalctl subprocess")
-                    break
-                try:
-                    message = json.loads(line)
-                    yield message
-                except json.JSONDecodeError as e:
-                    print(f"Failed to parse journalctl output as JSON: {e}")
-                    print(f"Raw line: {line}")
-                except Exception as e:
-                    print(f"Error processing journalctl line: {e}")
-        except Exception as e:
-            print(f"Error reading from journalctl subprocess: {e}")
+
+        while True:
+            line = await self.process.stdout.readline()
+            # rich.print(line)
+            if not line:
+                print("EOF reached from journalctl subprocess")
+                break
+            try:
+                # Using -o cat above, i assume there will be a clean json
+                # coming out of the node logs
+                message = json.loads(line)
+                yield message
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse journalctl output as JSON: {e}")
+                print(f"Raw line: {line}")
+            except Exception as e:
+                print(f"Error processing journalctl line: {e}")
 
 
 def create_log_reader(reader_type: str, unit: str | None):
