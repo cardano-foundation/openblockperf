@@ -7,8 +7,8 @@ from rich.console import Console
 
 from blockperf.async_utils import run_async
 from blockperf.config import settings
-from blockperf.events.processor import EventProcessor
 from blockperf.logreader import create_log_reader
+from blockperf.processor import EventProcessor
 
 console = Console()
 

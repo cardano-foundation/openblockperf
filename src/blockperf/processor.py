@@ -10,6 +10,7 @@ into one of the LogEvents.
 """
 
 import asyncio
+from datetime import datetime
 from socket import AF_INET, AF_INET6
 from typing import Any
 
@@ -17,9 +18,10 @@ import httpx
 import psutil
 import rich
 
+from blockperf.collectors import BlockEventGroup, EventCollector
 from blockperf.config import settings
-from blockperf.events.collector import BlockEventGroup, EventCollector
-from blockperf.events.models import (
+from blockperf.logreader import NodeLogReader
+from blockperf.models import (
     AddedToCurrentChainEvent,
     BaseBlockEvent,
     CompletedBlockFetchEvent,
@@ -27,6 +29,9 @@ from blockperf.events.models import (
     DemotedToWarmRemoteEvent,
     DownloadedHeaderEvent,
     InboundGovernorCountersEvent,
+    Peer,
+    PeerDirection,
+    PeerState,
     PromotedToHotRemoteEvent,
     PromotedToWarmRemoteEvent,
     SendFetchRequestEvent,
@@ -34,7 +39,6 @@ from blockperf.events.models import (
     StatusChangedEvent,
     SwitchedToAForkEvent,
 )
-from blockperf.logreader import NodeLogReader
 
 """
 Added some of the events that i think are of interest. See here for more:
@@ -95,6 +99,7 @@ class EventProcessor:
         self.running = False
         self.log_reader = log_reader
         self.collector = EventCollector()
+        # self.lock = asyncio.Lock() # remove?
 
     async def start(self):
         """Starts the event processor.
@@ -106,7 +111,7 @@ class EventProcessor:
         self.running = True
         while self.running:
             _events = asyncio.create_task(self.task_process_events())
-            _peers = asyncio.create_task(self.task_node_peers())
+            _peers = asyncio.create_task(self.task_update_peers())
             # _samples = asyncio.create_task(self.task_block_samples())
             _state = asyncio.create_task(self.task_print_peer_state())
             await asyncio.gather(_events, _peers, _state)
@@ -115,23 +120,36 @@ class EventProcessor:
         """Stops the event processor."""
         self.running = False
 
-    async def task_node_peers(self) -> list:
+    async def task_update_peers(self) -> list:
+        """Update the peers list.
+
+        Compares the list of peers with current active connections on the
+        system. The idea being that especially on startup, there might already
+        be alot of peers in the node, that we will never get notified about.
+        This adds peers to that list with a state of unknown.
+
+        Later on we might search for these peers in the logs to get their
+        current state in the node. Since i dont see us being able to ask
+        the node directly anytime soon.
+        """
         while True:
-            node_connections = []
+            peers = []
             for conn in psutil.net_connections():
                 if conn.status != "ESTABLISHED":
                     continue
                 if conn.laddr.port != 3001:
                     continue
-                # if conn.family == AF_INET:
-                #    rich.print(conn)
-                # elif conn.family == AF_INET6:
-                #    rich.print(conn)
-
-                node_connections.append(conn)
-            # Wait at the end to update the peers on first run as well
-
-            await asyncio.sleep(settings().check_interval)
+                addr, port = conn.raddr
+                peers.append(
+                    Peer(
+                        addr=addr,
+                        port=int(port),
+                        state=PeerState.UNKNOWN.value,
+                        last_updated=datetime.now(),
+                    )
+                )
+            self.collector.update_peers(peers)
+            await asyncio.sleep(30)  # add peers every 5 Minutes
 
     async def task_process_events(self):
         """Continiously processes the events coming from the log reader.
@@ -150,6 +168,7 @@ class EventProcessor:
                 # dedicated model class.
                 if not event or type(event) is BaseBlockEvent:
                     continue
+
                 self.collector.add_event(event)
 
         rich.print("[bold red]task process events ended ...")

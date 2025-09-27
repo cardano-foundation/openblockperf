@@ -17,7 +17,7 @@ import rich
 from blockperf import __version__
 from blockperf.config import settings
 from blockperf.errors import EventError
-from blockperf.events.models import (
+from blockperf.models import (
     AddedToCurrentChainEvent,
     BaseBlockEvent,
     CompletedBlockFetchEvent,
@@ -34,24 +34,6 @@ from blockperf.events.models import (
     StartedEvent,
     StatusChangedEvent,
     SwitchedToAForkEvent,
-)
-
-# Relevant events for the block samples
-BLOCKSAMPLE_EVENTS = (
-    CompletedBlockFetchEvent,
-    SendFetchRequestEvent,
-    AddedToCurrentChainEvent,
-    SwitchedToAForkEvent,
-    DownloadedHeaderEvent,
-)
-
-# Relevant events for peer state changes
-PEER_EVENTS = (
-    PromotedToHotRemoteEvent,
-    PromotedToWarmRemoteEvent,
-    DemotedToColdRemoteEvent,
-    DemotedToWarmRemoteEvent,
-    StatusChangedEvent,
 )
 
 
@@ -74,11 +56,11 @@ class BlockEventGroup:
     # A block finished download
     block_completed: CompletedBlockFetchEvent | None = None
 
-    events: list[Any] = field(default_factory=list)  # list of events
+    events: list[BaseBlockEvent] = field(default_factory=list)  # list of events
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
 
-    def add_event(self, event: Any):
+    def add_event(self, event: BaseBlockEvent):
         """Add an event to this group. Fill in missing values that only some types of events provide"""
         self.events.append(event)
         self.last_updated = time.time()
@@ -280,7 +262,7 @@ class EventCollector:
     """
 
     host: str
-    peers: dict[str, Peer] = {}
+    peers: dict[tuple, Peer] = {}
 
     def __init__(self):
         # Groups of events indexed by the block hash they belong to
@@ -300,10 +282,32 @@ class EventCollector:
         If the event is a change in the nodes peers the peers list of
         the collector will be updated accordingly. These events are not stored.
         """
-        if isinstance(event, BLOCKSAMPLE_EVENTS):
-            self.add_blocksample_event(event)
-        elif isinstance(event, PEER_EVENTS):
+        # Events relevant for block sample calculation
+        blocksample_events = (
+            CompletedBlockFetchEvent,
+            SendFetchRequestEvent,
+            AddedToCurrentChainEvent,
+            SwitchedToAForkEvent,
+            DownloadedHeaderEvent,
+        )
+        # Events relevant for peers calculation
+        peer_events = (
+            PromotedToHotRemoteEvent,
+            PromotedToWarmRemoteEvent,
+            DemotedToColdRemoteEvent,
+            DemotedToWarmRemoteEvent,
+            StatusChangedEvent,
+        )
+
+        if isinstance(event, blocksample_events):
+            # self.add_blocksample_event(event)
+            pass
+        elif isinstance(event, peer_events):
+            rich.print(event)
             self.add_peer_event(event)
+        elif isinstance(event, StartedEvent):
+            rich.print("[bold blue]Node restarted[/]")
+            self.peers = {}
         elif isinstance(event, InboundGovernorCountersEvent):
             rich.print(event)
         else:
@@ -327,42 +331,70 @@ class EventCollector:
         except EventError as e:
             rich.print(e)
 
+    def update_peers(self, peers: list) -> None:
+        """Add given list of peer to the internal peers list."""
+        keys = []
+        for peer in peers:
+            if not isinstance(peer, Peer):
+                raise RuntimeError("Given peer is not of type Peer")
+            key = (peer.addr, peer.port)
+            keys.append(key)  # store keys for later
+            if key not in self.peers:
+                self.peers[key] = peer
+        # From the self.peers list, remove the ones without a connection
+        keys_to_remove = []
+        for k in self.peers:
+            if k not in keys:
+                keys_to_remove.append(k)
+
+        if keys_to_remove:
+            rich.print(f"[bold red]Removing {keys_to_remove} from peers[/]")
+            for k in keys_to_remove:
+                del self.peers[k]
+
     def add_peer_event(self, event: BaseBlockEvent):
         """Add given peer event"""
-        if isinstance(event, StartedEvent):
-            self.peers = {}
-        elif isinstance(event, DemotedToColdRemoteEvent):
-            addr, port = event.peer()
-            peer = None
-            if addr not in self.peers:
-                peer = Peer(
-                    addr=addr,
-                    port=port,
-                    direction=event.direction(),
-                    state=PeerState.COLD.value,
-                    last_updated=datetime.now(),
-                )
 
-            self.peers[addr] = peer
-        elif isinstance(event, StatusChangedEvent):
-            addr, port = event.peer()
-            rich.print(f"Status changed for {addr}")
-        elif isinstance(event, StatusChangedEvent):
-            pass
-        """
-        PromotedToHotRemoteEvent,
-        PromotedToWarmRemoteEvent,
-        DemotedToColdRemoteEvent,
-        DemotedToWarmRemoteEvent,
-        """
+        # Get addr and port of peer to identify in peers list
+        addr, port = event.peer_addr_port()
+        key = (addr, port)
+        if key not in self.peers:
+            self.peers[key] = Peer(addr=addr, port=port)
+        peer = self.peers[key]  # esier to refer to peer then self.peers[key]
+        peer.state = event.state
+        if not peer.direction:
+            if d := event.direction():
+                peer.direction = d
+
+        rich.print(peer)
+
+        # if isinstance(event, StatusChangedEvent):
+        #    pass
+        # elif isinstance(event, DemotedToColdRemoteEvent):
+        #    pass
+        # elif isinstance(event, (DemotedToWarmRemoteEvent, PromotedToWarmRemoteEvent)):  # fmt: off
+        #    pass
+        # elif isinstance(event, PromotedToHotRemoteEvent):
+        #    pass
 
     def get_all_groups(self) -> list[BlockEventGroup]:
         """Get all event groups."""
         return list(self.block_event_groups.values())
 
     def get_peer_statistics(self):
+        peers = self.peers.values()
+        cold = [p for p in peers if p.state == PeerState.COLD]
+        warm = [p for p in peers if p.state == PeerState.WARM]
+        hot = [p for p in peers if p.state == PeerState.HOT]
+        cooling = [p for p in peers if p.state == PeerState.COOLING]
+        unknown = [p for p in peers if p.state == PeerState.UNKNOWN]
         return {
-            "peers": self.peers,
+            "cold": len(cold),
+            "warm": len(warm),
+            "hot": len(hot),
+            "cooling": len(cooling),
+            "unknown": len(unknown),
+            "total": len(self.peers),
         }
 
     def __str__(self):
