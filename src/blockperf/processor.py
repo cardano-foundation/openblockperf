@@ -20,6 +20,7 @@ import rich
 
 from blockperf.collectors import BlockEventGroup, EventCollector
 from blockperf.config import settings
+from blockperf.logging import logger
 from blockperf.logreader import NodeLogReader
 from blockperf.models import (
     AddedToCurrentChainEvent,
@@ -107,7 +108,7 @@ class EventProcessor:
         Enters a forever loop in which it will create tasks and await their
         finish.
         """
-
+        logger.debug("Event processor started")
         self.running = True
         while self.running:
             _events = asyncio.create_task(self.task_process_events())
@@ -133,22 +134,15 @@ class EventProcessor:
         the node directly anytime soon.
         """
         while True:
-            peers = []
+            connections = []
             for conn in psutil.net_connections():
                 if conn.status != "ESTABLISHED":
                     continue
                 if conn.laddr.port != 3001:
                     continue
                 addr, port = conn.raddr
-                peers.append(
-                    Peer(
-                        addr=addr,
-                        port=int(port),
-                        state=PeerState.UNKNOWN.value,
-                        last_updated=datetime.now(),
-                    )
-                )
-            self.collector.update_peers(peers)
+                connections.append(conn)
+            self.collector.update_peers_from_connections(connections)
             await asyncio.sleep(30)  # add peers every 5 Minutes
 
     async def task_process_events(self):

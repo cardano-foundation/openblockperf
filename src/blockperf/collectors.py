@@ -17,6 +17,7 @@ import rich
 from blockperf import __version__
 from blockperf.config import settings
 from blockperf.errors import EventError
+from blockperf.logging import logger
 from blockperf.models import (
     AddedToCurrentChainEvent,
     BaseBlockEvent,
@@ -331,35 +332,44 @@ class EventCollector:
         except EventError as e:
             rich.print(e)
 
-    def update_peers(self, peers: list) -> None:
-        """Add given list of peer to the internal peers list."""
-        keys = []
-        for peer in peers:
-            if not isinstance(peer, Peer):
-                raise RuntimeError("Given peer is not of type Peer")
-            key = (peer.addr, peer.port)
-            keys.append(key)  # store keys for later
-            if key not in self.peers:
-                self.peers[key] = peer
-        # From the self.peers list, remove the ones without a connection
-        keys_to_remove = []
-        for k in self.peers:
-            if k not in keys:
-                keys_to_remove.append(k)
+    def update_peers_from_connections(self, connections: list) -> None:
+        """Takes a list of connections created from psutils net_connections().
 
-        if keys_to_remove:
-            rich.print(f"[bold red]Removing {keys_to_remove} from peers[/]")
-            for k in keys_to_remove:
-                del self.peers[k]
+        That is the library i use so this expects their named tuple of a
+        connection.
+        """
+        logger.info(f"Updating peers from {len(connections)} connections")
+        connection_keys = []
+        for conn in connections:
+            raddr = conn.raddr
+            addr, port = raddr.ip, int(raddr.port)
+            key = (addr, port)
+            if key not in self.peers:
+                self.peers[key] = Peer(
+                    addr=addr,
+                    port=port,
+                    state=PeerState.UNKNOWN,
+                )
+                logger.debug(f"Peer {self.peers[key]} created")
+            connection_keys.append(key)  # store keys for later
+
+        # From the self.peers list, remove the ones without a connection
+        for peer_key in self.peers:
+            if peer_key not in connection_keys:
+                self.peers[peer_key].state = PeerState.LOSTCONNECTION
+                logger.debug(f"Peer {self.peers[peer_key]} lost connection")
 
     def add_peer_event(self, event: BaseBlockEvent):
         """Add given peer event"""
 
+        logger.info(f"Adding peer event {event.__class__.__name__}")
         # Get addr and port of peer to identify in peers list
         addr, port = event.peer_addr_port()
+
         key = (addr, port)
         if key not in self.peers:
             self.peers[key] = Peer(addr=addr, port=port)
+            logger.debug(f"{self.peers[key]} created")
         peer = self.peers[key]  # esier to refer to peer then self.peers[key]
         peer.state = event.state
         if not peer.direction:
