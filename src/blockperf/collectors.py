@@ -301,8 +301,7 @@ class EventCollector:
         )
 
         if isinstance(event, blocksample_events):
-            # self.add_blocksample_event(event)
-            pass
+            self.add_blocksample_event(event)
         elif isinstance(event, peer_events):
             rich.print(event)
             self.add_peer_event(event)

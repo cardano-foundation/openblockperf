@@ -23,4 +23,5 @@ Thumbs.db
 book/
 _version.py
 logeventexamples/
-logs.json
+
+logs*

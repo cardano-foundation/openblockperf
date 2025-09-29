@@ -111,17 +111,22 @@ class EventProcessor:
         logger.debug("Event processor started")
         self.running = True
         while self.running:
-            _events = asyncio.create_task(self.task_process_events())
-            _peers = asyncio.create_task(self.task_update_peers())
-            # _samples = asyncio.create_task(self.task_block_samples())
-            _state = asyncio.create_task(self.task_print_peer_state())
+            # Creates a bunch of tasks
+            # Continiously processes the incoming message events
+            _events = asyncio.create_task(self.process_events())
+            # Update peers from live os network connections
+            _peers = asyncio.create_task(self.update_peers())
+            # Checks for and sends blocksamples if available
+            _samples = asyncio.create_task(self.send_blocks())
+            # Print peer state output to screen
+            _state = asyncio.create_task(self.print_peer_state())
             await asyncio.gather(_events, _peers, _state)
 
     async def stop(self):
         """Stops the event processor."""
         self.running = False
 
-    async def task_update_peers(self) -> list:
+    async def update_peers(self) -> list:
         """Update the peers list.
 
         Compares the list of peers with current active connections on the
@@ -145,7 +150,7 @@ class EventProcessor:
             self.collector.update_peers_from_connections(connections)
             await asyncio.sleep(30)  # add peers every 5 Minutes
 
-    async def task_process_events(self):
+    async def process_events(self):
         """Continiously processes the events coming from the log reader.
 
         First opens the context for the logreader which calls connect() on
@@ -167,7 +172,7 @@ class EventProcessor:
 
         rich.print("[bold red]task process events ended ...")
 
-    async def task_block_samples(self):
+    async def send_blocks(self):
         """Inspects all host collectors if any of them has a block sample ready to be processed"""
         while True:
             await asyncio.sleep(settings().check_interval)
@@ -180,17 +185,20 @@ class EventProcessor:
             for group in ready_groups:
                 await self.process_group(group)
 
-    async def task_print_peer_state(self):
+    async def print_peer_state(self):
         while True:
             await asyncio.sleep(20)
             rich.print(self.collector.get_peer_statistics())
 
     async def process_group(self, group: BlockEventGroup):
         sample = group.sample()
+        sample["host"] = "dummy"
         if group.is_sane():
             rich.print("[bold green]Sample seems fine[/]")
-            # rep = httpx.post("http://127.0.0.1:8080/api/v0/submit", json=sample)
-            # breakpoint()
+            rep = httpx.post(
+                "http://127.0.0.1:8080/api/v0/submit/blocksample", json=sample
+            )
+            rich.print(rep)
         else:
             rich.print("[bold red]Sample is insane[/]")
         # rich.print(sample)
