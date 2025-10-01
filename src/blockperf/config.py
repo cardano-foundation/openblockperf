@@ -27,7 +27,13 @@ ENV_PREFIX = "OPENBLOCKPERF_"
 
 
 class AppSettings(BaseSettings):
-    check_interval: int = 6  # Interval in seconds to check for groups/blocks
+    api_base_url: str = "http://127.0.0.1"
+    api_base_port: int = 8080
+    api_base_path: str = "/api/v0/"
+    api_key: str = "NrYQB2K4osWorjEPLrDUtriNwTmt5pML3Cg5PWMhj8M"
+    api_client_id: str | None = None
+    api_client_secret: str | None = None
+    check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
     local_addr: str = "0.0.0.0"
     local_port: int = 3001

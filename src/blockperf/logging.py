@@ -17,23 +17,26 @@ from loguru import logger
 logger.remove()
 
 # Log everything to a file, keep it for a week.abs
+# logger.add(
+#    "logs.json",
+#    serialize=True,
+#    rotation="50 MB",
+#    compression="zip",
+# )
 logger.add(
-    "logs.json",
-    serialize=True,
+    "logs.txt",
     rotation="50 MB",
     compression="zip",
 )
 logger.add(
     sys.stdout,
-    format="{time} {level} {message}",
-    filter="my_module",
-    level="DEBUG",
+    format="<blue>{time:HH:mm:ss,SS}</blue> {message}",
+    level="INFO",
 )
-logger.add(
-    sys.stderr,
-    format="{time} {level} {message}",
-    filter="my_module",
-    level="TRACE",
-)
+# logger.add(
+#    sys.stderr,
+#    format="{time} {level} {message}",
+#    level="TRACE",
+# )
 
 logger.debug("Logger loaded")

@@ -1,82 +1,93 @@
-"""Setup the cli by creating the main Typer application (blockperf_app) and
-adding the (sub)commands to it."""
+import asyncio
+from datetime import datetime
 
-import typer
-from rich.console import Console
-from textual.app import App, ComposeResult
-from textual.containers import HorizontalGroup, VerticalScroll
-from textual.widgets import Button, Digits, Footer, Header
+import psutil
+import rich
+from loguru import logger
 
-from blockperf.commands.analyze import analyze_app
-from blockperf.commands.base import version_cmd
-from blockperf.commands.monitor import monitor_app
-from blockperf.commands.run import run_app
+# from rich.console import Console
+from blockperf.apiclient import BlockperfApiClient
+from blockperf.config import settings
+from blockperf.listeners.block import BlockListener
+from blockperf.listeners.peer import PeerListener
+from blockperf.processor import EventProcessor
 
-console = Console()
-
-
-# Initialize the Typer application
-blockperf_app = typer.Typer(
-    name="blockperf",
-    help="A CLI application for block performance analysis",
-    add_completion=True,
-    no_args_is_help=True,
-)
-
-# Add base commands directly to the app
-blockperf_app.command("version")(version_cmd)
-blockperf_app.add_typer(analyze_app)
-blockperf_app.add_typer(monitor_app)
-blockperf_app.add_typer(run_app)
+# console = Console()
 
 
-def mycallback():
-    """Creates a single user Hiro Hamada. In the next version it will create 5 more users."""
-    console.print("Y A Y")
+class Blockperf:
+    def __init__(self):
+        # The app creates an event processor
+        self.event_processor = EventProcessor()
 
+        # There are multiple listeners, that are add to that processor.
+        # Each whith its own set of events it wants to listen for.
+        # They hold their "usecase relevant" data in their own instance
+        self.block_listener = BlockListener()
+        self.event_processor.add_listener(self.block_listener)
+        self.peer_listener = PeerListener()
+        self.event_processor.add_listener(self.peer_listener)
 
-class TimeDisplay(Digits):
-    """A widget to display elapsed time."""
+    async def start(self):
+        """Run all application tasks"""
 
+        try:
+            async with asyncio.TaskGroup() as tg:
+                # All tasks at the same level
+                tg.create_task(self.event_processor.process_events())
+                tg.create_task(self.update_peers_from_connections())
+                tg.create_task(self.send_block_samples())
+                tg.create_task(self.print_peer_statistics())
+                # Add any other top-level tasks here
 
-class Stopwatch(HorizontalGroup):
-    """A stopwatch widget."""
+        except* asyncio.CancelledError:
+            logger.info("Application cancelled, shutting down")
+        except* Exception as eg:
+            for exc in eg.exceptions:
+                logger.exception("Task failed", exc_info=exc)
+            raise
 
-    def compose(self) -> ComposeResult:
-        """Create child widgets of a stopwatch."""
-        yield Button("Start", id="start", variant="success")
-        yield Button("Stop", id="stop", variant="error")
-        yield Button("Reset", id="reset")
-        yield TimeDisplay("00:00:00.00")
+    async def stop(self):
+        """Stops the event processor."""
+        logger.info("Blockperf shutdown")
 
+    async def update_peers_from_connections(self) -> list:
+        """Updates the connections list.
 
-class Blockperf(App):
-    # Styles for the ui
-    CSS_PATH = "stopwatch03.tcss"
-    # List of tuples, that match keys to actions
-    BINDINGS = [
-        ("d", "toggle_dark", "Toggle dark mode"),
-        ("p", "show_peers", "Show Peers"),
-    ]
+        Compares the list of peers with current active connections on the
+        system. The idea being that especially on startup, there might already
+        be alot of peers in the node, that we will never get notified about.
+        This adds peers to that list with a state of unknown.
 
-    def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
-        yield Header()
-        yield Footer()
-        yield VerticalScroll(Stopwatch(), Stopwatch(), Stopwatch())
+        Later on we might search for these peers in the logs to get their
+        current state in the node. Since i dont see us being able to ask
+        the node directly anytime soon.
+        """
+        while True:
+            connections = []
+            for conn in psutil.net_connections():
+                if conn.status != "ESTABLISHED":
+                    continue
+                if conn.laddr.port != 3001:
+                    continue
+                addr, port = conn.raddr
+                connections.append(conn)
 
-    def action_toggle_dark(self) -> None:
-        """An action to toggle dark mode."""
-        self.theme = (
-            "textual-dark" if self.theme == "textual-light" else "textual-light"
-        )
+            await self.peer_listener.update_peers_from_connections(connections)
+            await asyncio.sleep(30)  # add peers every 5 Minutes
 
+    async def send_block_samples(self):
+        """The BlockListener collects samples, send_blocks sends these to the api."""
+        try:
+            while True:
+                await asyncio.sleep(settings().check_interval)
+                async with BlockperfApiClient() as api:
+                    await self.block_listener.send_block_samples(api)
+        except Exception:
+            logger.exception("Fatal error in send_blocks")
 
-def make_blockperf_ui():
-    """Return the textual app"""
-    return Blockperf()
-
-
-def make_blockperf_cli():
-    """Just return the typer app instance for now"""
-    return blockperf_app
+    async def print_peer_statistics(self):
+        while True:
+            await asyncio.sleep(30)
+            stats = self.peer_listener.get_peer_statistics()
+            rich.print(stats)

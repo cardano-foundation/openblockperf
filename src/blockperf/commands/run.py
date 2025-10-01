@@ -5,11 +5,11 @@ import rich
 import typer
 from rich.console import Console
 
+from blockperf.apiclient import BlockperfApiClient
+from blockperf.app import Blockperf
 from blockperf.async_utils import run_async
 from blockperf.config import settings
 from blockperf.logging import logger
-from blockperf.logreader import create_log_reader
-from blockperf.processor import EventProcessor
 
 console = Console()
 
@@ -29,21 +29,16 @@ def run_app_callback():
     The event processor is run inside an asyncio
     """
     try:
-        rich.print(
-            f"[bold]Network[/]: [color red]{settings().network.value.capitalize()}[/] [bold]Magic[/]: {settings().network_config.magic} [bold]Startime[/]: {datetime.fromtimestamp(settings().network_config.starttime).isoformat()}",
-        )
-
-        log_reader = create_log_reader("journalctl", "cardano-tracer")
-        event_processor = EventProcessor(log_reader=log_reader)
-        run_async(_run_event_processor(event_processor))
+        app = Blockperf()
+        run_async(_run_blockperf_app(app))
     except KeyboardInterrupt:
         console.print("\n[bold yellow]Monitoring stopped.[/]")
 
 
-async def _run_event_processor(event_processor: EventProcessor):
-    """Asyncronously run the given event processor."""
+async def _run_blockperf_app(app: Blockperf):
+    """Asyncronously run the Blockperf app."""
     try:
-        event_processor_task = asyncio.create_task(event_processor.start())
-        await event_processor_task
+        await app.start()
     except asyncio.CancelledError:
-        await event_processor.stop()
+        rich.print("[bold red]Blockperf app got canceled![/]")
+        await app.stop()

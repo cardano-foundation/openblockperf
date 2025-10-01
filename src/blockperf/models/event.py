@@ -4,6 +4,8 @@ logevent
 The logevent module
 """
 
+from __future__ import annotations
+
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -13,54 +15,25 @@ from ipaddress import ip_address
 from typing import Any, Dict, Optional, Union
 
 import rich
-from pydantic import BaseModel, Field, ValidationError, validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_validator,
+    validator,
+)
 
 from blockperf.errors import EventError
+from blockperf.models.peer import (
+    PeerConnectionComplex,
+    PeerConnectionSimple,
+    PeerState,
+    PeerStatusChange,
+)
 
 
-@dataclass(frozen=True)
-class Connection:
-    lip: str  # Local IP
-    lport: int  # Local Port
-    rip: str  # Remote IP
-    rport: int  # Remote Port
-
-
-class PeerDirection(Enum):
-    INBOUND = "Inbound"
-    OUTBOUND = "Outbound"
-
-
-class PeerState(Enum):
-    UNKNOWN = "Unknown"
-    LOSTCONNECTION = "LostConnection"
-    COLD = "Cold"
-    WARM = "Warm"
-    HOT = "Hot"
-    COOLING = "Cooling"
-
-
-class PeerStateTransition(Enum):
-    COLD_TO_WARM = "ColdToWarm"
-    WARM_TO_HOT = "WarmToHot"
-    WARM_TO_COOLING = "WarmToCooling"
-    HOT_TO_WARM = "HotToWarm"
-    HOT_TO_COOLING = "HotToCooling"
-    COOLING_TO_COLD = "CoolingToCold"
-
-
-@dataclass
-class Peer:
-    addr: str
-    port: int
-    state: PeerState = PeerState.UNKNOWN
-    last_updated: datetime = field(default_factory=datetime.now)
-    direction: PeerDirection | None = None
-    geo_info: dict | None = None
-    probe_results: dict | None = None
-
-
-class BaseBlockEvent(BaseModel):
+class BaseEvent(BaseModel):
     """Base model for all block events that will be produced by the log reader.
 
     The below fields are what i think every message will always have. The
@@ -68,6 +41,7 @@ class BaseBlockEvent(BaseModel):
     them.
     """
 
+    model_config = ConfigDict(populate_by_name=True)
     at: datetime
     ns: str
     data: dict[str, Any]
@@ -92,78 +66,16 @@ class BaseBlockEvent(BaseModel):
 
         rich.print(self)
 
-    @property
-    def block_hash(self) -> str | None:
-        """Return the hash of the block this event belongs to. As i dont see
-        a pattern where to get that from i think every event class needs to
-        implement that. Some events dont have a hash associated.
-        """
-        return None
-
-    @property
-    def block_number(self) -> str | None:
-        return None
-
-    @property
-    def block_size(self):
-        return None
-
-    @property
-    def slot(self) -> str | None:
-        return None
-
-    @property
-    def peer_connection(self) -> Connection | None:
-        # connection_string = self.data.get("peer").get("connectionId")
-        if not self.connection_string:
-            raise EventError(f"No connection_string defined in {self.__class__.__name__}")  # fmt: off
-        connection = self._parse_connectionid(self.connection_string)
-        return connection
-
-    def _parse_connectionid(self, connectionid: str) -> Connection:
-        """Parse connection ID string containing IPv4 or IPv6 addresses with ports.
-
-        Supports formats:
-        - IPv4: "192.168.1.1:8080 10.0.0.1:443"
-        - IPv6: "[2001:db8::1]:8080 [::1]:443"
-        """
-        local_str, remote_str = connectionid.split(" ", 1)
-
-        def parse_address_port(addr_port: str) -> tuple[str, int]:
-            if addr_port.startswith("["):
-                # IPv6 format: [address]:port
-                bracket_end = addr_port.rfind("]")
-                if bracket_end == -1:
-                    raise ValueError(f"Invalid IPv6 format: {addr_port}")
-                address = addr_port[1:bracket_end]
-                port = int(addr_port[bracket_end + 2 :])  # Skip ']:'
-            else:
-                # IPv4 format: address:port
-                address, port_str = addr_port.rsplit(":", 1)
-                port = int(port_str)
-
-            return address, port
-
-        local_ip, local_port = parse_address_port(local_str)
-        remote_ip, remote_port = parse_address_port(remote_str)
-
-        return Connection(
-            lip=local_ip,
-            lport=local_port,
-            rip=remote_ip,
-            rport=remote_port,
-        )
-
-    def direction(self) -> PeerDirection | None:
-        if ".Remote" in self.ns:
-            return PeerDirection.OUTBOUND
-        elif ".Local" in self.ns:
-            return PeerDirection.INBOUND
-        else:
-            return None
+    # def direction(self) -> PeerDirection | None:
+    #    if ".Remote" in self.ns:
+    #        return PeerDirection.OUTBOUND
+    #    elif ".Local" in self.ns:
+    #        return PeerDirection.INBOUND
+    #    else:
+    #        return None
 
 
-class DownloadedHeaderEvent(BaseBlockEvent):
+class DownloadedHeaderEvent(BaseEvent):
     """
     {
         "at": "2025-09-12T16:51:39.269022269Z",
@@ -183,34 +95,39 @@ class DownloadedHeaderEvent(BaseBlockEvent):
     }
     """
 
-    @property
-    def connection_string(self):
-        return self.data.get("peer").get("connectionId")
+    class Data(BaseModel):
+        block: str
+        blockNo: int  # noqa
+        kind: str
+        peer: PeerConnectionSimple
+        slot: int
+
+    data: Data
 
     @property
     def block_hash(self) -> str:
-        return self.data.get("block")
+        return self.data.block
 
     @property
     def block_number(self) -> int:
-        return int(self.data.get("blockNo"))
+        return self.data.blockNo
 
     @property
     def slot(self) -> int:
-        return int(self.data.get("slot"))
+        return self.data.slot
 
     @property
     def peer_ip(self) -> str:
         """Ip address of peer the header was downloaded from"""
-        return self.peer_connection.rip
+        return self.data.peer.connectionId.remote_addr
 
     @property
     def peer_port(self) -> int:
         """Port number of peer the header was downloaded from"""
-        return self.peer_connection.rport
+        return self.data.peer.connectionId.remote_port
 
 
-class SendFetchRequestEvent(BaseBlockEvent):
+class SendFetchRequestEvent(BaseEvent):
     """
     {
         "at": "2025-09-12T16:52:11.098464254Z",
@@ -229,27 +146,31 @@ class SendFetchRequestEvent(BaseBlockEvent):
     }
     """
 
-    @property
-    def connection_string(self):
-        return self.data.get("peer").get("connectionId")
+    class Data(BaseModel):
+        head: str
+        kind: str
+        length: int
+        peer: PeerConnectionSimple
+
+    data: Data
 
     @property
     def block_hash(self):
         """The block hash this fetch request tries to receive"""
-        return self.data.get("head")
+        return self.data.head
 
     @property
     def peer_ip(self) -> str:
         """Ip address of peer asked to download the block from"""
-        return self.peer_connection.rip
+        return self.data.peer.connectionId.remote_addr
 
     @property
     def peer_port(self) -> int:
         """Port number of peer asked to download the block from"""
-        return self.peer_connection.rport
+        return self.data.peer.connectionId.remote_port
 
 
-class CompletedBlockFetchEvent(BaseBlockEvent):
+class CompletedBlockFetchEvent(BaseEvent):
     """
     {
         "at": "2025-09-12T16:52:11.263418188Z",
@@ -269,34 +190,39 @@ class CompletedBlockFetchEvent(BaseBlockEvent):
     }
     """
 
-    @property
-    def connection_string(self):
-        return self.data.get("peer").get("connectionId")
+    class Data(BaseModel):
+        block: str
+        delay: float
+        kind: str
+        size: int
+        peer: PeerConnectionSimple
+
+    data: Data
 
     @property
     def block_hash(self) -> str:
-        return self.data.get("block")
+        return self.data.block
 
     @property
     def delay(self) -> float:
-        return float(self.data.get("delay"))
+        return self.data.delay
 
     @property
     def block_size(self) -> int:
-        return int(self.data.get("size"))
+        return self.data.size
 
     @property
     def peer_ip(self) -> str:
         """Ip address of peer the block was downloaded from"""
-        return self.peer_connection.rip
+        return self.data.peer.connectionId.remote_addr
 
     @property
     def peer_port(self) -> int:
         """Port number of peer the block was downloaded from"""
-        return self.peer_connection.rport
+        return self.data.peer.connectionId.remote_port
 
 
-class AddedToCurrentChainEvent(BaseBlockEvent):
+class AddedToCurrentChainEvent(BaseEvent):
     """
 
     {
@@ -356,29 +282,7 @@ class AddedToCurrentChainEvent(BaseBlockEvent):
         return _hash
 
 
-class TrySwitchToAForkEvent:
-    """
-    {
-        "at": "2025-09-12T16:51:18.695700181Z",
-        "ns": "ChainDB.AddBlockEvent.TrySwitchToAFork",
-        "data": {
-            "block": {
-                "hash": "838498b0cc666026ec366199ec89afd67a2febc932816acef9bbd2a1f59689a5",
-                "kind": "Point",
-                "slot": 91039878
-            },
-            "kind": "TraceAddBlockEvent.TrySwitchToAFork"
-        },
-        "sev": "Info",
-        "thread": "27",
-        "host": "openblockperf-dev-database1"
-    }
-    """
-
-    pass
-
-
-class SwitchedToAForkEvent(BaseBlockEvent):
+class SwitchedToAForkEvent(BaseEvent):
     """
     {
         "at": "2025-09-12T16:51:18.698911267Z",
@@ -437,34 +341,17 @@ class SwitchedToAForkEvent(BaseBlockEvent):
         return _hash
 
 
-@dataclass
-class PeerStatusChange:
-    """Represents the change of the peer in a StatusChangedEvent.
-
-    That event needs more logic to determine which final state of the peer
-    it represents. The _parse_peer_status_change() function parses that
-    status change message into this change object. Which then can tell
-    the state the event is in."""
-
-    transition: PeerStateTransition
-    state: PeerState
-    local_addr: str
-    local_port: int
-    remote_addr: str
-    remote_port: int
-
-
-class InboundGovernorCountersEvent(BaseBlockEvent):
+class InboundGovernorCountersEvent(BaseEvent):
     """
     {
         "at": "2025-09-24T13:32:19.517600273Z",
         "ns": "Net.InboundGovernor.Remote.InboundGovernorCounters",
         "data": {
-            "coldPeers": 53,
-            "hotPeers": 0,
             "idlePeers": 1,
-            "kind": "InboundGovernorCounters",
+            "coldPeers": 53,
             "warmPeers": 1
+            "hotPeers": 0,
+            "kind": "InboundGovernorCounters",
         },
         "sev": "Info",
         "thread": "124",
@@ -472,10 +359,20 @@ class InboundGovernorCountersEvent(BaseBlockEvent):
     }
     """
 
-    pass
+    class Data(BaseModel):
+        idlePeers: int  # noqa
+        coldPeers: int  # noqa
+        warmPeers: int  # noqa
+        hotPeers: int  # noqa
+        kind: str
+
+    data: Data
+
+    def __str__(self):
+        return f"<{self.__class__.__name__}, idle: {self.data.idlePeers}, cold: {self.data.coldPeers}, warm: {self.data.idlePeers} hot: {self.data.hotPeers}>"
 
 
-class StatusChangedEvent(BaseBlockEvent):
+class StatusChangedEvent(BaseEvent):
     """
     {
         "at": "2025-09-24T13:04:05.509293074Z",
@@ -490,6 +387,16 @@ class StatusChangedEvent(BaseBlockEvent):
     }
     """
 
+    class Data(BaseModel):
+        kind: str
+        peerStatusChangeType: PeerStatusChange  # noqa
+
+    data: Data
+
+    def __str__(self):
+        addr, port = self.peer_addr_port()
+        return f"<{self.__class__.__name__} remote=(addr={addr}, port={port}, at={self.at.isoformat()}>"
+
     @property
     def peer_status_change(self):
         return self._parse_peer_status_change(
@@ -497,7 +404,7 @@ class StatusChangedEvent(BaseBlockEvent):
         )
 
     @property  # Must be property because its an attribute on the other events!
-    def state(self) -> PeerState:
+    def state(self):
         return self.peer_status_change.state
 
     def peer_addr_port(self) -> (str, int):
@@ -506,95 +413,8 @@ class StatusChangedEvent(BaseBlockEvent):
             int(self.peer_status_change.remote_port),
         )
 
-    def _parse_peer_status_change(
-        self, status_change_string: str
-    ) -> PeerStatusChange:
-        """Parse a peer status change string into a structured PeerStatusChange object.
 
-        Damn this is ugly... examples:
-            * "ColdToWarm (Just 172.0.118.125:3001) 118.153.253.133:17314"
-            * "WarmToCooling (ConnectionId {localAddress = [2a05:d014:1105:a503:8406:964c:5278:4c24]:3001, remoteAddress = [2600:4040:b4fd:f40:42e5:c5de:7ed3:ce19]:33525})"
-
-        I am assuming that there are two distinct variants of "Transitions". The ones
-            * For new connections? -> Containing Just
-            * For existing connections? -> Containing ConnectionId
-        If we cant find those, we are screwed.
-        """
-
-        # Extract state transition
-        state_match = re.match(r"(\w+)To(\w+)", status_change_string)
-        if not state_match:
-            raise ValueError(
-                f"Invalid state transition format: {status_change_string}"
-            )
-
-        from_state, to_state = state_match.groups()[0], state_match.groups()[1]  # fmt: off
-        rich.print(f"{from_state=},{to_state=}")
-
-        # Pattern for IPv6 address (with brackets) or IPv4 address
-        # i dont understand this, i asked ai
-        addr_pattern = r"(?:\[([^\]]+)\]|([^:\s]+)):(\d+)"
-
-        # Now either search a 'Just' variant or the 'ConnectionId' one
-        if "Just" in status_change_string:
-            # Build new pattern for 'Just' string to extract local and remote ip and port
-            # e.g.: "StateToState (Just local_addr:port) remote_addr:port"
-            pattern = rf"{from_state}To{to_state} \(Just {addr_pattern}\) {addr_pattern}"
-            match = re.match(pattern, status_change_string)
-            if not match:
-                raise ValueError(
-                    f"Invalid 'Just' format: {status_change_string}"
-                )
-
-            # Groups: (ipv6_local, ipv4_local, port_local, ipv6_remote, ipv4_remote, port_remote)
-            groups = match.groups()
-            local_addr = groups[0] or groups[1]
-            local_port = int(groups[2])
-            remote_addr = groups[3] or groups[4]
-            remote_port = int(groups[5])
-
-        elif "ConnectionId" in status_change_string:
-            # Same thing, build new pattern for 'ConnectionId' string
-            # Pattern: "StateToState (ConnectionId {localAddress = addr:port, remoteAddress = addr:port})"
-            pattern = rf"{from_state}To{to_state} \(ConnectionId \{{localAddress = {addr_pattern}, remoteAddress = {addr_pattern}\}}\)"
-            match = re.match(pattern, status_change_string)
-            if not match:
-                raise ValueError(
-                    f"Invalid 'ConnectionId' format: {status_change_string}"
-                )
-
-            # Groups: (ipv6_local, ipv4_local, port_local, ipv6_remote, ipv4_remote, port_remote)
-            groups = match.groups()
-            local_addr = groups[0] or groups[1]
-            local_port = int(groups[2])
-            remote_addr = groups[3] or groups[4]
-            remote_port = int(groups[5])
-        else:
-            raise ValueError(
-                f"Unrecognized format (no 'Just' or 'ConnectionId'): {status_change_string}"
-            )
-
-        # Check if we actually extraced something that is an ip address
-        try:
-            ip_address(local_addr)
-            ip_address(remote_addr)
-        except ValueError as e:
-            raise ValueError(
-                f"Invalid IP address in connection string: {e}"
-            ) from e
-
-        # Return the finished change this event represents
-        return PeerStatusChange(
-            transition=PeerStateTransition(f"{from_state}To{to_state}"),
-            state=PeerState(to_state),
-            local_addr=local_addr,
-            local_port=local_port,
-            remote_addr=remote_addr,
-            remote_port=remote_port,
-        )
-
-
-class PromotedToWarmRemoteEvent(BaseBlockEvent):
+class PromotedToWarmRemoteEvent(BaseEvent):
     """
         {
         "at": "2025-09-24T13:32:19.859124767Z",
@@ -625,19 +445,28 @@ class PromotedToWarmRemoteEvent(BaseBlockEvent):
     }
     """
 
+    class Data(BaseModel):
+        connectionId: PeerConnectionComplex
+        kind: str
+
+    data: Data
     state: PeerState = PeerState.WARM
 
-    def peer_addr_port(self) -> (str, int):
-        con_id = self.data.get("connectionId")
-        remote = con_id.get("remoteAddress")
-        return (remote.get("address"), int(remote.get("port")))
-
-    def __repr__(self):
+    def __str__(self):
         addr, port = self.peer_addr_port()
-        return f"{self.__class__.__name__}(addr={addr}, port={port}, at={self.at.isoformat()})"
+        return f"<{self.__class__.__name__} remote=(addr={addr}, port={port}, at={self.at.isoformat()}>"
+
+    def peer_addr_port(self) -> (str, int):
+        remote_addr = self.data.connectionId.remoteAddress.address
+        remote_port = self.data.connectionId.remoteAddress.port
+        return (remote_addr, remote_port)
+
+    # def __repr__(self):
+    #    addr, port = self.peer_addr_port()
+    #    return f"{self.__class__.__name__}(addr={addr}, port={port}, at={self.at.isoformat()})"
 
 
-class PromotedToHotRemoteEvent(BaseBlockEvent):
+class PromotedToHotRemoteEvent(BaseEvent):
     """
     {
         "at": "2025-09-24T13:32:19.888897773Z",
@@ -661,43 +490,80 @@ class PromotedToHotRemoteEvent(BaseBlockEvent):
     }
     """
 
+    class Data(BaseModel):
+        connectionId: PeerConnectionComplex
+        kind: str
+
+    data: Data
     state: PeerState = PeerState.HOT
 
-    def peer_addr_port(self) -> (str, int):
-        con_id = self.data.get("connectionId")
-        remote = con_id.get("remoteAddress")
-        return (remote.get("address"), int(remote.get("port")))
-
-    def __repr__(self):
+    def __str__(self):
         addr, port = self.peer_addr_port()
-        return f"{self.__class__.__name__}(addr={addr}, port={port}, at={self.at.isoformat()})"
+        return f"<{self.__class__.__name__} remote=(addr={addr}, port={port}, at={self.at.isoformat()}>"
+
+    def peer_addr_port(self) -> (str, int):
+        remote_addr = self.data.connectionId.remoteAddress.address
+        remote_port = self.data.connectionId.remoteAddress.port
+        return (remote_addr, remote_port)
 
 
-class DemotedToColdRemoteEvent(BaseBlockEvent):
+class DemotedToColdRemoteEvent(BaseEvent):
+    class Data(BaseModel):
+        connectionId: PeerConnectionComplex
+        kind: str
+
+    data: Data
     state: PeerState = PeerState.COLD
 
     def peer_addr_port(self) -> (str, int):
-        con_id = self.data.get("connectionId")
-        remote = con_id.get("remoteAddress")
-        return (remote.get("address"), int(remote.get("port")))
+        remote_addr = self.data.connectionId.remoteAddress.address
+        remote_port = self.data.connectionId.remoteAddress.port
+        return (remote_addr, remote_port)
 
-    def __repr__(self):
+    def __str__(self):
         addr, port = self.peer_addr_port()
-        return f"{self.__class__.__name__}(addr={addr}, port={port}, at={self.at.isoformat()})"
+        return f"<{self.__class__.__name__} remote=(addr={addr}, port={port}, at={self.at.isoformat()}>"
 
 
-class DemotedToWarmRemoteEvent(BaseBlockEvent):
+class DemotedToWarmRemoteEvent(BaseEvent):
+    class Data(BaseModel):
+        connectionId: PeerConnectionComplex
+        kind: str
+
+    data: Data
     state: PeerState = PeerState.WARM
 
     def peer_addr_port(self) -> (str, int):
-        con_id = self.data.get("connectionId")
-        remote = con_id.get("remoteAddress")
-        return (remote.get("address"), int(remote.get("port")))
+        remote_addr = self.data.connectionId.remoteAddress.address
+        remote_port = self.data.connectionId.remoteAddress.port
+        return (remote_addr, remote_port)
 
     def __repr__(self):
         addr, port = self.peer_addr_port()
         return f"{self.__class__.__name__}(addr={addr}, port={port}, at={self.at.isoformat()})"
 
 
-class StartedEvent(BaseBlockEvent):
+class StartedEvent(BaseEvent):
     pass
+
+
+class BlockSample(BaseModel):
+    host: str = Field(..., description="Hostname of client")
+    block_hash: str = Field(..., description="Block hash")
+    block_number: int = Field(..., description="Block number")
+    block_size: int = Field(..., description="Block size")
+    block_g: float = Field(..., description="Block G value")
+    slot: int = Field(..., description="Slot number")
+    slot_time: str = Field(..., description="ISO 8601 datetime string")
+    header_remote_addr: str = Field(..., description="Header remote address")
+    header_remote_port: int = Field(..., description="Header remote port")
+    header_delta: int = Field(..., description="Header delta")
+    block_remote_addr: str = Field(..., description="Block remote address")
+    block_remote_port: int = Field(..., description="Block remote port")
+    block_request_delta: int = Field(..., description="Block request delta")
+    block_response_delta: int = Field(..., description="Block response delta")
+    block_adopt_delta: int = Field(..., description="Block adopt delta")
+    local_addr: str = Field(..., description="Address of node")
+    local_port: int = Field(..., description="Port of node")
+    magic: int = Field(..., description="network magic")
+    client_version: str = Field(..., description="client version")
