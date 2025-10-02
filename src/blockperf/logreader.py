@@ -172,7 +172,9 @@ class JournalCtlLogReader(NodeLogReader):
                 search_string,  # Search for the string
             ]
 
-            logger.debug(f"Searching for {search_string}")
+            logger.debug(
+                f"Searching peer {search_string} since {since_hours} hours ago"
+            )
 
             # Execute the search command as a streaming process
             process = await asyncio.create_subprocess_exec(
