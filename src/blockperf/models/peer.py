@@ -37,7 +37,6 @@ class PeerDirection(Enum):
 
 class PeerState(Enum):
     UNKNOWN = "Unknown"
-    LOSTCONNECTION = "LostConnection"
     COLD = "Cold"
     WARM = "Warm"
     HOT = "Hot"

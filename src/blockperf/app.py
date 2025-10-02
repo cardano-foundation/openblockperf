@@ -73,19 +73,12 @@ class Blockperf:
                 f"Task group failed with {len(eg.exceptions)} exceptions"
             )
 
-            critical_errors = []
             for exc in eg.exceptions:
                 if isinstance(exc, TaskError):
                     logger.error(f"Critical task error: {exc}")
-                    critical_errors.append(exc)
+                    raise
                 else:
-                    logger.exception("Task failed", exc_info=exc)
-
-            # Re-raise if we have critical errors that should stop the application
-            if critical_errors:
-                raise TaskError(
-                    f"Critical task failures: {len(critical_errors)} errors"
-                )
+                    logger.exception("Task failed")
 
     async def stop(self):
         """Gracefully stop the application and clean up resources."""
