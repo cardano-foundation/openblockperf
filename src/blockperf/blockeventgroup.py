@@ -87,18 +87,24 @@ class BlockEventGroup:
     def _(self, event: DownloadedHeaderEvent):
         # Store the first header this group has seen
         # If known already, maybe update when the event is newer
-        if self.block_header and event.at < self.block_header.at:
-            logger.warning("Newer DownloadedHeaderFound")
-            self.block_header = event.at
+        logger.debug(
+            f"Header\t{event.block_hash[:8]} from {event.peer_addr}:{event.peer_port}"
+        )
+
+        # If we dont already know any header assume its the the first
+        if self.block_header:
+            if event.at < self.block_header.at:
+                logger.warning(
+                    "New first Header received",
+                    old_header=self.block_header,
+                    new_header=event,
+                )
+                self.block_header = event
         else:
-            logger.debug(
-                f"Header received",
-                peer_addr={event.peer_addr},
-                peer_port={event.peer_port},
-                block_hash=event.block_hash,
-            )
+            assert not self.block_header, "Header already set"
             self.block_header = event
-        # these should all be the same for all header events
+
+        # these should all be the same for all header events, no?
         if not self.slot:
             self.slot = event.slot
         if not self.slot_time:

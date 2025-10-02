@@ -18,15 +18,13 @@ run_app = typer.Typer(
     help="Run the blockperf client",
     invoke_without_command=True,
 )
+console = Console(file=sys.stdout, force_terminal=True)
 
 
 @run_app.callback()
 def run_app_callback():
     """Runs the blockperf client."""
     try:
-        console = Console(file=sys.stdout, force_terminal=True)
-        # console = Console()
-        console.print("AAAAA")
         app = Blockperf(console)
         asyncio.run(_run_blockperf_app(app))
     except KeyboardInterrupt:
@@ -51,7 +49,7 @@ async def _run_blockperf_app(app: Blockperf):
     shutdown_event = asyncio.Event()
 
     def signal_handler():
-        logger.info("Received shutdown signal")
+        console.print("Received shutdown signal")
         shutdown_event.set()
 
     # Register signal handlers
@@ -82,7 +80,7 @@ async def _run_blockperf_app(app: Blockperf):
             await app_task  # This will re-raise any exception if there was one
 
     except asyncio.CancelledError:
-        logger.info("Application was cancelled")
+        console.print("Application was cancelled")
     except Exception:
         logger.exception("Error in _run_blockperf_app")
         raise

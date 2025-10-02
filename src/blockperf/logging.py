@@ -28,7 +28,7 @@ logger.add(
     rotation="50 MB",
     compression="zip",
     level="TRACE",
-    format="{time} | {message} | {extra}",
+    format="{time:YYYY-MM-DD}T{time:HH:mm:ss}.{time:SSS} | {message} | {extra}",
 )
 
 # logger.add(

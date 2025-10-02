@@ -13,6 +13,7 @@ from blockperf.errors import BlockperfError, ConfigurationError, TaskError
 from blockperf.listeners.block import BlockListener
 from blockperf.listeners.peer import PeerListener
 from blockperf.logreader import NodeLogReader, create_log_reader
+from blockperf.models.peer import PeerState
 from blockperf.processor import EventProcessor
 
 # console = Console()
@@ -21,6 +22,7 @@ from blockperf.processor import EventProcessor
 class Blockperf:
     log_reader: NodeLogReader  # the log reader this processor is using
     console: Console
+    since_hours: int
 
     def __init__(self, console: Console):
         try:
@@ -32,6 +34,7 @@ class Blockperf:
             self.peer_listener = PeerListener()
             # Tracks running tasks for cleanup
             self._tasks: dict[str, asyncio.Task] = {}
+            self.since_hours = 0
 
         except Exception as e:
             logger.opt(exception=True).debug(f"Initialization failed: {e}")
@@ -53,9 +56,15 @@ class Blockperf:
                 self._tasks["event_processor"] = tg.create_task(
                     self._run_task("event_processor", self.process_events)
                 )
-                self._tasks["peer_updater"] = tg.create_task(
+                self._tasks["update_peers_connections"] = tg.create_task(
                     self._run_task(
-                        "peer_updater", self.update_peers_from_connections
+                        "update_peers_connections",
+                        self.update_peers_connections,
+                    )
+                )
+                self._tasks["update_peers_unknown"] = tg.create_task(
+                    self._run_task(
+                        "update_peers_unknown", self.update_peers_unknown
                     )
                 )
                 self._tasks["block_sender"] = tg.create_task(
@@ -69,32 +78,29 @@ class Blockperf:
             self.console.print("Tasks cancelled - shutdown initiated")
 
         except* Exception as eg:
-            logger.error(
-                f"Task group failed with {len(eg.exceptions)} exceptions"
-            )
-
-            for exc in eg.exceptions:
-                if isinstance(exc, TaskError):
+            if eg.exceptions:
+                logger.error(
+                    f"Task group failed with {len(eg.exceptions)} exceptions"
+                )
+                for exc in eg.exceptions:
                     logger.error(f"Critical task error: {exc}")
-                    raise
-                else:
-                    logger.exception("Task failed")
+                    raise exc
 
     async def stop(self):
         """Gracefully stop the application and clean up resources."""
-        logger.info("Stopping Blockperf application")
+        self.console.print("Stopping Blockperf application")
 
         # Cancel all running tasks
         for task_name, task in self._tasks.items():
             if not task.done():
-                logger.debug(f"Cancelling task: {task_name}")
+                self.console.print(f"Cancelling task: {task_name}")
                 task.cancel()
 
         # Wait for tasks to finish cancellation
         if self._tasks:
             await asyncio.gather(*self._tasks.values(), return_exceptions=True)
 
-        logger.info("Blockperf application stopped")
+        self.console.print("Blockperf application stopped")
 
     async def _run_task(self, task_name: str, task):
         """Wrapper that provides consistent error handling for all tasks."""
@@ -123,7 +129,7 @@ class Blockperf:
         will continiously yield new log messages. See NodeLogReader base
         class which provides the abstract interface.
         """
-        self.console.print("Stat event processor")
+        self.console.print("Starting event processor")
         async with self.log_reader as log_reader:
             async for message in log_reader.read_messages():
                 # event = parse_log_message(message)
@@ -138,19 +144,16 @@ class Blockperf:
                     await self.peer_listener.insert(message)
                 # self.collector.add_event(event)
 
-    async def update_peers_from_connections(self) -> None:
-        """Updates the connections list.
+    async def update_peers_connections(self) -> None:
+        """Updates peers from the the connections list.
 
         Compares the list of peers with current active connections on the
         system. The idea being that especially on startup, there might already
         be alot of peers in the node, that we will never get notified about.
         This adds peers to that list with a state of unknown.
-
-        Later on we might search for these peers in the logs to get their
-        current state in the node. Since i dont see us being able to ask
-        the node directly anytime soon.
         """
         while True:
+            await asyncio.sleep(20)  # wait at least 60 seconds before first run
             connections = []
             for conn in psutil.net_connections():
                 if conn.status != "ESTABLISHED":
@@ -160,8 +163,47 @@ class Blockperf:
                 addr, port = conn.raddr
                 connections.append(conn)
 
-            await self.peer_listener.update_peers_from_connections(connections)
-            await asyncio.sleep(30)  # add peers every 30 seconds
+            if connections:
+                await self.peer_listener.update_peers_from_connections(
+                    connections
+                )
+
+    async def update_peers_unknown(self) -> None:
+        """Update unknown peers by searching the logreader for older messages"""
+        # should run after thefirst update_peers_connections did
+        while True:
+            await asyncio.sleep(40)
+            peers = [
+                p
+                for p in self.peer_listener.peers.values()
+                if p.state == PeerState.UNKNOWN
+            ]
+            self.since_hours = (
+                self.since_hours + 12 if self.since_hours < 720 else 720
+            )
+
+            # If there are no unknown, no need to update
+            if not peers:
+                continue
+
+            self.console.print(
+                f"Update {len(peers)} peers in state UNKNOWN by searching for logs in the last {self.since_hours} hours"
+            )
+
+            for peer in peers:
+                # Trying to not search the whole history at once.
+                # The more iterations there are the less peers and the longer the
+                # time period to search in for.
+                async for message in self.log_reader.search_messages(
+                    peer.addr, since_hours=self.since_hours
+                ):
+                    if (
+                        message.get("ns")
+                        in self.peer_listener.registered_namespaces
+                    ):
+                        # Found a message, insert it and break loop for peer
+                        await self.peer_listener.insert(message)
+                        break
 
     async def send_block_samples(self):
         """The BlockListener collects samples, send_blocks sends these to the api."""

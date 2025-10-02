@@ -135,11 +135,11 @@ class PeerListener(EventListener):
                     state=PeerState.UNKNOWN,
                 )
             connection_keys.append(key)  # store keys to know which are new
-        logger.debug(
-            f"Created {new_peers} peers from {len(connections)} connections"
-        )
-        for peer_key in self.peers:
-            # find peers without a connection
-            if peer_key not in connection_keys:
-                self.peers[peer_key].state = PeerState.LOSTCONNECTION
-                # logger.debug(f"Peer {self.peers[peer_key]} lost connection")
+
+        # Find the keys (peers) that
+        keys_to_remove = [pk for pk in self.peers if pk not in connection_keys]
+        for peer_key in keys_to_remove:
+            logger.debug(
+                f"Removed {self.peers[peer_key]} from peers because it has no connection"
+            )
+            del self.peers[peer_key]

@@ -34,6 +34,20 @@ class NodeLogReader(abc.ABC):
         """Close the connection to the log source."""
         pass
 
+    @abc.abstractmethod
+    async def search_messages(
+        self, search_string: str
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Search historical messages for a given string.
+
+        Args:
+            search_string: The string to search for in log messages
+
+        Yields:
+            Matching log messages as dictionaries
+        """
+        pass
+
     async def __aenter__(self):
         await self.connect()
         return self
@@ -128,13 +142,115 @@ class JournalCtlLogReader(NodeLogReader):
             except Exception as e:
                 print(f"Error processing journalctl line: {e}")
 
+    async def search_messages(
+        self, search_string: str, since_hours: int
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Search historical messages using journalctl for a given string.
+
+        Args:
+            search_string: The string to search for in log messages
+            since: The journalctl since argument, defaults to "60 minutes ago"
+
+        Yields:
+            Matching log messages as dictionaries as they are found
+        """
+        process = None
+
+        try:
+            # Build journalctl search command
+            cmd = [
+                "journalctl",
+                "--unit",
+                self.unit,  # Filter by service unit
+                "-o",
+                "cat",  # Output format: only message content
+                "--no-pager",  # Don't use pager
+                "--reverse",  # Show newest first
+                "--since",
+                f"{since_hours} hours ago",
+                "--grep",
+                search_string,  # Search for the string
+            ]
+
+            logger.debug(f"Searching for {search_string}")
+
+            # Execute the search command as a streaming process
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=10000000,  # 10MB Buffer size
+            )
+
+            # Stream results as they come in
+            while True:
+                line = await process.stdout.readline()
+
+                if not line:
+                    # Check if process has finished
+                    if (
+                        process.returncode is not None
+                        or process.stdout.at_eof()
+                    ):
+                        break
+                    continue
+
+                line_str = line.decode("utf-8").strip()
+                if not line_str:  # Skip empty lines
+                    continue
+
+                try:
+                    # Try to parse as JSON (assuming cardano-tracer outputs JSON)
+                    message = json.loads(line_str)
+                    yield message
+                except json.JSONDecodeError:
+                    # If not JSON, treat as plain text message
+                    yield {"message": line_str, "raw": True}
+                except Exception as e:
+                    logger.warning(f"Error parsing search result line: {e}")
+                    continue
+
+            # Wait for process to finish and check return code
+            await process.wait()
+            if process.returncode != 0:
+                stderr_data = await process.stderr.read()
+                error_msg = (
+                    stderr_data.decode("utf-8")
+                    if stderr_data
+                    else "Unknown error"
+                )
+                logger.warning(
+                    f"journalctl search finished with return code {process.returncode}: {error_msg}"
+                )
+
+        except Exception as e:
+            logger.error(f"Error during log search: {e}")
+        finally:
+            # Clean up the process if it's still running
+            if process and process.returncode is None:
+                try:
+                    process.terminate()
+                    await asyncio.wait_for(process.wait(), timeout=1.0)
+                except TimeoutError:
+                    logger.warning(
+                        "journalctl search process didn't terminate, killing it"
+                    )
+                    process.kill()
+                    await process.wait()
+
 
 def create_log_reader(reader_type: str, unit: str | None):
-    """Creates a log reader of the given type."""
+    """Creates a log reader of the given type.
+    Args:
+        reader_type: The type of the reader, currently only journalctl is supported
+        unit: The unit to follow the log stream of. Defaults to cardano-tracer
+
+    Returns:
+    """
     unit = unit or "cardano-tracer"
     if reader_type == "journalctl":
         return JournalCtlLogReader(unit=unit)
     else:
         raise ValueError(
-            "Unsupported log source type. Use 'file', 'journald', or 'journalctl'."
+            "Unsupported log reader type. Only 'journalctl' is allowed currently."
         )
