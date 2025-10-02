@@ -6,14 +6,11 @@ logreader
 import abc
 import asyncio
 import json
-import logging
-import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import rich
-
-logger = logging.getLogger()
+from loguru import logger
 
 
 class NodeLogReader(abc.ABC):
@@ -60,12 +57,11 @@ class JournalCtlLogReader(NodeLogReader):
         """
         self.unit = unit
         self.process = None
-        print(f"created JournalCtlLogReader for {self.unit}")
+        logger.debug(f"Created JournalCtlLogReader for {self.unit}")
 
     async def connect(self) -> None:
         """Connect by starting the journalctl subprocess."""
         try:
-            print("connecting via journalctl subprocess")
             # Build the journalctl command: journalctl -f -u <service> -o json
             # and create a Process instance
             cmd = [
@@ -79,7 +75,8 @@ class JournalCtlLogReader(NodeLogReader):
                 "--since",
                 "now",  # Only show entries from now on
             ]
-            rich.print(cmd)
+            logger.debug("Connecting via journalctl subprocess", cmd=cmd)
+
             self.process: asyncio.subprocess.Process = (
                 await asyncio.create_subprocess_exec(
                     *cmd,
@@ -106,8 +103,8 @@ class JournalCtlLogReader(NodeLogReader):
             self.process.kill()  # sends SIGKILL
             await self.process.wait()  # ensure OS has time to kill
 
+        # unset process
         self.process = None
-        raise RuntimeError("Closed journalctl")
 
     async def read_messages(self) -> AsyncGenerator[dict[str, Any], None]:
         """Read messages (lines) from journalctl subprocess as an async generator."""
@@ -116,7 +113,7 @@ class JournalCtlLogReader(NodeLogReader):
 
         while True:
             line = await self.process.stdout.readline()
-            # rich.print(line)
+
             if not line:
                 print("EOF reached from journalctl subprocess")
                 break

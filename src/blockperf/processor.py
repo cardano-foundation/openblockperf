@@ -75,7 +75,6 @@ class EventProcessor:
         will continiously yield new log messages. See NodeLogReader base
         class which provides the abstract interface.
         """
-
         async with self.log_reader as log_reader:
             async for message in log_reader.read_messages():
                 # event = parse_log_message(message)

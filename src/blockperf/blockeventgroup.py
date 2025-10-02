@@ -6,12 +6,12 @@ from functools import singledispatchmethod
 from typing import Any, Literal
 
 import rich
+from loguru import logger
 
 from blockperf import __version__
 from blockperf.config import settings
 from blockperf.errors import EventError
 from blockperf.listeners.base import EventListener
-from blockperf.logging import logger
 from blockperf.models.event import (
     AddedToCurrentChainEvent,
     BaseEvent,
@@ -92,7 +92,9 @@ class BlockEventGroup:
             self.block_header = event.at
         else:
             logger.debug(
-                f"Header {event.block_hash[:8]} received from {event.peer_ip}",
+                f"Header received",
+                peer_addr={event.peer_addr},
+                peer_port={event.peer_port},
                 block_hash=event.block_hash,
             )
             self.block_header = event
@@ -110,11 +112,15 @@ class BlockEventGroup:
     def _(self, event: SendFetchRequestEvent):
         # self.block_requested will be set when the node actually did download
         # that block and completed it.
-        logger.debug(f"Requested\t{event.block_hash[:8]} from {event.peer_ip}")
+        logger.debug(
+            f"Requested\t{event.block_hash[:8]} from {event.peer_addr}"
+        )
 
     @_handle_event.register
     def _(self, event: CompletedBlockFetchEvent):
-        logger.debug(f"Downloaded\t{event.block_hash[:8]} from {event.peer_ip}")
+        logger.debug(
+            f"Downloaded\t{event.block_hash[:8]} from {event.peer_addr}"
+        )
         if not self.block_completed:
             self.block_completed = event
             # Now that we have a block downloaded, find the fetch request for it
@@ -251,10 +257,10 @@ class BlockEventGroup:
             block_g = self.block_g,
             slot = self.slot,
             slot_time = self.slot_time.isoformat(),
-            header_remote_addr = self.block_header.peer_ip,
+            header_remote_addr = self.block_header.peer_addr,
             header_remote_port = self.block_header.peer_port,
             header_delta = int(self.header_delta.total_seconds() * 1000),
-            block_remote_addr = self.block_completed.peer_ip,
+            block_remote_addr = self.block_completed.peer_addr,
             block_remote_port = self.block_completed.peer_port,
             block_request_delta = int(self.block_request_delta.total_seconds() * 1000),
             block_response_delta = int(self.block_response_delta.total_seconds() * 1000),
@@ -272,7 +278,7 @@ class BlockEventGroup:
         for e in self.events:
             if (
                 isinstance(e, SendFetchRequestEvent)
-                and e.peer_ip == event.peer_ip
+                and e.peer_addr == event.peer_addr
                 and e.peer_port == event.peer_port
             ):
                 return e

@@ -27,12 +27,10 @@ logger.add(
     "logs.txt",
     rotation="50 MB",
     compression="zip",
+    level="TRACE",
+    format="{time} | {message} | {extra}",
 )
-logger.add(
-    sys.stdout,
-    format="<blue>{time:HH:mm:ss,SS}</blue> {message}",
-    level="INFO",
-)
+
 # logger.add(
 #    sys.stderr,
 #    format="{time} {level} {message}",

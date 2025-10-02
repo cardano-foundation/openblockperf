@@ -106,12 +106,16 @@ class PeerListener(EventListener):
         hot = [p for p in peers if p.state == PeerState.HOT]
         cooling = [p for p in peers if p.state == PeerState.COOLING]
         unknown = [p for p in peers if p.state == PeerState.UNKNOWN]
+        connected = [p for p in peers if p.state != PeerState.LOSTCONNECTION]
+        unconnected = [p for p in peers if p.state == PeerState.LOSTCONNECTION]
         return {
             "cold": len(cold),
             "warm": len(warm),
             "hot": len(hot),
             "cooling": len(cooling),
             "unknown": len(unknown),
+            "total (connected)": len(connected),
+            "total (unconnected)": len(unconnected),
             "total": len(self.peers),
         }
 
@@ -142,4 +146,4 @@ class PeerListener(EventListener):
             # find peers without a connection
             if peer_key not in connection_keys:
                 self.peers[peer_key].state = PeerState.LOSTCONNECTION
-                logger.debug(f"Peer {self.peers[peer_key]} lost connection")
+                # logger.debug(f"Peer {self.peers[peer_key]} lost connection")

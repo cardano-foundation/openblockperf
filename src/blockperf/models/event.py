@@ -117,7 +117,7 @@ class DownloadedHeaderEvent(BaseEvent):
         return self.data.slot
 
     @property
-    def peer_ip(self) -> str:
+    def peer_addr(self) -> str:
         """Ip address of peer the header was downloaded from"""
         return self.data.peer.connectionId.remote_addr
 
@@ -160,7 +160,7 @@ class SendFetchRequestEvent(BaseEvent):
         return self.data.head
 
     @property
-    def peer_ip(self) -> str:
+    def peer_addr(self) -> str:
         """Ip address of peer asked to download the block from"""
         return self.data.peer.connectionId.remote_addr
 
@@ -212,7 +212,7 @@ class CompletedBlockFetchEvent(BaseEvent):
         return self.data.size
 
     @property
-    def peer_ip(self) -> str:
+    def peer_addr(self) -> str:
         """Ip address of peer the block was downloaded from"""
         return self.data.peer.connectionId.remote_addr
 
@@ -399,18 +399,16 @@ class StatusChangedEvent(BaseEvent):
 
     @property
     def peer_status_change(self):
-        return self._parse_peer_status_change(
-            self.data.get("peerStatusChangeType")
-        )
+        return self.data.peerStatusChangeType
 
     @property  # Must be property because its an attribute on the other events!
     def state(self):
-        return self.peer_status_change.state
+        return self.peer_status_change.to_state
 
     def peer_addr_port(self) -> (str, int):
         return (
             self.peer_status_change.remote_addr,
-            int(self.peer_status_change.remote_port),
+            self.peer_status_change.remote_port,
         )
 
 

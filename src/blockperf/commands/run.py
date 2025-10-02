@@ -1,17 +1,17 @@
 import asyncio
+import contextlib
+import signal
+import sys
 from datetime import datetime
 
-import rich
 import typer
 from rich.console import Console
 
 from blockperf.apiclient import BlockperfApiClient
 from blockperf.app import Blockperf
-from blockperf.async_utils import run_async
 from blockperf.config import settings
+from blockperf.errors import BlockperfError, ConfigurationError
 from blockperf.logging import logger
-
-console = Console()
 
 run_app = typer.Typer(
     name="run",
@@ -22,23 +22,70 @@ run_app = typer.Typer(
 
 @run_app.callback()
 def run_app_callback():
-    """Runs the blockperf client.
-
-    Creates a log reader first and then the event processor. The event
-    processor uses the log reader to read log events and process them.
-    The event processor is run inside an asyncio
-    """
+    """Runs the blockperf client."""
     try:
-        app = Blockperf()
-        run_async(_run_blockperf_app(app))
+        console = Console(file=sys.stdout, force_terminal=True)
+        # console = Console()
+        console.print("AAAAA")
+        app = Blockperf(console)
+        asyncio.run(_run_blockperf_app(app))
     except KeyboardInterrupt:
-        console.print("\n[bold yellow]Monitoring stopped.[/]")
+        console.print("\n[bold green]Shutdown initiated by user[/]")
+        sys.exit(0)
+    except ConfigurationError as e:
+        console.print(f"[bold red]Configuration error:[/] {e}")
+        sys.exit(1)
+    except BlockperfError as e:
+        console.print(f"[bold red]Application error:[/] {e}")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[bold red]Unexpected error:[/] {e}")
+        logger.exception("Unexpected error in run_app_callback")
+        sys.exit(1)
 
 
 async def _run_blockperf_app(app: Blockperf):
     """Asyncronously run the Blockperf app."""
+
+    # Set up signal handlers for graceful shutdown
+    shutdown_event = asyncio.Event()
+
+    def signal_handler():
+        logger.info("Received shutdown signal")
+        shutdown_event.set()
+
+    # Register signal handlers
+    if sys.platform != "win32":
+        loop = asyncio.get_running_loop()
+        for sig in [signal.SIGINT, signal.SIGTERM]:
+            loop.add_signal_handler(sig, signal_handler)
+
     try:
-        await app.start()
+        # Start the app with shutdown coordination
+        app_task = asyncio.create_task(app.start())
+        shutdown_task = asyncio.create_task(shutdown_event.wait())
+
+        # Wait for either app completion or shutdown signal
+        done, pending = await asyncio.wait(
+            [app_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED
+        )
+
+        # Cancel any remaining tasks
+        for task in pending:
+            task.cancel()
+            # instead of try/catch pass
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        # Check if app_task completed with an exception
+        if app_task in done and not app_task.cancelled():
+            await app_task  # This will re-raise any exception if there was one
+
     except asyncio.CancelledError:
-        rich.print("[bold red]Blockperf app got canceled![/]")
+        logger.info("Application was cancelled")
+    except Exception:
+        logger.exception("Error in _run_blockperf_app")
+        raise
+    finally:
+        # Ensure clean shutdown
         await app.stop()
