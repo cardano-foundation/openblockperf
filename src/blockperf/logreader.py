@@ -166,8 +166,8 @@ class JournalCtlLogReader(NodeLogReader):
                 "cat",  # Output format: only message content
                 "--no-pager",  # Don't use pager
                 "--reverse",  # Show newest first
-                "--since",
-                f"{since_hours} hours ago",
+                "--since" if since_hours else "",
+                f"{since_hours} hours ago" if since_hours else "",
                 "--grep",
                 search_string,  # Search for the string
             ]

@@ -37,6 +37,7 @@ class PeerDirection(Enum):
 
 class PeerState(Enum):
     UNKNOWN = "Unknown"
+    UNCONNECTED = "Unconnected"
     COLD = "Cold"
     WARM = "Warm"
     HOT = "Hot"
@@ -52,17 +53,30 @@ class PeerStateTransition(Enum):
     COOLING_TO_COLD = "CoolingToCold"
 
 
-@dataclass
-class Peer:
+class Peer(BaseModel):
     """A Peer is a remote node this (local) node is connected with.
 
     The Peers are uniquely identified by the ip address and port combination.
+    They are kept in a dict using a tuple of the address and port combination
+    as the key.
+
+    A Peer can be connected with this node in two ways.
+    * Incoming connections: Someone opened a connection to us.
+    * Outgoing connections: We opened a connetion to someone.
+
+    The messages from the logs do not clearly indicate which connection is
+    incoming or outgoing. We must try to figure it out by assuming that the
+    connections are usually made to service ports in the 1000-10000 range.
+    While outgoing connections
+
+
 
     """
 
     addr: str
     port: int
-    state: PeerState = PeerState.UNKNOWN
+    state_inbound: PeerState = PeerState.UNCONNECTED
+    state_outbound: PeerState = PeerState.UNCONNECTED
     last_updated: datetime = field(default_factory=datetime.now)
     direction: PeerDirection | None = None
     geo_info: dict | None = None

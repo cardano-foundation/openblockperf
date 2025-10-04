@@ -4,7 +4,7 @@ Its rather simple by only providing basic http verbs to use.
 
 Example Usage:
 
-async with BlockperfApiClient(base_url, client_id, secret) as client:
+async with BlockperfApiClient(base_url, clientid, secret) as client:
     data = await client.get("users")
 
 
@@ -32,6 +32,7 @@ import httpx
 from loguru import logger
 from pydantic import BaseModel
 
+from blockperf.clientid import get_clientid
 from blockperf.config import settings
 from blockperf.errors import NetworkError
 
@@ -46,7 +47,7 @@ class BlockperfApiClient:
     async requests with automatic JSON/Pydantic conversion.
 
     Usage:
-        async with BlockperfApiClient(base_url, client_id, client_secret) as client:
+        async with BlockperfApiClient(base_url, clientid, client_secret) as client:
             result = await client.get("endpoint", response_model=MyModel)
     """
 
@@ -56,7 +57,7 @@ class BlockperfApiClient:
         **httpx_kwargs,
     ):
         self._url = f"{settings().api_base_url}:{settings().api_base_port}{settings().api_base_path}"
-        self.client_id: str | None = settings().api_client_id
+        self.clientid: str | None = settings().api_clientid
         self.client_secret: str | None = settings().api_client_secret
         self.api_key = settings().api_key
         self._token: str | None = None
@@ -97,6 +98,7 @@ class BlockperfApiClient:
         if not self.api_key:
             raise RuntimeError("No api key found")
         headers["X-Api-Key"] = self.api_key
+        headers["X-Client-Id"] = get_clientid()
 
         response = await self._client.request(
             method,
@@ -120,8 +122,12 @@ class BlockperfApiClient:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP {e.response.status_code} error for {method} {endpoint}: {e.response.text}")
-            raise NetworkError(f"API request failed: {e.response.status_code} {e.response.reason_phrase}") from e
+            logger.error(
+                f"HTTP {e.response.status_code} error for {method} {endpoint}: {e.response.text}"
+            )
+            raise NetworkError(
+                f"API request failed: {e.response.status_code} {e.response.reason_phrase}"
+            ) from e
         except httpx.TimeoutException as e:
             logger.error(f"Timeout error for {method} {endpoint}")
             raise NetworkError(f"API request timed out: {e}") from e
@@ -149,7 +155,7 @@ class BlockperfApiClient:
         """Get a challenge from the server for authentication."""
         response = await self._client.get(
             "/auth/challenge",
-            params={"client_id": self.client_id},
+            params={"clientid": self.clientid},
         )
         response.raise_for_status()
 
@@ -170,7 +176,7 @@ class BlockperfApiClient:
         response = await self._client.post(
             "/auth/token",
             json={
-                "client_id": self.client_id,
+                "clientid": self.clientid,
                 "challenge": challenge,
                 "solution": solution,
             },
@@ -261,7 +267,7 @@ async def api():
     """
     settings = settings()
     client = BlockperfApiClient(
-        settings.api_base_url, client_id, client_secret, **kwargs
+        settings.api_base_url, clientid, client_secret, **kwargs
     )
     async with client:
         yield client

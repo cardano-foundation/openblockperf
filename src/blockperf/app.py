@@ -179,7 +179,7 @@ class Blockperf:
                 if p.state == PeerState.UNKNOWN
             ]
             self.since_hours = (
-                self.since_hours + 12 if self.since_hours < 720 else 720
+                self.since_hours + 12 if self.since_hours < 2000 else 2000
             )
 
             # If there are no unknown, no need to update
@@ -187,9 +187,9 @@ class Blockperf:
                 continue
 
             self.console.print(
-                f"Update {len(peers)} peers in state UNKNOWN by searching for logs in the last {self.since_hours} hours"
+                f"Search {len(peers)} peers in state UNKNOWN in logs of the last {self.since_hours} hours"
             )
-
+            updated = 0
             for peer in peers:
                 # Trying to not search the whole history at once.
                 # The more iterations there are the less peers and the longer the
@@ -201,9 +201,11 @@ class Blockperf:
                         message.get("ns")
                         in self.peer_listener.registered_namespaces
                     ):
+                        updated += 1
                         # Found a message, insert it and break loop for peer
                         await self.peer_listener.insert(message)
                         break
+            self.console.print(f"Found {updated} peers in logs")
 
     async def send_block_samples(self):
         """The BlockListener collects samples, send_blocks sends these to the api."""

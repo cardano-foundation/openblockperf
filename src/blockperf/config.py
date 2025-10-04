@@ -31,7 +31,7 @@ class AppSettings(BaseSettings):
     api_base_port: int = 8080
     api_base_path: str = "/api/v0/"
     api_key: str = "NrYQB2K4osWorjEPLrDUtriNwTmt5pML3Cg5PWMhj8M"
-    api_client_id: str | None = None
+    api_clientid: str | None = None
     api_client_secret: str | None = None
     check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block

@@ -45,7 +45,6 @@ class PeerListener(EventListener):
     async def insert(self, message) -> None:
         """Insert a new"""
         try:
-            logger.debug("Insert Peer event to listener")
             event = self.make_event(message)
             if hasattr(event, "peer_addr_port"):
                 addr, port = event.peer_addr_port()
@@ -55,7 +54,6 @@ class PeerListener(EventListener):
                     logger.debug(f"{self.peers[key]} created")
                 peer = self.peers[key]
                 peer.state = event.state
-                logger.debug(peer)
             # Handle type specifics through _handle_event
             self._handle_event(event)
         except EventError as e:
@@ -132,7 +130,6 @@ class PeerListener(EventListener):
                 self.peers[key] = Peer(
                     addr=addr,
                     port=port,
-                    state=PeerState.UNKNOWN,
                 )
             connection_keys.append(key)  # store keys to know which are new
 
