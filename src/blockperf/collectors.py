@@ -91,7 +91,7 @@ class EventCollector:
         """Add given peer event"""
         logger.info(f"Adding peer event {event.__class__.__name__}")
         # Get addr and port of peer to identify in peers list
-        addr, port = event.peer_addr_port()
+        addr, port = event.remote_addr_port()
         key = (addr, port)
         if key not in self.peers:
             self.peers[key] = Peer(addr=addr, port=port)

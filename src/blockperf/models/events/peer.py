@@ -54,7 +54,7 @@ class PeerEvent(BaseEvent):
     @classmethod
     def parse(cls, data: Any):
         ns = data.get("ns")
-        logger.debug(f"PeerEvent validating '{ns}'")
+        logger.debug(f"PeerEvent validating '{ns}'", message=data)
 
         _data = data.get("data")
         if ns == "Net.PeerSelection.Actions.StatusChanged":
@@ -64,7 +64,7 @@ class PeerEvent(BaseEvent):
 
         return data
 
-    def peer_addr_port(self) -> (str, int):
+    def remote_addr_port(self) -> (str, int):
         logger.info("Do i really need that?")
         return (self.remote_addr, self.remote_port)
 

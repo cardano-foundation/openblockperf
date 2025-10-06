@@ -39,18 +39,7 @@ class PeerListener(EventListener):
     async def insert(self, message) -> None:
         """Insert a new"""
         try:
-            rich.print("New Insert")
-            rich.print(message)
             event = self.make_event(message)
-            # if hasattr(event, "peer_addr_port"):
-            #    addr, port = event.peer_addr_port()
-            #    key = (addr, port)
-            #    if key not in self.peers:
-            #        self.peers[key] = Peer(addr=addr, port=port)
-            #        logger.debug(f"{self.peers[key]} created")
-            #    peer = self.peers[key]
-            #    peer.state = event.state
-            # Handle type specifics through _handle_event
             self._handle_event(event)
         except EventError as e:
             logger.exception("Add event raised exception")
@@ -67,13 +56,7 @@ class PeerListener(EventListener):
 
     @_handle_event.register
     def _(self, event: PeerEvent):
-        """Handles a peer event.
-
-        Either:
-        * Creates a new Peer (if not alerady there)
-        * Updates the existing Peer (if not just created)
-
-        """
+        """Handles a PeerEvent."""
         logger.info("Handling PeerEvent")
         if event.key not in self.peers:
             # Creates a new peer
@@ -84,7 +67,6 @@ class PeerListener(EventListener):
                 local_port=event.local_port,
             )
         peer = self.peers[event.key]
-
         direction = PeerDirection(event.direction)
         if direction == PeerDirection.INBOUND:
             peer.state_inbound = PeerState(event.state)
@@ -92,7 +74,6 @@ class PeerListener(EventListener):
             peer.state_outbound = PeerState(event.state)
 
         peer.last_updated = datetime.now()
-        rich.print(event)
         rich.print(peer)
 
     @_handle_event.register

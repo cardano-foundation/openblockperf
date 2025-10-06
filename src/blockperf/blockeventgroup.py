@@ -12,12 +12,12 @@ from blockperf.errors import EventError
 from blockperf.models.events.event import (
     AddedToCurrentChainEvent,
     BaseEvent,
-    BlockSample,
     CompletedBlockFetchEvent,
     DownloadedHeaderEvent,
     SendFetchRequestEvent,
     SwitchedToAForkEvent,
 )
+from blockperf.models.samples import BlockSample
 
 
 @dataclass
@@ -74,11 +74,16 @@ class BlockEventGroup:
 
     @_handle_event.register
     def _(self, event: DownloadedHeaderEvent):
-        # Store the first header this group has seen
-        # If known already, maybe update when the event is newer
-        logger.debug(
-            f"Header\t{event.block_hash[:8]} from {event.peer_addr}:{event.peer_port}"
-        )
+        """Handles DownloadedHeaderEvent,
+
+        Stores the first header downloaded for this group/block_hash.
+        If there already is a header stored and a new event comes in
+        with a newer time, it will overwrite the existing stored event.
+        """
+
+        # logger.debug(
+        #    f"Header\t{event.block_hash[:8]} from {event.remote_addr}:{event.peer_port}"
+        # )
 
         # If we dont already know any header assume its the the first
         if self.block_header:
@@ -105,17 +110,28 @@ class BlockEventGroup:
 
     @_handle_event.register
     def _(self, event: SendFetchRequestEvent):
-        # self.block_requested will be set when the node actually did download
-        # that block and completed it.
-        logger.debug(
-            f"Requested\t{event.block_hash[:8]} from {event.peer_addr}"
-        )
+        """Handles SendFetchRequestEvent.
+
+        Currently does nothing. Maybe even remove? The event itself
+        is already added to the events list in add_event(). And there
+        is no special logic needed for the SendFetchRequestEvent as of now.
+        """
+        # logger.debug(
+        #    f"Requested\t{event.block_hash[:8]} from {event.remote_addr}"
+        # )
+        pass
 
     @_handle_event.register
     def _(self, event: CompletedBlockFetchEvent):
-        logger.debug(
-            f"Downloaded\t{event.block_hash[:8]} from {event.peer_addr}"
-        )
+        """Handles CompletedBlockFetchEvent.
+
+        Stores the CompletedBlockFetchEvent if not already known. What
+        should happen if block is downloaded twice? Can that even happen?
+
+        """
+        # logger.debug(
+        #    f"Downloaded\t{event.block_hash[:8]} from {event.remote_addr}"
+        # )
         if not self.block_completed:
             self.block_completed = event
             # Now that we have a block downloaded, find the fetch request for it
@@ -130,11 +146,21 @@ class BlockEventGroup:
 
     @_handle_event.register
     def _(self, event: AddedToCurrentChainEvent):
-        logger.debug(f"Added\t\t{event.block_hash[:8]} to chain")
+        """Handles AddedToCurrentChainEvent.
+
+        No special logic yet.
+        """
+        # logger.debug(f"Added\t\t{event.block_hash[:8]} to chain")
+        pass
 
     @_handle_event.register
     def _(self, event: SwitchedToAForkEvent):
-        logger.debug(f"Switched \t{event.block_hash[:8]} to fork")
+        """Handles SwitchedToAForkEvent.
+
+        No special logic yet.
+        """
+        # logger.debug(f"Switched \t{event.block_hash[:8]} to fork")
+        pass
 
     @property
     def event_count(self) -> int:
@@ -143,23 +169,12 @@ class BlockEventGroup:
 
     @property
     def age_seconds(self) -> int:
-        """Age of this group in seconds"""
-        # rounding to full seconds (up/down)
+        """Age of this group in seconds rounding to full seconds (up/down)"""
         return round(time.time() - self.created_at)
 
     @property
-    def event_types(self) -> set[str]:
-        """Set of unique event types in this group."""
-        types = set()
-        for event in self.events:
-            if hasattr(event, "event_type"):
-                types.add(event.event_type)
-            elif hasattr(event, "__class__"):
-                types.add(event.__class__.__name__)
-        return types
-
-    @property
     def block_adopted(self) -> AddedToCurrentChainEvent | SwitchedToAForkEvent | None:  # fmt: skip
+        """Returns the event that adopted this block or None of not yet adopted."""
         for event in self.events:
             # i assume there can never be both ...
             if type(event) in [AddedToCurrentChainEvent, SwitchedToAForkEvent]:
@@ -244,6 +259,8 @@ class BlockEventGroup:
 
     # fmt: off
     def sample(self):
+        # TODO: This should not live here. Either in the BlockSample model validation
+        # Or in the block listener....
         return BlockSample(
             host = "dummy",
             block_hash = self.block_hash,
@@ -252,10 +269,10 @@ class BlockEventGroup:
             block_g = self.block_g,
             slot = self.slot,
             slot_time = self.slot_time.isoformat(),
-            header_remote_addr = self.block_header.peer_addr,
+            header_remote_addr = self.block_header.remote_addr,
             header_remote_port = self.block_header.peer_port,
             header_delta = int(self.header_delta.total_seconds() * 1000),
-            block_remote_addr = self.block_completed.peer_addr,
+            block_remote_addr = self.block_completed.remote_addr,
             block_remote_port = self.block_completed.peer_port,
             block_request_delta = int(self.block_request_delta.total_seconds() * 1000),
             block_response_delta = int(self.block_response_delta.total_seconds() * 1000),
@@ -273,8 +290,8 @@ class BlockEventGroup:
         for e in self.events:
             if (
                 isinstance(e, SendFetchRequestEvent)
-                and e.peer_addr == event.peer_addr
-                and e.peer_port == event.peer_port
+                and e.remote_addr == event.remote_addr
+                and e.remote_port == event.remote_port
             ):
                 return e
         return None
