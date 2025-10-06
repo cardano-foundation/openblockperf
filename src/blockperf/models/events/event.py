@@ -4,75 +4,16 @@ logevent
 The logevent module
 """
 
-from __future__ import annotations
+from typing import Any
 
-import re
-from collections.abc import Mapping
-from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from ipaddress import ip_address
-from typing import Any, Dict, Optional, Union
-
-import rich
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    ValidationError,
-    model_validator,
-    validator,
-)
+from pydantic import BaseModel, Field, model_validator
 
 from blockperf.errors import EventError
 from blockperf.models.peer import (
-    PeerConnectionComplex,
     PeerConnectionSimple,
-    PeerState,
-    PeerStatusChange,
 )
 
-
-class BaseEvent(BaseModel):
-    """Base model for all block events that will be produced by the log reader.
-
-    The below fields are what i think every message will always have. The
-    sec and thread fields are not of interested for now, so i did not include
-    them.
-    """
-
-    model_config = ConfigDict(populate_by_name=True)
-    at: datetime
-    ns: str
-    data: dict[str, Any]
-    # sev: str
-    # thread: str
-    host: str
-
-    @validator("at", pre=True)
-    def parse_datetime(cls, value):
-        """Convert ISO format string to datetime object."""
-        if not isinstance(value, str):
-            raise ValidationError(f"Timestamp is not a string [{value}]")
-        return datetime.fromisoformat(value)  # this is tz aware!
-
-    @property
-    def namespace(self) -> str:
-        """Return the namespace path as a dot-joined string."""
-        return self.ns
-
-    def print_debug(self):
-        import rich  # noqa: PLC0415
-
-        rich.print(self)
-
-    # def direction(self) -> PeerDirection | None:
-    #    if ".Remote" in self.ns:
-    #        return PeerDirection.OUTBOUND
-    #    elif ".Local" in self.ns:
-    #        return PeerDirection.INBOUND
-    #    else:
-    #        return None
+from .base import BaseEvent
 
 
 class DownloadedHeaderEvent(BaseEvent):
@@ -342,203 +283,25 @@ class SwitchedToAForkEvent(BaseEvent):
 
 
 class InboundGovernorCountersEvent(BaseEvent):
-    """
-    {
-        "at": "2025-09-24T13:32:19.517600273Z",
-        "ns": "Net.InboundGovernor.Remote.InboundGovernorCounters",
-        "data": {
-            "idlePeers": 1,
-            "coldPeers": 53,
-            "warmPeers": 1
-            "hotPeers": 0,
-            "kind": "InboundGovernorCounters",
-        },
-        "sev": "Info",
-        "thread": "124",
-        "host": "openblockperf-dev-database1"
-    }
-    """
+    """ """
 
-    class Data(BaseModel):
-        idlePeers: int  # noqa
-        coldPeers: int  # noqa
-        warmPeers: int  # noqa
-        hotPeers: int  # noqa
-        kind: str
+    idle_peers: int
+    cold_peers: int
+    warm_peers: int
+    hot_peers: int
 
-    data: Data
+    @model_validator(mode="before")
+    @classmethod
+    def parse(cls, data: Any):
+        data["idle_peers"] = data.get("data").get("idlePeers")
+        data["cold_peers"] = data.get("data").get("coldPeers")
+        data["warm_peers"] = data.get("data").get("warmPeers")
+        data["hot_peers"] = data.get("data").get("hotPeers")
+
+        return data
 
     def __str__(self):
-        return f"<{self.__class__.__name__}, idle: {self.data.idlePeers}, cold: {self.data.coldPeers}, warm: {self.data.idlePeers} hot: {self.data.hotPeers}>"
-
-
-class StatusChangedEvent(BaseEvent):
-    """
-    {
-        "at": "2025-09-24T13:04:05.509293074Z",
-        "ns": "Net.PeerSelection.Actions.StatusChanged",
-        "data": {
-            "kind": "PeerStatusChanged",
-            "peerStatusChangeType": "ColdToWarm (Just 172.0.118.125:3001) 3.228.174.253:6000"
-        },
-        "sev": "Info",
-        "thread": "8915",
-        "host":"openblockperf-dev-database1"
-    }
-    """
-
-    class Data(BaseModel):
-        kind: str
-        peerStatusChangeType: PeerStatusChange  # noqa
-
-    data: Data
-
-    def __str__(self):
-        addr, port = self.peer_addr_port()
-        return f"<{self.__class__.__name__} remote=(addr={addr}, port={port}, at={self.at.isoformat()}>"
-
-    @property
-    def peer_status_change(self):
-        return self.data.peerStatusChangeType
-
-    @property  # Must be property because its an attribute on the other events!
-    def state(self):
-        return self.peer_status_change.to_state
-
-    def peer_addr_port(self) -> (str, int):
-        return (
-            self.peer_status_change.remote_addr,
-            self.peer_status_change.remote_port,
-        )
-
-
-class PromotedToWarmRemoteEvent(BaseEvent):
-    """
-        {
-        "at": "2025-09-24T13:32:19.859124767Z",
-        "ns": "Net.InboundGovernor.Remote.PromotedToWarmRemote",
-        "data": {
-            "connectionId": {
-                "localAddress": {
-                    "address": "172.0.118.125",
-                    "port": "3001"
-                },
-                "remoteAddress": {
-                    "address": "85.106.4.146",
-                    "port": "3001"
-                }
-            },
-            "kind": "PromotedToWarmRemote",
-            "result": {
-                "kind": "OperationSuccess",
-                "operationSuccess": {
-                    "dataFlow": "Duplex",
-                    "kind": "InboundIdleSt"
-                }
-            }
-        },
-        "sev": "Info",
-        "thread": "124",
-        "host": "openblockperf-dev-database1"
-    }
-    """
-
-    class Data(BaseModel):
-        connectionId: PeerConnectionComplex
-        kind: str
-
-    data: Data
-    state: PeerState = PeerState.WARM
-
-    def __str__(self):
-        addr, port = self.peer_addr_port()
-        return f"<{self.__class__.__name__} remote=(addr={addr}, port={port}, at={self.at.isoformat()}>"
-
-    def peer_addr_port(self) -> (str, int):
-        remote_addr = self.data.connectionId.remoteAddress.address
-        remote_port = self.data.connectionId.remoteAddress.port
-        return (remote_addr, remote_port)
-
-    # def __repr__(self):
-    #    addr, port = self.peer_addr_port()
-    #    return f"{self.__class__.__name__}(addr={addr}, port={port}, at={self.at.isoformat()})"
-
-
-class PromotedToHotRemoteEvent(BaseEvent):
-    """
-    {
-        "at": "2025-09-24T13:32:19.888897773Z",
-        "ns": "Net.InboundGovernor.Remote.PromotedToHotRemote",
-        "data": {
-            "connectionId": {
-                "localAddress": {
-                    "address": "172.0.118.125",
-                    "port": "3001"
-                },
-                "remoteAddress": {
-                    "address": "85.106.4.146",
-                    "port": "3001"
-                }
-            },
-            "kind": "PromotedToHotRemote"
-        },
-        "sev": "Info",
-        "thread": "124",
-        "host": "openblockperf-dev-database1"
-    }
-    """
-
-    class Data(BaseModel):
-        connectionId: PeerConnectionComplex
-        kind: str
-
-    data: Data
-    state: PeerState = PeerState.HOT
-
-    def __str__(self):
-        addr, port = self.peer_addr_port()
-        return f"<{self.__class__.__name__} remote=(addr={addr}, port={port}, at={self.at.isoformat()}>"
-
-    def peer_addr_port(self) -> (str, int):
-        remote_addr = self.data.connectionId.remoteAddress.address
-        remote_port = self.data.connectionId.remoteAddress.port
-        return (remote_addr, remote_port)
-
-
-class DemotedToColdRemoteEvent(BaseEvent):
-    class Data(BaseModel):
-        connectionId: PeerConnectionComplex
-        kind: str
-
-    data: Data
-    state: PeerState = PeerState.COLD
-
-    def peer_addr_port(self) -> (str, int):
-        remote_addr = self.data.connectionId.remoteAddress.address
-        remote_port = self.data.connectionId.remoteAddress.port
-        return (remote_addr, remote_port)
-
-    def __str__(self):
-        addr, port = self.peer_addr_port()
-        return f"<{self.__class__.__name__} remote=(addr={addr}, port={port}, at={self.at.isoformat()}>"
-
-
-class DemotedToWarmRemoteEvent(BaseEvent):
-    class Data(BaseModel):
-        connectionId: PeerConnectionComplex
-        kind: str
-
-    data: Data
-    state: PeerState = PeerState.WARM
-
-    def peer_addr_port(self) -> (str, int):
-        remote_addr = self.data.connectionId.remoteAddress.address
-        remote_port = self.data.connectionId.remoteAddress.port
-        return (remote_addr, remote_port)
-
-    def __repr__(self):
-        addr, port = self.peer_addr_port()
-        return f"{self.__class__.__name__}(addr={addr}, port={port}, at={self.at.isoformat()})"
+        return f"<{self.__class__.__name__}, idle: {self.idle_peers}, cold: {self.cold_peers}, warm: {self.warm_peers} hot: {self.hot_peers}>"
 
 
 class StartedEvent(BaseEvent):

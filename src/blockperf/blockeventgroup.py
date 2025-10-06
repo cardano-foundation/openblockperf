@@ -1,9 +1,7 @@
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from enum import Enum
 from functools import singledispatchmethod
-from typing import Any, Literal
 
 import rich
 from loguru import logger
@@ -11,24 +9,15 @@ from loguru import logger
 from blockperf import __version__
 from blockperf.config import settings
 from blockperf.errors import EventError
-from blockperf.listeners.base import EventListener
-from blockperf.models.event import (
+from blockperf.models.events.event import (
     AddedToCurrentChainEvent,
     BaseEvent,
     BlockSample,
     CompletedBlockFetchEvent,
-    DemotedToColdRemoteEvent,
-    DemotedToWarmRemoteEvent,
     DownloadedHeaderEvent,
-    InboundGovernorCountersEvent,
-    PromotedToHotRemoteEvent,
-    PromotedToWarmRemoteEvent,
     SendFetchRequestEvent,
-    StartedEvent,
-    StatusChangedEvent,
     SwitchedToAForkEvent,
 )
-from blockperf.models.peer import Peer, PeerDirection, PeerState
 
 
 @dataclass

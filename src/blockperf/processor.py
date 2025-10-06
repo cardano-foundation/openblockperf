@@ -9,35 +9,13 @@ into one of the LogEvents.
 
 """
 
-import asyncio
-from datetime import datetime
-from socket import AF_INET, AF_INET6
-from typing import Any
-
 import httpx
 import psutil
 import rich
+from loguru import logger
 
-from blockperf.config import settings
 from blockperf.listeners.base import EventListener
-from blockperf.logging import logger
 from blockperf.logreader import NodeLogReader, create_log_reader
-from blockperf.models.event import (
-    AddedToCurrentChainEvent,
-    BaseEvent,
-    CompletedBlockFetchEvent,
-    DemotedToColdRemoteEvent,
-    DemotedToWarmRemoteEvent,
-    DownloadedHeaderEvent,
-    InboundGovernorCountersEvent,
-    PromotedToHotRemoteEvent,
-    PromotedToWarmRemoteEvent,
-    SendFetchRequestEvent,
-    StartedEvent,
-    StatusChangedEvent,
-    SwitchedToAForkEvent,
-)
-from blockperf.models.peer import Peer, PeerDirection, PeerState
 
 """
 Added some of the events that i think are of interest. See here for more:

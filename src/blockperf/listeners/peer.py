@@ -1,39 +1,33 @@
+from datetime import datetime
 from functools import singledispatchmethod
 
+import rich
 from loguru import logger
 
 from blockperf.errors import EventError
 from blockperf.listeners.base import EventListener
-from blockperf.models.event import (
-    BaseEvent,
-    DemotedToColdRemoteEvent,
-    DemotedToWarmRemoteEvent,
-    InboundGovernorCountersEvent,
-    PromotedToHotRemoteEvent,
-    PromotedToWarmRemoteEvent,
-    StartedEvent,
-    StatusChangedEvent,
-)
-from blockperf.models.peer import Peer, PeerState
+from blockperf.models.events.event import InboundGovernorCountersEvent
+from blockperf.models.events.peer import PeerEvent
+from blockperf.models.peer import Peer, PeerDirection, PeerState
 
 
 class PeerListener(EventListener):
     registered_namespaces = {
-        "Net.InboundGovernor.Local.DemotedToColdRemote": DemotedToColdRemoteEvent,
-        "Net.InboundGovernor.Local.DemotedToWarmRemote": DemotedToWarmRemoteEvent,
-        "Net.InboundGovernor.Local.PromotedToHotRemote": PromotedToHotRemoteEvent,
-        "Net.InboundGovernor.Local.PromotedToWarmRemote": PromotedToWarmRemoteEvent,
+        "Net.InboundGovernor.Local.DemotedToColdRemote": PeerEvent,
+        "Net.InboundGovernor.Local.DemotedToWarmRemote": PeerEvent,
+        "Net.InboundGovernor.Local.PromotedToHotRemote": PeerEvent,
+        "Net.InboundGovernor.Local.PromotedToWarmRemote": PeerEvent,
         "Net.InboundGovernor.Local.InboundGovernorCounters": InboundGovernorCountersEvent,
-        "Net.InboundGovernor.Remote.PromotedToHotRemote": PromotedToHotRemoteEvent,
-        "Net.InboundGovernor.Remote.PromotedToWarmRemote": PromotedToWarmRemoteEvent,
-        "Net.InboundGovernor.Remote.DemotedToColdRemote": DemotedToColdRemoteEvent,
-        "Net.InboundGovernor.Remote.DemotedToWarmRemote": DemotedToWarmRemoteEvent,
+        "Net.InboundGovernor.Remote.PromotedToHotRemote": PeerEvent,
+        "Net.InboundGovernor.Remote.PromotedToWarmRemote": PeerEvent,
+        "Net.InboundGovernor.Remote.DemotedToColdRemote": PeerEvent,
+        "Net.InboundGovernor.Remote.DemotedToWarmRemote": PeerEvent,
         "Net.InboundGovernor.Remote.InboundGovernorCounters": InboundGovernorCountersEvent,
         # "Net.PeerSelection.Actions.ConnectionError": BaseEvent,
-        "Net.PeerSelection.Actions.StatusChanged": StatusChangedEvent,
-        "Net.PeerSelection.Selection.DemoteHotDone": BaseEvent,
-        "Net.PeerSelection.Selection.DemoteHotFailed": BaseEvent,
-        "Net.PeerSelection.Selection.DemoteHotPeers": BaseEvent,
+        "Net.PeerSelection.Actions.StatusChanged": PeerEvent,
+        # "Net.PeerSelection.Selection.DemoteHotDone": BaseEvent,
+        # "Net.PeerSelection.Selection.DemoteHotFailed": BaseEvent,
+        # "Net.PeerSelection.Selection.DemoteHotPeers": BaseEvent,
         # "": StartedEvent,
     }
 
@@ -45,15 +39,17 @@ class PeerListener(EventListener):
     async def insert(self, message) -> None:
         """Insert a new"""
         try:
+            rich.print("New Insert")
+            rich.print(message)
             event = self.make_event(message)
-            if hasattr(event, "peer_addr_port"):
-                addr, port = event.peer_addr_port()
-                key = (addr, port)
-                if key not in self.peers:
-                    self.peers[key] = Peer(addr=addr, port=port)
-                    logger.debug(f"{self.peers[key]} created")
-                peer = self.peers[key]
-                peer.state = event.state
+            # if hasattr(event, "peer_addr_port"):
+            #    addr, port = event.peer_addr_port()
+            #    key = (addr, port)
+            #    if key not in self.peers:
+            #        self.peers[key] = Peer(addr=addr, port=port)
+            #        logger.debug(f"{self.peers[key]} created")
+            #    peer = self.peers[key]
+            #    peer.state = event.state
             # Handle type specifics through _handle_event
             self._handle_event(event)
         except EventError as e:
@@ -70,34 +66,41 @@ class PeerListener(EventListener):
         logger.error(f"Unhandled event type: {type(event).__name__}")
 
     @_handle_event.register
-    def _(self, event: DemotedToColdRemoteEvent):
-        logger.info(f"Handling {event.__class__.__name__}")
+    def _(self, event: PeerEvent):
+        """Handles a peer event.
 
-    @_handle_event.register
-    def _(self, event: DemotedToWarmRemoteEvent):
-        logger.info(f"Handling {event.__class__.__name__}")
+        Either:
+        * Creates a new Peer (if not alerady there)
+        * Updates the existing Peer (if not just created)
 
-    @_handle_event.register
-    def _(self, event: PromotedToHotRemoteEvent):
-        logger.info(f"Handling {event.__class__.__name__}")
+        """
+        logger.info("Handling PeerEvent")
+        if event.key not in self.peers:
+            # Creates a new peer
+            self.peers[event.key] = Peer(
+                remote_addr=event.remote_addr,
+                remote_port=event.remote_port,
+                local_addr=event.local_addr,
+                local_port=event.local_port,
+            )
+        peer = self.peers[event.key]
 
-    @_handle_event.register
-    def _(self, event: PromotedToWarmRemoteEvent):
-        logger.info(f"Handling {event.__class__.__name__}")
+        direction = PeerDirection(event.direction)
+        if direction == PeerDirection.INBOUND:
+            peer.state_inbound = PeerState(event.state)
+        if direction == PeerDirection.OUTBOUND:
+            peer.state_outbound = PeerState(event.state)
 
-    @_handle_event.register
-    def _(self, event: StatusChangedEvent):
-        logger.info(f"Handling {event.__class__.__name__}")
+        peer.last_updated = datetime.now()
+        rich.print(event)
+        rich.print(peer)
 
     @_handle_event.register
     def _(self, event: InboundGovernorCountersEvent):
         logger.info(f"Handling {event}")
 
-    def _get_key(self, event):
-        # helper
-        return (1, 2)
-
     def get_peer_statistics(self):
+        raise Exception("Not Working atm")
         peers = self.peers.values()
         cold = [p for p in peers if p.state == PeerState.COLD]
         warm = [p for p in peers if p.state == PeerState.WARM]

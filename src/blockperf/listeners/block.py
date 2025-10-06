@@ -1,34 +1,17 @@
-import time
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from enum import Enum
-from typing import Any, Literal
-
 import rich
 
-from blockperf import __version__
 from blockperf.blockeventgroup import BlockEventGroup
 from blockperf.config import settings
 from blockperf.errors import EventError
 from blockperf.listeners.base import EventListener
 from blockperf.logging import logger
-from blockperf.models.event import (
+from blockperf.models.events.event import (
     AddedToCurrentChainEvent,
-    BaseEvent,
-    BlockSample,
     CompletedBlockFetchEvent,
-    DemotedToColdRemoteEvent,
-    DemotedToWarmRemoteEvent,
     DownloadedHeaderEvent,
-    InboundGovernorCountersEvent,
-    PromotedToHotRemoteEvent,
-    PromotedToWarmRemoteEvent,
     SendFetchRequestEvent,
-    StartedEvent,
-    StatusChangedEvent,
     SwitchedToAForkEvent,
 )
-from blockperf.models.peer import Peer, PeerDirection, PeerState
 
 
 class BlockListener(EventListener):

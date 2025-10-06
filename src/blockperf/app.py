@@ -56,23 +56,23 @@ class Blockperf:
                 self._tasks["event_processor"] = tg.create_task(
                     self._run_task("event_processor", self.process_events)
                 )
-                self._tasks["update_peers_connections"] = tg.create_task(
-                    self._run_task(
-                        "update_peers_connections",
-                        self.update_peers_connections,
-                    )
-                )
-                self._tasks["update_peers_unknown"] = tg.create_task(
-                    self._run_task(
-                        "update_peers_unknown", self.update_peers_unknown
-                    )
-                )
-                self._tasks["block_sender"] = tg.create_task(
-                    self._run_task("block_sender", self.send_block_samples)
-                )
-                self._tasks["stats_printer"] = tg.create_task(
-                    self._run_task("stats_printer", self.print_peer_statistics)
-                )
+                # self._tasks["update_peers_connections"] = tg.create_task(
+                #    self._run_task(
+                #        "update_peers_connections",
+                #        self.update_peers_connections,
+                #    )
+                # )
+                # self._tasks["update_peers_unknown"] = tg.create_task(
+                #    self._run_task(
+                #        "update_peers_unknown", self.update_peers_unknown
+                #    )
+                # )
+                # self._tasks["block_sender"] = tg.create_task(
+                #    self._run_task("block_sender", self.send_block_samples)
+                # )
+                # self._tasks["stats_printer"] = tg.create_task(
+                #    self._run_task("stats_printer", self.print_peer_statistics)
+                # )
 
         except* asyncio.CancelledError as eg:
             self.console.print("Tasks cancelled - shutdown initiated")
