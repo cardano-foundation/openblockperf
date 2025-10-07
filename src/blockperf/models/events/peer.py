@@ -54,8 +54,6 @@ class PeerEvent(BaseEvent):
     @classmethod
     def parse(cls, data: Any):
         ns = data.get("ns")
-        logger.debug(f"PeerEvent validating '{ns}'", message=data)
-
         _data = data.get("data")
         if ns == "Net.PeerSelection.Actions.StatusChanged":
             data = cls.parse_statuschange_data(data)
@@ -186,10 +184,8 @@ class PeerEvent(BaseEvent):
                 f"Invalid IP address in connection string: {e}"
             ) from e
 
-        # find the direction of the event ()
+        # Assuming the StatusChange is alwasy from the local peer
         direction = "Outbound"
-        if remote_port > 30000:
-            direction = "Inbound"
 
         # Pack everything back into data and return
         data["state"] = to_state

@@ -5,7 +5,6 @@ Notes on how it currently is implemented and what is missing.
 * The client holds a single list of all its peers.
 * Every peer in that list is unqiquely identified by the combination of the
     remotes ip and port. In fact thats the key of the peers dictionary.
-    See `EventCollector::add:event()`
 
 ## Peer States
 

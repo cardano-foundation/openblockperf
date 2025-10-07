@@ -56,6 +56,7 @@ class Peer(BaseModel):
 
     """
 
+    ns: str | None  # The namespace of the event, kept for later debugging
     local_addr: str
     local_port: int
     remote_addr: str  # IP address of the remote

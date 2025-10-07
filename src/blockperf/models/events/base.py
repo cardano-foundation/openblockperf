@@ -51,11 +51,6 @@ class BaseEvent(BaseModel):
             raise ValidationError(f"Timestamp is not a string [{value}]")
         return datetime.fromisoformat(value)  # this is tz aware!
 
-    @property
-    def namespace(self) -> str:
-        """Return the namespace path as a dot-joined string."""
-        return self.ns
-
     def print_debug(self):
         import rich  # noqa: PLC0415
 

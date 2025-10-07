@@ -57,15 +57,20 @@ class PeerListener(EventListener):
     @_handle_event.register
     def _(self, event: PeerEvent):
         """Handles a PeerEvent."""
-        logger.info("Handling PeerEvent")
+        # logger.debug("Handling PeerEvent", event=event)
         if event.key not in self.peers:
             # Creates a new peer
-            self.peers[event.key] = Peer(
+            _p = Peer(
+                ns=event.ns,
                 remote_addr=event.remote_addr,
                 remote_port=event.remote_port,
                 local_addr=event.local_addr,
                 local_port=event.local_port,
             )
+            rich.print(
+                f"New Peer {_p.remote_addr}:{_p.remote_port}: IN '{_p.state_inbound.value}' OUT '{_p.state_outbound.value}'"
+            )
+            self.peers[event.key] = _p
         peer = self.peers[event.key]
         direction = PeerDirection(event.direction)
         if direction == PeerDirection.INBOUND:
@@ -74,27 +79,38 @@ class PeerListener(EventListener):
             peer.state_outbound = PeerState(event.state)
 
         peer.last_updated = datetime.now()
-        rich.print(peer)
 
     @_handle_event.register
     def _(self, event: InboundGovernorCountersEvent):
-        logger.info(f"Handling {event}")
+        logger.info(f"Handling InboundGovernorCountersEvent", event=event)
 
     def get_peer_statistics(self):
-        raise Exception("Not Working atm")
         peers = self.peers.values()
-        cold = [p for p in peers if p.state == PeerState.COLD]
-        warm = [p for p in peers if p.state == PeerState.WARM]
-        hot = [p for p in peers if p.state == PeerState.HOT]
-        cooling = [p for p in peers if p.state == PeerState.COOLING]
-        unknown = [p for p in peers if p.state == PeerState.UNKNOWN]
+
+        in_cold = [p for p in peers if p.state_inbound == PeerState.COLD]
+        out_cold = [p for p in peers if p.state_outbound == PeerState.COLD]
+        in_warm = [p for p in peers if p.state_inbound == PeerState.WARM]
+        out_warm = [p for p in peers if p.state_outbound == PeerState.WARM]
+        in_hot = [p for p in peers if p.state_inbound == PeerState.HOT]
+        out_hot = [p for p in peers if p.state_outbound == PeerState.HOT]
+        in_cooling = [p for p in peers if p.state_inbound == PeerState.COOLING]
+        out_cooling = [p for p in peers if p.state_outbound == PeerState.COOLING]  # fmt: off
+        in_unknown = [p for p in peers if p.state_inbound == PeerState.UNKNOWN]  # fmt: off
+        out_unknown = [
+            p for p in peers if p.state_outbound == PeerState.UNKNOWN
+        ]
         return {
-            "cold": len(cold),
-            "warm": len(warm),
-            "hot": len(hot),
-            "cooling": len(cooling),
-            "unknown": len(unknown),
-            "total": len(self.peers),
+            "in_cold": len(in_cold),
+            "out_cold": len(out_cold),
+            "in_warm": len(in_warm),
+            "out_warm": len(out_warm),
+            "in_hot": len(in_hot),
+            "out_hot": len(out_hot),
+            "in_cooling": len(in_cooling),
+            "out_cooling": len(out_cooling),
+            "in_unknown": len(in_unknown),
+            "out_unknown": len(out_unknown),
+            "total_peers": len(self.peers),
         }
 
     async def update_peers_from_connections(self, connections: list) -> None:
@@ -103,17 +119,26 @@ class PeerListener(EventListener):
         That is the library i use so this expects their named tuple of a
         connection.
         """
+
+        logger.debug(f"Updating peers from {len(connections)} connections ")
         connection_keys = []
         new_peers = 0
         for conn in connections:
             raddr = conn.raddr
-            addr, port = raddr.ip, int(raddr.port)
-            key = (addr, port)
+            laddr = conn.laddr
+            local_addr, local_port = laddr.ip, int(laddr.port)
+            remote_addr, remote_port = raddr.ip, int(raddr.port)
+            key = (remote_addr, remote_port)
             if key not in self.peers:
                 new_peers += 1
                 self.peers[key] = Peer(
-                    addr=addr,
-                    port=port,
+                    ns="CreatedFromConnections",  # Duh, hm i dont have that here
+                    local_addr=local_addr,
+                    local_port=local_port,
+                    remote_addr=remote_addr,
+                    remote_port=remote_port,
+                    state_inbound=PeerState.UNKNOWN,
+                    state_outbound=PeerState.UNKNOWN,
                 )
             connection_keys.append(key)  # store keys to know which are new
 

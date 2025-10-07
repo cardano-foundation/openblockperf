@@ -82,7 +82,7 @@ class BlockEventGroup:
         """
 
         # logger.debug(
-        #    f"Header\t{event.block_hash[:8]} from {event.remote_addr}:{event.peer_port}"
+        #    f"Header\t{event.block_hash[:8]} from {event.remote_addr}:{event.remote_port}"
         # )
 
         # If we dont already know any header assume its the the first
@@ -270,10 +270,10 @@ class BlockEventGroup:
             slot = self.slot,
             slot_time = self.slot_time.isoformat(),
             header_remote_addr = self.block_header.remote_addr,
-            header_remote_port = self.block_header.peer_port,
+            header_remote_port = self.block_header.remote_port,
             header_delta = int(self.header_delta.total_seconds() * 1000),
             block_remote_addr = self.block_completed.remote_addr,
-            block_remote_port = self.block_completed.peer_port,
+            block_remote_port = self.block_completed.remote_port,
             block_request_delta = int(self.block_request_delta.total_seconds() * 1000),
             block_response_delta = int(self.block_response_delta.total_seconds() * 1000),
             block_adopt_delta = int(self.block_adopt_delta.total_seconds() * 1000),

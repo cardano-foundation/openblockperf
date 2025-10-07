@@ -36,7 +36,6 @@ class EventProcessor:
         )
         # The collector is now a listener, a listener holds the logic
         # what to do with a bunch of events
-        # self.collector = collector or EventCollector()
         # The listeners receive the messages they are interested in
         self.listeners = []
         # self.lock = asyncio.Lock() # remove?

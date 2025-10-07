@@ -67,12 +67,12 @@ class Blockperf:
                 #        "update_peers_unknown", self.update_peers_unknown
                 #    )
                 # )
-                # self._tasks["block_sender"] = tg.create_task(
-                #    self._run_task("block_sender", self.send_block_samples)
-                # )
-                # self._tasks["stats_printer"] = tg.create_task(
-                #    self._run_task("stats_printer", self.print_peer_statistics)
-                # )
+                self._tasks["block_sender"] = tg.create_task(
+                    self._run_task("block_sender", self.send_block_samples)
+                )
+                self._tasks["stats_printer"] = tg.create_task(
+                    self._run_task("stats_printer", self.print_peer_statistics)
+                )
 
         except* asyncio.CancelledError as eg:
             self.console.print("Tasks cancelled - shutdown initiated")
@@ -153,7 +153,7 @@ class Blockperf:
         This adds peers to that list with a state of unknown.
         """
         while True:
-            await asyncio.sleep(20)  # wait at least 60 seconds before first run
+            await asyncio.sleep(10)  # wait at least 60 seconds before first run
             connections = []
             for conn in psutil.net_connections():
                 if conn.status != "ESTABLISHED":
@@ -172,11 +172,12 @@ class Blockperf:
         """Update unknown peers by searching the logreader for older messages"""
         # should run after thefirst update_peers_connections did
         while True:
-            await asyncio.sleep(40)
+            await asyncio.sleep(20)
             peers = [
                 p
                 for p in self.peer_listener.peers.values()
-                if p.state == PeerState.UNKNOWN
+                if p.state_inbound == PeerState.UNKNOWN
+                and p.state_outbound == PeerState.UNKNOWN
             ]
             self.since_hours = (
                 self.since_hours + 12 if self.since_hours < 2000 else 2000
@@ -194,8 +195,12 @@ class Blockperf:
                 # Trying to not search the whole history at once.
                 # The more iterations there are the less peers and the longer the
                 # time period to search in for.
+
+                # BUT: There is a bug here !!!!!
+                # I need to make sure that the message found also matches
+                # the port!!!!
                 async for message in self.log_reader.search_messages(
-                    peer.addr, since_hours=self.since_hours
+                    peer.remote_addr, since_hours=self.since_hours
                 ):
                     if (
                         message.get("ns")

@@ -37,7 +37,7 @@ from blockperf.models.event import (
 from blockperf.models.peer import Peer, PeerDirection, PeerState
 
 
-class EventCollector:
+class OLDEventCollector:
     """
     Main data structure for collecting and organizing all log events for a specific host.
 

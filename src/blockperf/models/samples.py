@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from blockperf.models.peer import Peer
+
 
 class BlockSample(BaseModel):
     host: str = Field(..., description="Hostname of client")
@@ -21,3 +23,7 @@ class BlockSample(BaseModel):
     local_port: int = Field(..., description="Port of node")
     magic: int = Field(..., description="network magic")
     client_version: str = Field(..., description="client version")
+
+
+class PeerSample(BaseModel):
+    peers: list[Peer]
