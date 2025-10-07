@@ -8,21 +8,29 @@ from rich.console import Console
 
 # from rich.console import Console
 from blockperf.apiclient import BlockperfApiClient
+from blockperf.blocksamplegroup import BlockSampleGroup
 from blockperf.config import settings
-from blockperf.errors import BlockperfError, ConfigurationError, TaskError
-from blockperf.listeners.block import BlockListener
-from blockperf.listeners.peer import PeerListener
+from blockperf.errors import (
+    BlockperfError,
+    ConfigurationError,
+    EventError,
+    TaskError,
+)
+from blockperf.handler import EventHandler
 from blockperf.logreader import NodeLogReader, create_log_reader
-from blockperf.models.peer import PeerState
-from blockperf.processor import EventProcessor
+from blockperf.models.peer import Peer, PeerState
 
 # console = Console()
 
 
 class Blockperf:
     log_reader: NodeLogReader  # the log reader this processor is using
-    console: Console
+    console: Console  # The console to write to
+    handler: EventHandler  # Handler to handle the different events
+    tasks: dict[str, asyncio.Task]  # Holds all apps tasks
     since_hours: int
+    block_sample_groups: dict[str, BlockSampleGroup]  # Groups of block samples
+    peers: dict[tuple, Peer]  # The nodes peer list (actually a dictionary)
 
     def __init__(self, console: Console):
         try:
@@ -30,11 +38,18 @@ class Blockperf:
             self._validate_configuration()
             self.console = console
             self.log_reader = create_log_reader("journalctl", "cardano-tracer")
-            self.block_listener = BlockListener()
-            self.peer_listener = PeerListener()
-            # Tracks running tasks for cleanup
-            self._tasks: dict[str, asyncio.Task] = {}
+
+            self.tasks: dict[str, asyncio.Task] = {}
             self.since_hours = 0
+            self.block_sample_groups = {}
+            # self._block_sample_groups_lock = asyncio.Lock()
+            self.peers = {}
+            # self._peers_lock = asyncio.Lock()
+
+            self.handler = EventHandler(
+                self.block_sample_groups,
+                self.peers,
+            )
 
         except Exception as e:
             logger.opt(exception=True).debug(f"Initialization failed: {e}")
@@ -53,24 +68,24 @@ class Blockperf:
         try:
             async with asyncio.TaskGroup() as tg:
                 # Create tasks with names for better error tracking
-                self._tasks["event_processor"] = tg.create_task(
+                self.tasks["event_processor"] = tg.create_task(
                     self._run_task("event_processor", self.process_events)
                 )
-                # self._tasks["update_peers_connections"] = tg.create_task(
+                # self.tasks["update_peers_connections"] = tg.create_task(
                 #    self._run_task(
                 #        "update_peers_connections",
                 #        self.update_peers_connections,
                 #    )
                 # )
-                # self._tasks["update_peers_unknown"] = tg.create_task(
+                # self.tasks["update_peers_unknown"] = tg.create_task(
                 #    self._run_task(
                 #        "update_peers_unknown", self.update_peers_unknown
                 #    )
                 # )
-                self._tasks["block_sender"] = tg.create_task(
+                self.tasks["block_sender"] = tg.create_task(
                     self._run_task("block_sender", self.send_block_samples)
                 )
-                self._tasks["stats_printer"] = tg.create_task(
+                self.tasks["stats_printer"] = tg.create_task(
                     self._run_task("stats_printer", self.print_peer_statistics)
                 )
 
@@ -83,22 +98,20 @@ class Blockperf:
                     f"Task group failed with {len(eg.exceptions)} exceptions"
                 )
                 for exc in eg.exceptions:
-                    logger.error(f"Critical task error: {exc}")
-                    raise exc
+                    logger.exception(f"Critical task error: {exc}")
 
     async def stop(self):
         """Gracefully stop the application and clean up resources."""
-        self.console.print("Stopping Blockperf application")
 
         # Cancel all running tasks
-        for task_name, task in self._tasks.items():
+        for task_name, task in self.tasks.items():
             if not task.done():
                 self.console.print(f"Cancelling task: {task_name}")
                 task.cancel()
 
         # Wait for tasks to finish cancellation
-        if self._tasks:
-            await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+        if self.tasks:
+            await asyncio.gather(*self.tasks.values(), return_exceptions=True)
 
         self.console.print("Blockperf application stopped")
 
@@ -117,7 +130,7 @@ class Blockperf:
         """Get status of all running tasks for debugging."""
         return {
             name: "running" if not task.done() else "finished"
-            for name, task in self._tasks.items()
+            for name, task in self.tasks.items()
         }
 
     async def process_events(self):
@@ -157,14 +170,31 @@ class Blockperf:
                 await self._process_message(message)
 
     async def _process_message(self, message: dict):
-        """Process a single log message through all registered listeners."""
-        ns = message.get("ns")
+        """Process a single log message.
 
-        # Route message to appropriate listeners based on namespace
-        if ns in self.block_listener.registered_namespaces:
-            await self.block_listener.insert(message)
-        if ns in self.peer_listener.registered_namespaces:
-            await self.peer_listener.insert(message)
+        First it creeates an event out of the message.
+        Then it adds that event to
+        """
+        try:
+            ns = message.get("ns")
+            # If the handler cant take it, we dont want it
+            if ns not in self.handler.registered_namespaces:
+                return
+            event = self.handler.make_event(message)
+
+            await self.handler.handle_event(event)
+        except EventError as e:
+            logger.error("Error processing event")
+            self.console.print(f"[bold red]Error handling event. {e}[/]")
+        except Exception as e:
+            logger.exception("Error processing event")
+            raise
+
+        # Routee message to appropriate listeners based on namespace
+        # if ns in self.block_listener.registered_namespaces:
+        #    await self.block_listener.insert(message)
+        # if ns in self.peer_listener.registered_namespaces:
+        #    await self.peer_listener.insert(message)
 
     async def update_peers_connections(self) -> None:
         """Updates peers from the the connections list.
@@ -235,15 +265,38 @@ class Blockperf:
             self.console.print(f"Found {updated} peers in logs")
 
     async def send_block_samples(self):
-        """The BlockListener collects samples, send_blocks sends these to the api."""
+        """Checks if block samples are ready and if so sends them to the api.
+
+        the block samples to the server.
+        """
         while True:
             await asyncio.sleep(settings().check_interval)
             async with BlockperfApiClient() as api:
-                await self.block_listener.send_block_samples(api)
+                ready_groups = {}
+                for k, group in self.block_sample_groups.items():
+                    if (
+                        group.is_complete()
+                        and group.age_seconds > settings().min_age
+                    ):
+                        ready_groups[k] = group
+
+                for k, group in ready_groups.items():
+                    # If the group is not ok, dont send it
+                    if not group.is_sane():
+                        continue
+                    # Group is ok, grab and send the sample
+                    sample = group.sample()
+                    resp = await api.post("/submit/blocksample", sample)
+                    rich.print(
+                        f"[bold green]Sample {group.block_hash[:8]} published. Id: {resp.get('id')}.[/]"
+                    )
+                    # Delete group
+                    del self.block_sample_groups[k]
 
     async def print_peer_statistics(self):
         """Print peer statistics periodically."""
         while True:
             await asyncio.sleep(30)
-            stats = self.peer_listener.get_peer_statistics()
-            rich.print(stats)
+            # stats = self.peer_listener.get_peer_statistics()
+            # rich.print(stats)
+            rich.print("[bold yellow] nothing to see here[/]")

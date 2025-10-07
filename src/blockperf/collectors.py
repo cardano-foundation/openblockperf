@@ -60,7 +60,7 @@ class OLDEventCollector:
         Add an event to the collector, depending on the events type.
 
         If the event is one of the block sample events it will be stored in
-        an instance of a BlockEventGroup.
+        an instance of a BlockSampleGroup.
 
         If the event is a change in the nodes peers the peers list of
         the collector will be updated accordingly. These events are not stored.

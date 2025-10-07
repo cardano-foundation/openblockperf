@@ -21,7 +21,7 @@ from blockperf.models.samples import BlockSample
 
 
 @dataclass
-class BlockEventGroup:
+class BlockSampleGroup:
     """A group of log events for a given block hash.
 
     It will be created the first time a block hash is seen. It is meant
@@ -297,4 +297,4 @@ class BlockEventGroup:
         return None
 
     def __str__(self):
-        return f"BlockEventGroup(block_hash={self.block_hash if self.block_hash else None}, events={len(self.events)})"
+        return f"BlockSampleGroup(block_hash={self.block_hash if self.block_hash else None}, events={len(self.events)})"
