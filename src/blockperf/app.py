@@ -121,28 +121,50 @@ class Blockperf:
         }
 
     async def process_events(self):
-        """Continiously processes the events coming from the log reader.
+        """Process events from log reader with startup replay capability.
 
-        First opens the context for the logreader which calls connect() on
-        it. Then enters a loop to iterate over all messages of the logreader
-        forever. The read_messages() funcion is meant to be a generator which
-        will continiously yield new log messages. See NodeLogReader base
-        class which provides the abstract interface.
+        First replays all historical events since the last service startup,
+        then switches to live log tailing. This ensures no events are missed
+        and the client starts with a complete picture of the current state.
         """
         self.console.print("Starting event processor")
-        async with self.log_reader as log_reader:
-            async for message in log_reader.read_messages():
-                # event = parse_log_message(message)
-                ns = message.get("ns")
-                # if ns == "Net.Server.Local.Started":
-                #    # Do some special thing on a restart?
-                #    continue
 
-                if ns in self.block_listener.registered_namespaces:
-                    await self.block_listener.insert(message)
-                if ns in self.peer_listener.registered_namespaces:
-                    await self.peer_listener.insert(message)
-                # self.collector.add_event(event)
+        async with self.log_reader as log_reader:
+            # ===== PHASE 1: BLOCKING REPLAY =====
+            # Replay historical logs from last startup. The loop over
+            # replay_from_startup() blocks as long as that function does
+            # not call `return`. Such that, as long as it yields values
+            # the loop will run.
+            event_count = 0  # just counting for now
+            async for message in log_reader.replay_from_startup():
+                # await self._process_message(message)
+                event_count += 1
+
+            if event_count > 0:
+                self.console.print(
+                    f"Replay completed: found {event_count} historical messages"
+                )
+            else:
+                self.console.print(
+                    "Replay completed: no historical messages to replay"
+                )
+
+            # ===== PHASE 2: LIVE TAILING =====
+            # Now switch to live log tailing, just as we did before
+            # This should run forever.
+            self.console.print("Starting live log processing...")
+            async for message in log_reader.read_messages():
+                await self._process_message(message)
+
+    async def _process_message(self, message: dict):
+        """Process a single log message through all registered listeners."""
+        ns = message.get("ns")
+
+        # Route message to appropriate listeners based on namespace
+        if ns in self.block_listener.registered_namespaces:
+            await self.block_listener.insert(message)
+        if ns in self.peer_listener.registered_namespaces:
+            await self.peer_listener.insert(message)
 
     async def update_peers_connections(self) -> None:
         """Updates peers from the the connections list.

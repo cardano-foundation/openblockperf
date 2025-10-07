@@ -48,6 +48,25 @@ class NodeLogReader(abc.ABC):
         """
         pass
 
+    @abc.abstractmethod
+    async def replay_from_startup(
+        self, startup_marker: str
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Replay all log messages from the last service startup to present.
+
+        This method should:
+        1. Find the most recent occurrence of startup_marker
+        2. Yield all log messages from that point until "now"
+        3. Return when caught up to present time
+
+        Args:
+            startup_marker: String that marks service startup (e.g., "Started cardano-tracer")
+
+        Yields:
+            Historical log messages in chronological order (oldest first)
+        """
+        pass
+
     async def __aenter__(self):
         await self.connect()
         return self
@@ -236,6 +255,154 @@ class JournalCtlLogReader(NodeLogReader):
                 except TimeoutError:
                     logger.warning(
                         "journalctl search process didn't terminate, killing it"
+                    )
+                    process.kill()
+                    await process.wait()
+
+    async def replay_from_startup(self) -> AsyncGenerator[dict[str, Any], None]:
+        """Replay all log messages since the last start of the node.
+
+        Does so in steps:
+
+        * Searches for the "server startet" namespace event (see below) in journald
+        * Extracts the timestamp from that log message
+        * Uses that timestamp to now where to start replaying events until now
+        *
+
+        Yields:
+            Historical log messages in chronological order (oldest first)
+        """
+        # There was another namespace with that same string "Reflection.TracerConfigInfo"
+        # such that i needed to add the ns field part here as well
+        startup_marker = '"ns":"Net.Server.Local.Started"'
+        startup_timestamp = None
+        process = None
+
+        try:
+            # Step 1: Find startup message of node
+            search_cmd = [
+                "journalctl",
+                "--unit",
+                self.unit,
+                "-o",
+                "json",  # Use JSON format to get the log messages timestamp
+                "--no-pager",
+                "--reverse",  # Newest first
+                "-n",
+                "1",  # Only get the most recent match
+                "--grep",
+                startup_marker,
+            ]
+            search_process = await asyncio.create_subprocess_exec(
+                *search_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await search_process.communicate()
+            if search_process.returncode != 0 or not stdout:
+                logger.warning(
+                    f"No startup marker '{startup_marker}' found in logs"
+                )
+                return
+
+            # Step 2: Extrat timestamp from startup message
+            try:
+                startup_line = stdout.decode("utf-8").strip()
+                startup_entry = json.loads(startup_line)
+                startup_timestamp = startup_entry.get("__REALTIME_TIMESTAMP")
+
+                if not startup_timestamp:
+                    logger.warning(
+                        "Could not extract timestamp from startup entry"
+                    )
+                    return
+                logger.info(f"Found startup at timestamp: {startup_timestamp}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Could not parse startup entry: {e}")
+                return
+
+            # Step 3: Replay all messages from startup timestamp to now
+            # Convert microsecond timestamp to journalctl format
+            startup_time_sec = int(startup_timestamp) // 1000000
+            replay_cmd = [
+                "journalctl",
+                "--unit",
+                self.unit,
+                "-o",
+                "cat",  # Message content only (like read_messages)
+                "--no-pager",
+                "--since",
+                f"@{startup_time_sec}",  # Unix timestamp format
+                "--until",
+                "now",
+            ]
+            logger.info(
+                f"Replaying logs from startup timestamp {startup_time_sec}"
+            )
+            # Execute replay command as streaming process
+            process = await asyncio.create_subprocess_exec(
+                *replay_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=10000000,  # 10MB Buffer
+            )
+
+            message_count = 0
+            while True:
+                line = await process.stdout.readline()
+
+                if not line:
+                    # Process finished
+                    if (
+                        process.returncode is not None
+                        or process.stdout.at_eof()
+                    ):
+                        break
+                    continue
+
+                line_str = line.decode("utf-8").strip()
+                if not line_str:
+                    continue
+
+                try:
+                    # Parse message like read_messages does
+                    message = json.loads(line_str)
+                    message_count += 1
+                    yield message
+                except json.JSONDecodeError:
+                    logger.debug(
+                        f"Malformed JSON in replay: {line_str[:100]}..."
+                    )
+                    continue
+
+            # Finally wait for the process to finish and close it or display
+            # error if non zero exitr code appeared
+            await process.wait()
+            if process.returncode != 0:
+                stderr_data = await process.stderr.read()
+                error_msg = (
+                    stderr_data.decode("utf-8")
+                    if stderr_data
+                    else "Unknown error"
+                )
+                logger.warning(
+                    f"Replay finished with return code {process.returncode}: {error_msg}"
+                )
+            else:
+                logger.info(
+                    f"Replay completed successfully: {message_count} messages processed"
+                )
+        except Exception as e:
+            logger.error(f"Error during log replay: {e}")
+        finally:
+            # Clean up process if still running
+            if process and process.returncode is None:
+                try:
+                    process.terminate()
+                    await asyncio.wait_for(process.wait(), timeout=1.0)
+                except TimeoutError:
+                    logger.warning(
+                        "Replay process didn't terminate, killing it"
                     )
                     process.kill()
                     await process.wait()
