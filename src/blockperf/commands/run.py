@@ -5,13 +5,13 @@ import sys
 from datetime import datetime
 
 import typer
+from loguru import logger
 from rich.console import Console
 
 from blockperf.apiclient import BlockperfApiClient
 from blockperf.app import Blockperf
 from blockperf.config import settings
 from blockperf.errors import BlockperfError, ConfigurationError
-from blockperf.logging import logger
 
 run_app = typer.Typer(
     name="run",

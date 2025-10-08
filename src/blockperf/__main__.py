@@ -9,8 +9,10 @@ from blockperf.commands.analyze import analyze_app
 from blockperf.commands.base import version_cmd
 from blockperf.commands.monitor import monitor_app
 from blockperf.commands.run import run_app
+from blockperf.logging import setup_logging
 from blockperf.ui import make_blockperf_ui
 
+setup_logging()
 # Initialize the Typer application
 BlockperfCli = typer.Typer(
     name="blockperf",

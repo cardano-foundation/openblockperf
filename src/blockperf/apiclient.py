@@ -255,6 +255,9 @@ class BlockperfApiClient:
             return None
         return self._parse_response(response, response_model)
 
+    async def post_block_sample(self, sample):
+        return await self.post("/submit/blocksample", sample)
+
 
 @asynccontextmanager
 async def api():

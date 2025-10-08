@@ -31,6 +31,7 @@ class Blockperf:
     since_hours: int
     block_sample_groups: dict[str, BlockSampleGroup]  # Groups of block samples
     peers: dict[tuple, Peer]  # The nodes peer list (actually a dictionary)
+    replaying: bool
 
     def __init__(self, console: Console):
         try:
@@ -148,14 +149,16 @@ class Blockperf:
             # replay_from_startup() blocks as long as that function does
             # not call `return`. Such that, as long as it yields values
             # the loop will run.
-            event_count = 0  # just counting for now
+            message_count = 0  # just counting for now
+            self.replaying = True
             async for message in log_reader.replay_from_startup():
                 # await self._process_message(message)
-                event_count += 1
+                message_count += 1
+            self.replaying = False
 
-            if event_count > 0:
+            if message_count > 0:
                 self.console.print(
-                    f"Replay completed: found {event_count} historical messages"
+                    f"Replay completed: found {message_count} historical messages"
                 )
             else:
                 self.console.print(
@@ -181,7 +184,6 @@ class Blockperf:
             if ns not in self.handler.registered_namespaces:
                 return
             event = self.handler.make_event(message)
-
             await self.handler.handle_event(event)
         except EventError as e:
             logger.error("Error processing event")
@@ -189,12 +191,6 @@ class Blockperf:
         except Exception as e:
             logger.exception("Error processing event")
             raise
-
-        # Routee message to appropriate listeners based on namespace
-        # if ns in self.block_listener.registered_namespaces:
-        #    await self.block_listener.insert(message)
-        # if ns in self.peer_listener.registered_namespaces:
-        #    await self.peer_listener.insert(message)
 
     async def update_peers_connections(self) -> None:
         """Updates peers from the the connections list.
@@ -271,6 +267,10 @@ class Blockperf:
         """
         while True:
             await asyncio.sleep(settings().check_interval)
+            if self.replaying:
+                rich.print("Wont send samples coz of the replay")
+                continue
+
             async with BlockperfApiClient() as api:
                 ready_groups = {}
                 for k, group in self.block_sample_groups.items():
@@ -286,7 +286,7 @@ class Blockperf:
                         continue
                     # Group is ok, grab and send the sample
                     sample = group.sample()
-                    resp = await api.post("/submit/blocksample", sample)
+                    resp = await api.post_block_sample(sample)
                     rich.print(
                         f"[bold green]Sample {group.block_hash[:8]} published. Id: {resp.get('id')}.[/]"
                     )
@@ -297,6 +297,33 @@ class Blockperf:
         """Print peer statistics periodically."""
         while True:
             await asyncio.sleep(30)
-            # stats = self.peer_listener.get_peer_statistics()
-            # rich.print(stats)
-            rich.print("[bold yellow] nothing to see here[/]")
+            peers = self.peers.values()
+
+            in_cold = [p for p in peers if p.state_inbound == PeerState.COLD]
+            out_cold = [p for p in peers if p.state_outbound == PeerState.COLD]
+            in_warm = [p for p in peers if p.state_inbound == PeerState.WARM]
+            out_warm = [p for p in peers if p.state_outbound == PeerState.WARM]
+            in_hot = [p for p in peers if p.state_inbound == PeerState.HOT]
+            out_hot = [p for p in peers if p.state_outbound == PeerState.HOT]
+            in_cooling = [
+                p for p in peers if p.state_inbound == PeerState.COOLING
+            ]
+            out_cooling = [p for p in peers if p.state_outbound == PeerState.COOLING]  # fmt: off
+            in_unknown = [p for p in peers if p.state_inbound == PeerState.UNKNOWN]  # fmt: off
+            out_unknown = [
+                p for p in peers if p.state_outbound == PeerState.UNKNOWN
+            ]
+            stats = {
+                "in_cold": len(in_cold),
+                "out_cold": len(out_cold),
+                "in_warm": len(in_warm),
+                "out_warm": len(out_warm),
+                "in_hot": len(in_hot),
+                "out_hot": len(out_hot),
+                "in_cooling": len(in_cooling),
+                "out_cooling": len(out_cooling),
+                "in_unknown": len(in_unknown),
+                "out_unknown": len(out_unknown),
+                "total_peers": len(self.peers),
+            }
+            rich.print(stats)

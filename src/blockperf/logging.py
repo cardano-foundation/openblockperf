@@ -8,33 +8,32 @@ Logging
 
 """
 
-import json
-import sys
-
 from loguru import logger
 
-# Start fresh and remove defaults
-logger.remove()
 
-# Log everything to a file, keep it for a week.abs
-# logger.add(
-#    "logs.json",
-#    serialize=True,
-#    rotation="50 MB",
-#    compression="zip",
-# )
-logger.add(
-    "logs.txt",
-    rotation="50 MB",
-    compression="zip",
-    level="TRACE",
-    format="{time:YYYY-MM-DD}T{time:HH:mm:ss}.{time:SSS} | {message} | {extra}",
-)
+def setup_logging():
+    # Start fresh and remove defaults
+    logger.remove()
 
-# logger.add(
-#    sys.stderr,
-#    format="{time} {level} {message}",
-#    level="TRACE",
-# )
+    # Log everything to a file, keep it for a week.abs
+    # logger.add(
+    #    "logs.json",
+    #    serialize=True,
+    #    rotation="50 MB",
+    #    compression="zip",
+    # )
+    logger.add(
+        "logs.txt",
+        rotation="50 MB",
+        compression="zip",
+        level="TRACE",
+        format="{time:YYYY-MM-DD}T{time:HH:mm:ss}.{time:SSS} | {message} | {extra}",
+    )
 
-logger.debug("Logger loaded")
+    # logger.add(
+    #    sys.stderr,
+    #    format="{time} {level} {message}",
+    #    level="TRACE",
+    # )
+
+    logger.debug("Logger loaded")

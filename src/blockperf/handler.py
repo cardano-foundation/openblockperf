@@ -124,9 +124,9 @@ class EventHandler:
                 local_addr=event.local_addr,
                 local_port=event.local_port,
             )
-            rich.print(
-                f"New Peer {_p.remote_addr}:{_p.remote_port}: IN '{_p.state_inbound.value}' OUT '{_p.state_outbound.value}'"
-            )
+            # rich.print(
+            #    f"New Peer {_p.remote_addr}:{_p.remote_port}: IN '{_p.state_inbound.value}' OUT '{_p.state_outbound.value}'"
+            # )
             self.peers[event.key] = _p
         peer = self.peers[event.key]
         direction = PeerDirection(event.direction)
