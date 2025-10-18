@@ -258,6 +258,9 @@ class BlockperfApiClient:
     async def post_block_sample(self, sample):
         return await self.post("/submit/blocksample", sample)
 
+    async def post_status_change(self):
+        return await self.post("/submit/peerstatuschange", {})
+
 
 @asynccontextmanager
 async def api():

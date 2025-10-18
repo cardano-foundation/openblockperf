@@ -30,7 +30,7 @@ class AppSettings(BaseSettings):
     api_base_url: str = "http://127.0.0.1"
     api_base_port: int = 8080
     api_base_path: str = "/api/v0/"
-    api_key: str = "NrYQB2K4osWorjEPLrDUtriNwTmt5pML3Cg5PWMhj8M"
+    api_key: str
     api_clientid: str | None = None
     api_client_secret: str | None = None
     check_interval: int = 2  # Interval in seconds to check for groups/blocks

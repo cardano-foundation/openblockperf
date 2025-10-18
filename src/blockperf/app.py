@@ -40,6 +40,7 @@ class Blockperf:
             self.console = console
             self.log_reader = create_log_reader("journalctl", "cardano-tracer")
 
+            self.replaying = False
             self.tasks: dict[str, asyncio.Task] = {}
             self.since_hours = 0
             self.block_sample_groups = {}
@@ -71,6 +72,10 @@ class Blockperf:
                 # Create tasks with names for better error tracking
                 self.tasks["event_processor"] = tg.create_task(
                     self._run_task("event_processor", self.process_events)
+                )
+
+                self.tasks["peerstatuschanges"] = tg.create_task(
+                    self._run_task("peerstatuschanges", self.peerstatuschanges)
                 )
                 # self.tasks["update_peers_connections"] = tg.create_task(
                 #    self._run_task(
@@ -149,21 +154,24 @@ class Blockperf:
             # replay_from_startup() blocks as long as that function does
             # not call `return`. Such that, as long as it yields values
             # the loop will run.
-            message_count = 0  # just counting for now
-            self.replaying = True
-            async for message in log_reader.replay_from_startup():
-                # await self._process_message(message)
-                message_count += 1
-            self.replaying = False
 
-            if message_count > 0:
-                self.console.print(
-                    f"Replay completed: found {message_count} historical messages"
-                )
-            else:
-                self.console.print(
-                    "Replay completed: no historical messages to replay"
-                )
+            enable_replay = False
+            if enable_replay:
+                message_count = 0  # just counting for now
+                self.replaying = True
+                async for message in log_reader.replay_from_startup():
+                    # await self._process_message(message)
+                    message_count += 1
+                self.replaying = False
+
+                if message_count > 0:
+                    self.console.print(
+                        f"Replay completed: found {message_count} historical messages"
+                    )
+                else:
+                    self.console.print(
+                        "Replay completed: no historical messages to replay"
+                    )
 
             # ===== PHASE 2: LIVE TAILING =====
             # Now switch to live log tailing, just as we did before
@@ -327,3 +335,10 @@ class Blockperf:
                 "total_peers": len(self.peers),
             }
             rich.print(stats)
+
+    async def peerstatuschanges(self):
+        while True:
+            await asyncio.sleep(2)
+            async with BlockperfApiClient() as api:
+                print("go")
+                await api.post_status_change()
