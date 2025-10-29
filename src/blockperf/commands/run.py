@@ -12,6 +12,7 @@ from blockperf.apiclient import BlockperfApiClient
 from blockperf.app import Blockperf
 from blockperf.config import settings
 from blockperf.errors import BlockperfError, ConfigurationError
+from blockperf.utils import async_command
 
 run_app = typer.Typer(
     name="run",
@@ -27,6 +28,7 @@ def run_app_callback():
     try:
         app = Blockperf(console)
         asyncio.run(_run_blockperf_app(app))
+
     except KeyboardInterrupt:
         console.print("\n[bold green]Shutdown initiated by user[/]")
         sys.exit(0)

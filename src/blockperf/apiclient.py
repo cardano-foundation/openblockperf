@@ -34,7 +34,7 @@ from pydantic import BaseModel
 
 from blockperf.clientid import get_clientid
 from blockperf.config import settings
-from blockperf.errors import NetworkError
+from blockperf.errors import ApiConnectionError, ApiError
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -68,22 +68,16 @@ class BlockperfApiClient:
 
     # Context manager creates and closes httpx clients
     async def __aenter__(self):
-        try:
-            self._client = httpx.AsyncClient(
-                base_url=self._url,
-                timeout=self._timeout,
-                **self._httpx_kwargs,
-            )
-            return self
-        except Exception as e:
-            raise NetworkError(f"Failed to create HTTP client: {e}") from e
+        self._client = httpx.AsyncClient(
+            base_url=self._url,
+            timeout=self._timeout,
+            **self._httpx_kwargs,
+        )
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._client:
-            try:
-                await self._client.aclose()
-            except Exception as e:
-                logger.warning(f"Error closing HTTP client: {e}")
+            await self._client.aclose()
 
     async def _make_request(
         self,
@@ -93,50 +87,40 @@ class BlockperfApiClient:
     ) -> httpx.Response:
         """Make an authenticated request to the API."""
         # await self._ensure_valid_token()
-
-        headers = kwargs.pop("headers", {})
-        if not self.api_key:
-            raise RuntimeError("No api key found")
-        headers["X-Api-Key"] = self.api_key
-        headers["X-Client-Id"] = get_clientid()
-
-        response = await self._client.request(
-            method,
-            f"/{endpoint.lstrip('/')}",
-            headers=headers,
-            **kwargs,
-        )
-
-        # if response.status_code == 401:
-        #    # Token expired, retry once with new token
-        #    self._token = None
-        #    await self._ensure_valid_token()
-        #    headers["Authorization"] = f"Bearer {self._token}"
-        #    response = await self._client.request(
-        #        method,
-        #        f"/{endpoint.lstrip('/')}",
-        #        headers=headers,
-        #        **kwargs,
-        #    )
-
         try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP {e.response.status_code} error for {method} {endpoint}: {e.response.text}"
+            headers = kwargs.pop("headers", {})
+            if not self.api_key:
+                raise RuntimeError("No api key found")
+            headers["X-Api-Key"] = self.api_key
+            headers["X-Client-Id"] = get_clientid()
+
+            response = await self._client.request(
+                method,
+                f"/{endpoint.lstrip('/')}",
+                headers=headers,
+                **kwargs,
             )
-            raise NetworkError(
+            response.raise_for_status()
+
+        except httpx.HTTPStatusError as e:
+            # if response.status_code == 401:
+            #    # Token expired, retry once with new token
+            #    self._token = None
+            #    await self._ensure_valid_token()
+            #    headers["Authorization"] = f"Bearer {self._token}"
+            #    response = await self._client.request(
+            #        method,
+            #        f"/{endpoint.lstrip('/')}",
+            #        headers=headers,
+            #        **kwargs,
+            #    )
+            raise ApiError(
                 f"API request failed: {e.response.status_code} {e.response.reason_phrase}"
             ) from e
         except httpx.TimeoutException as e:
-            logger.error(f"Timeout error for {method} {endpoint}")
-            raise NetworkError(f"API request timed out: {e}") from e
+            raise ApiError(f"API request timed out: {e}") from e
         except httpx.ConnectError as e:
-            logger.error(f"Connection error for {method} {endpoint}: {e}")
-            raise NetworkError(f"Failed to connect to API: {e}") from e
-        except Exception as e:
-            logger.exception(f"Unexpected error for {method} {endpoint}")
-            raise NetworkError(f"Unexpected network error: {e}") from e
+            raise ApiConnectionError(f"Failed to connect to API: {e}") from e
 
         return response
 

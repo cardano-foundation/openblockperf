@@ -4,9 +4,20 @@ import asyncio
 import functools
 import signal
 import sys
+from functools import wraps
 from typing import Any, Callable, Coroutine, Optional, TypeVar, cast
 
 T = TypeVar("T")
+
+
+def async_command(func):
+    """Decorator to run async typer commands"""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return asyncio.run(func(*args, **kwargs))
+
+    return wrapper
 
 
 def run_async(coroutine: Coroutine[Any, Any, T]) -> T:

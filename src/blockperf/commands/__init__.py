@@ -1,9 +1,15 @@
 """Base commands implementation for BlockPerf CLI."""
 
-import typer
+import platform
+import sys
+
 from rich.console import Console
 
 from blockperf import __version__
+
+from .run import run_app
+
+__all__ = ["run_app", "version_cmd"]
 
 console = Console()
 
@@ -18,8 +24,6 @@ def version_cmd(verbose: bool = False) -> None:
 
     if verbose:
         console.print("\n[bold]Environment:[/]")
-        import platform
-        import sys
 
         console.print(f"Python version: [cyan]{sys.version}[/]")
         console.print(f"Platform: [cyan]{platform.platform()}[/]")
