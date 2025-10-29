@@ -1,5 +1,6 @@
 """Base commands implementation for BlockPerf CLI."""
 
+import asyncio
 import platform
 import sys
 
@@ -7,9 +8,9 @@ from rich.console import Console
 
 from blockperf import __version__
 
-from .run import run_app
+from .run import run_cmd
 
-__all__ = ["run_app", "version_cmd"]
+__all__ = ["run_cmd", "version_cmd"]
 
 console = Console()
 

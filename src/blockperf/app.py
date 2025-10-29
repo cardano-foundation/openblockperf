@@ -11,6 +11,7 @@ from blockperf.apiclient import BlockperfApiClient
 from blockperf.blocksamplegroup import BlockSampleGroup
 from blockperf.config import settings
 from blockperf.errors import (
+    ApiConnectionError,
     BlockperfError,
     ConfigurationError,
     EventError,
@@ -34,28 +35,15 @@ class Blockperf:
     replaying: bool
 
     def __init__(self, console: Console):
-        try:
-            # Validate configuration early
-            self._validate_configuration()
-            self.console = console
-            self.log_reader = create_log_reader("journalctl", "cardano-tracer")
-
-            self.replaying = False
-            self.tasks: dict[str, asyncio.Task] = {}
-            self.since_hours = 0
-            self.block_sample_groups = {}
-            # self._block_sample_groups_lock = asyncio.Lock()
-            self.peers = {}
-            # self._peers_lock = asyncio.Lock()
-
-            self.handler = EventHandler(
-                self.block_sample_groups,
-                self.peers,
-            )
-
-        except Exception as e:
-            logger.opt(exception=True).debug(f"Initialization failed: {e}")
-            raise ConfigurationError(f"Initialization failed: {e}") from e
+        # Keep this simple! Do any complex init in start()
+        self.console = console
+        self.replaying = False
+        self.tasks: dict[str, asyncio.Task] = {}
+        self.since_hours = 0
+        self.block_sample_groups = {}
+        # self._block_sample_groups_lock = asyncio.Lock()
+        self.peers = {}
+        # self._peers_lock = asyncio.Lock()
 
     def _validate_configuration(self) -> None:
         """Validate application configuration."""
@@ -65,7 +53,9 @@ class Blockperf:
 
     async def start(self):
         """Run all application tasks with proper error handling and coordination."""
-        self.console.print("Starting Blockperf application")
+        self._validate_configuration()
+        self.log_reader = create_log_reader("journalctl", "cardano-tracer")
+        self.handler = EventHandler(self.block_sample_groups, self.peers)
 
         try:
             async with asyncio.TaskGroup() as tg:
@@ -96,19 +86,31 @@ class Blockperf:
                 )
 
         except* asyncio.CancelledError as eg:
-            self.console.print("Tasks cancelled - shutdown initiated")
+            # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
+            # canceles all tasks. Each one will send an CancelledError.
+            # Thus this needs to be an exception group catch and rais
+            # to signal clean shutdown.
+            raise
+
+        except* ApiConnectionError as eg:
+            # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
+            # canceles all tasks. Each one will send an CancelledError.
+            # Thus this needs to be an exception group catch and rais
+            # to signal clean shutdown.
+            raise
 
         except* Exception as eg:
+            # If any of the tasks throws and excpetion
             if eg.exceptions:
                 logger.error(
                     f"Task group failed with {len(eg.exceptions)} exceptions"
                 )
                 for exc in eg.exceptions:
                     logger.exception(f"Critical task error: {exc}")
+            raise
 
     async def stop(self):
         """Gracefully stop the application and clean up resources."""
-
         # Cancel all running tasks
         for task_name, task in self.tasks.items():
             if not task.done():
@@ -118,8 +120,6 @@ class Blockperf:
         # Wait for tasks to finish cancellation
         if self.tasks:
             await asyncio.gather(*self.tasks.values(), return_exceptions=True)
-
-        self.console.print("Blockperf application stopped")
 
     async def _run_task(self, task_name: str, task):
         """Wrapper that provides consistent error handling for all tasks."""
