@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from datetime import datetime
 
 import psutil
@@ -25,6 +26,31 @@ from blockperf.models.peer import Peer, PeerState
 
 
 class Blockperf:
+    """The Blockperf application.
+
+    The Blockperf application does a few different things. This class creates
+    one asyncio TaskGroup and implements all the tasks that will run in that
+    group.
+
+    The main function of this is start(). Thats what will start the app
+    by creating that TaskGroup and the adding the individual tasks to it.
+
+    * create_task() creates the task in the taskgroup using the provided callable
+    * _run_task() is what will actually execute (await!) the task.
+
+    The create_task() is just a simple wrapper around the process of calling
+    the taskgroups create_task() and adding the resulting to to the internal
+    list of tasks. The interesting part is _run_task() because that is
+    what allows every task to propagate its errors cleanly. This is important
+    to do because if the app receives a SIGINT or SIGTERM signal (Users
+    presses Ctrl-C), we want all tasks to get properly canceled. But the
+    application should not "die in blood". That is, it should exit cleanly.
+    The _run_task() is what handles the "individual task" exceptions and
+    in the start() try/catch block handles "all tasks". Most importantly
+    asnyncio.CancelledError. Currently if any of the tasks fail, the whole
+    group should fail.
+    """
+
     log_reader: NodeLogReader  # the log reader this processor is using
     console: Console  # The console to write to
     handler: EventHandler  # Handler to handle the different events
@@ -59,31 +85,11 @@ class Blockperf:
 
         try:
             async with asyncio.TaskGroup() as tg:
-                # Create tasks with names for better error tracking
-                self.tasks["event_processor"] = tg.create_task(
-                    self._run_task("event_processor", self.process_events)
-                )
-
-                self.tasks["peerstatuschanges"] = tg.create_task(
-                    self._run_task("peerstatuschanges", self.peerstatuschanges)
-                )
-                # self.tasks["update_peers_connections"] = tg.create_task(
-                #    self._run_task(
-                #        "update_peers_connections",
-                #        self.update_peers_connections,
-                #    )
-                # )
-                # self.tasks["update_peers_unknown"] = tg.create_task(
-                #    self._run_task(
-                #        "update_peers_unknown", self.update_peers_unknown
-                #    )
-                # )
-                self.tasks["block_sender"] = tg.create_task(
-                    self._run_task("block_sender", self.send_block_samples)
-                )
-                self.tasks["stats_printer"] = tg.create_task(
-                    self._run_task("stats_printer", self.print_peer_statistics)
-                )
+                # Create all long running tasks that run in this app
+                self.create_task(self.process_events_task, tg)
+                self.create_task(self.peerstatuschanges_task, tg)
+                self.create_task(self.send_block_samples_task, tg)
+                self.create_task(self.print_peer_statistics_task, tg)
 
         except* asyncio.CancelledError as eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
@@ -93,10 +99,7 @@ class Blockperf:
             raise
 
         except* ApiConnectionError as eg:
-            # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
-            # canceles all tasks. Each one will send an CancelledError.
-            # Thus this needs to be an exception group catch and rais
-            # to signal clean shutdown.
+            rich.print("Does this work here")
             raise
 
         except* Exception as eg:
@@ -121,6 +124,18 @@ class Blockperf:
         if self.tasks:
             await asyncio.gather(*self.tasks.values(), return_exceptions=True)
 
+    def create_task(
+        self,
+        func: Callable,
+        tg: asyncio.TaskGroup,
+    ):
+        """Create a task from provided function in the taskgroup provided.
+
+        Also stores the task in self.tasks for later access.
+        """
+        _name = func.__name__
+        self.tasks[_name] = tg.create_task(self._run_task(_name, func))
+
     async def _run_task(self, task_name: str, task):
         """Wrapper that provides consistent error handling for all tasks."""
         try:
@@ -139,7 +154,7 @@ class Blockperf:
             for name, task in self.tasks.items()
         }
 
-    async def process_events(self):
+    async def process_events_task(self):
         """Process events from log reader with startup replay capability.
 
         First replays all historical events since the last service startup,
@@ -200,7 +215,7 @@ class Blockperf:
             logger.exception("Error processing event")
             raise
 
-    async def update_peers_connections(self) -> None:
+    async def update_peers_connections_task(self) -> None:
         """Updates peers from the the connections list.
 
         Compares the list of peers with current active connections on the
@@ -224,7 +239,7 @@ class Blockperf:
                     connections
                 )
 
-    async def update_peers_unknown(self) -> None:
+    async def update_peers_unknown_task(self) -> None:
         """Update unknown peers by searching the logreader for older messages"""
         # should run after thefirst update_peers_connections did
         while True:
@@ -268,7 +283,7 @@ class Blockperf:
                         break
             self.console.print(f"Found {updated} peers in logs")
 
-    async def send_block_samples(self):
+    async def send_block_samples_task(self):
         """Checks if block samples are ready and if so sends them to the api.
 
         the block samples to the server.
@@ -301,7 +316,7 @@ class Blockperf:
                     # Delete group
                     del self.block_sample_groups[k]
 
-    async def print_peer_statistics(self):
+    async def print_peer_statistics_task(self):
         """Print peer statistics periodically."""
         while True:
             await asyncio.sleep(30)
@@ -336,7 +351,7 @@ class Blockperf:
             }
             rich.print(stats)
 
-    async def peerstatuschanges(self):
+    async def peerstatuschanges_task(self):
         while True:
             await asyncio.sleep(2)
             async with BlockperfApiClient() as api:
