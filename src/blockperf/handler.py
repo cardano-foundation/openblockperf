@@ -3,9 +3,10 @@ from functools import singledispatchmethod
 
 import rich
 from loguru import logger
+from pydantic import ValidationError
 
 from blockperf.blocksamplegroup import BlockSampleGroup
-from blockperf.errors import EventError
+from blockperf.errors import EventError, InvalidEventDataError
 from blockperf.models.events.base import BaseEvent
 from blockperf.models.events.event import (
     AddedToCurrentChainEvent,
@@ -23,7 +24,13 @@ class EventHandler:
     """
     The event handler handles the events.
 
-    Provides a function to create an event from a log message `make_event()`
+    First use `make_event()` to create an event from the provided message.
+    The namespace of the event will be created into the model that is configured
+    in the registered_namespaces dict. Add new events by providing them in that
+    dict with the corresponding pydantic model to parse it into.
+    To then handle that event, register a new singledispatch function using
+    that event type in its signature. The
+
     """
 
     block_sample_groups: dict[str, BlockSampleGroup]  # Groups of block samples
@@ -64,14 +71,12 @@ class EventHandler:
 
     def make_event(self, message) -> BaseEvent | None:
         ns = message.get("ns")
-        if (
-            not self.registered_namespaces
-            or ns not in self.registered_namespaces
-        ):
-            raise EventError(f"Inserted namespace '{ns}' not found in registry")
-
         event_model_class = self.registered_namespaces.get(ns)
-        return event_model_class(**message)
+        try:
+            return event_model_class.model_validate(message)
+        except ValidationError as e:
+            logger.error(f"Error validating data: {e.errors()}")
+            raise InvalidEventDataError(ns, event_model_class, message) from e
 
     async def handle_event(self, event: BaseEvent):
         """Handles every event by calling the single dispatch method _handle_event.
@@ -87,7 +92,7 @@ class EventHandler:
         raise EventError(f"Unhandled event type: {type(event).__name__}")
 
     @_handle_event.register
-    def _(
+    def blocksample_event(
         self,
         event: DownloadedHeaderEvent
         | SendFetchRequestEvent
@@ -112,9 +117,9 @@ class EventHandler:
         group.add_event(event)
 
     @_handle_event.register
-    def _(self, event: PeerEvent):
+    def peer_event(self, event: PeerEvent):
         """Handles a PeerEvent."""
-        # logger.debug("Handling PeerEvent", event=event)
+        logger.debug("Handling PeerEvent", event=event)
         if event.key not in self.peers:
             # Creates a new peer
             _p = Peer(

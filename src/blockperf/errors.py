@@ -44,3 +44,14 @@ class ApiConnectionError(BlockperfError):
     """Raised when there is a problem connecting to the api."""
 
     pass
+
+
+class StartupMarkerNotFoundError(BlockperfError):
+    pass
+
+
+class InvalidEventDataError(BlockperfError):
+    def __init__(self, ns: str, model_class, raw_data):
+        self.ns = ns
+        self.model_class = model_class
+        self.raw_data = raw_data

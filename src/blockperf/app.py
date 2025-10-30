@@ -13,10 +13,10 @@ from blockperf.blocksamplegroup import BlockSampleGroup
 from blockperf.config import settings
 from blockperf.errors import (
     ApiConnectionError,
-    BlockperfError,
     ConfigurationError,
     EventError,
-    TaskError,
+    InvalidEventDataError,
+    StartupMarkerNotFoundError,
 )
 from blockperf.handler import EventHandler
 from blockperf.logreader import NodeLogReader, create_log_reader
@@ -87,7 +87,7 @@ class Blockperf:
             async with asyncio.TaskGroup() as tg:
                 # Create all long running tasks that run in this app
                 self.create_task(self.process_events_task, tg)
-                self.create_task(self.peerstatuschanges_task, tg)
+                # self.create_task(self.peerstatuschanges_task, tg)
                 self.create_task(self.send_block_samples_task, tg)
                 self.create_task(self.print_peer_statistics_task, tg)
 
@@ -171,26 +171,26 @@ class Blockperf:
             # the loop will run.
 
             enable_replay = False
+            self.console.print("[bold yellow]Log replaying disabled[/]")
             if enable_replay:
-                message_count = 0  # just counting for now
-                self.replaying = True
-                async for message in log_reader.replay_from_startup():
-                    # await self._process_message(message)
-                    message_count += 1
-                self.replaying = False
-
-                if message_count > 0:
-                    self.console.print(
-                        f"Replay completed: found {message_count} historical messages"
-                    )
-                else:
-                    self.console.print(
-                        "Replay completed: no historical messages to replay"
-                    )
+                try:
+                    self.console.print("[bold blue]Searching old logs for node startup marker[/]")  # fmt: off
+                    message_count = 0  # just counting for now
+                    self.replaying = True
+                    async for message in log_reader.replay_from_startup():
+                        await self._process_message(message)
+                        message_count += 1
+                except StartupMarkerNotFoundError:
+                    self.console.print("[bold red]No startup marker found in logs[/]")  # fmt: off
+                finally:
+                    self.replaying = False  # flag replaying has finished
+                    if message_count > 0:
+                        self.console.print(
+                            f"Replay completed: processed {message_count} historical messages"
+                        )
 
             # ===== PHASE 2: LIVE TAILING =====
-            # Now switch to live log tailing, just as we did before
-            # This should run forever.
+            # Now switch to live log tailing, this should run forever
             self.console.print("Starting live log processing...")
             async for message in log_reader.read_messages():
                 await self._process_message(message)
@@ -208,6 +208,8 @@ class Blockperf:
                 return
             event = self.handler.make_event(message)
             await self.handler.handle_event(event)
+        except InvalidEventDataError:
+            self.console.print(f"[bold red]Validation error for {ns}[/]")
         except EventError as e:
             logger.error("Error processing event")
             self.console.print(f"[bold red]Error handling event. {e}[/]")

@@ -55,11 +55,3 @@ class BaseEvent(BaseModel):
         import rich  # noqa: PLC0415
 
         rich.print(self)
-
-    # def direction(self) -> PeerDirection | None:
-    #    if ".Remote" in self.ns:
-    #        return PeerDirection.OUTBOUND
-    #    elif ".Local" in self.ns:
-    #        return PeerDirection.INBOUND
-    #    else:
-    #        return None

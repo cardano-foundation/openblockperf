@@ -9,8 +9,9 @@ import json
 from collections.abc import AsyncGenerator
 from typing import Any
 
-import rich
 from loguru import logger
+
+from blockperf.errors import StartupMarkerNotFoundError
 
 
 class NodeLogReader(abc.ABC):
@@ -272,6 +273,7 @@ class JournalCtlLogReader(NodeLogReader):
         Yields:
             Historical log messages in chronological order (oldest first)
         """
+
         # There was another namespace with that same string "Reflection.TracerConfigInfo"
         # such that i needed to add the ns field part here as well
         startup_marker = '"ns":"Net.Server.Local.Started"'
@@ -279,6 +281,7 @@ class JournalCtlLogReader(NodeLogReader):
         process = None
 
         try:
+            #######################################
             # Step 1: Find startup message of node
             search_cmd = [
                 "journalctl",
@@ -303,8 +306,9 @@ class JournalCtlLogReader(NodeLogReader):
                 logger.warning(
                     f"No startup marker '{startup_marker}' found in logs"
                 )
-                return
+                raise StartupMarkerNotFoundError()
 
+            #######################################
             # Step 2: Extrat timestamp from startup message
             try:
                 startup_line = stdout.decode("utf-8").strip()
@@ -321,6 +325,7 @@ class JournalCtlLogReader(NodeLogReader):
                 logger.warning(f"Could not parse startup entry: {e}")
                 return
 
+            #######################################
             # Step 3: Replay all messages from startup timestamp to now
             # Convert microsecond timestamp to journalctl format
             startup_time_sec = int(startup_timestamp) // 1000000
@@ -336,9 +341,7 @@ class JournalCtlLogReader(NodeLogReader):
                 "--until",
                 "now",
             ]
-            logger.info(
-                f"Replaying logs from startup timestamp {startup_time_sec}"
-            )
+            logger.info(f"Replaying logs from startup timestamp {startup_time_sec}")  # fmt: off
             # Execute replay command as streaming process
             process = await asyncio.create_subprocess_exec(
                 *replay_cmd,
@@ -350,29 +353,26 @@ class JournalCtlLogReader(NodeLogReader):
             message_count = 0
             while True:
                 line = await process.stdout.readline()
-
                 if not line:
-                    # Process finished
+                    # If process is finished, break the loop and return function
                     if (
                         process.returncode is not None
                         or process.stdout.at_eof()
                     ):
                         break
+                    # Keep waiting by continuing the loop
                     continue
 
                 line_str = line.decode("utf-8").strip()
                 if not line_str:
                     continue
-
                 try:
                     # Parse message like read_messages does
                     message = json.loads(line_str)
                     message_count += 1
                     yield message
                 except json.JSONDecodeError:
-                    logger.debug(
-                        f"Malformed JSON in replay: {line_str[:100]}..."
-                    )
+                    logger.debug(f"Malformed JSON in replay: {line_str[:100]}...")  # fmt: off
                     continue
 
             # Finally wait for the process to finish and close it or display
@@ -385,15 +385,12 @@ class JournalCtlLogReader(NodeLogReader):
                     if stderr_data
                     else "Unknown error"
                 )
-                logger.warning(
-                    f"Replay finished with return code {process.returncode}: {error_msg}"
-                )
+                logger.warning(f"Replay finished with return code {process.returncode}: {error_msg}")  # fmt: off
             else:
-                logger.info(
-                    f"Replay completed successfully: {message_count} messages processed"
-                )
+                logger.info(f"Replay completed successfully: {message_count} messages processed")  # fmt: off
         except Exception as e:
-            logger.error(f"Error during log replay: {e}")
+            logger.error(f"Error during log replay: {e.__class__.__name__}")
+            raise
         finally:
             # Clean up process if still running
             if process and process.returncode is None:
@@ -401,9 +398,7 @@ class JournalCtlLogReader(NodeLogReader):
                     process.terminate()
                     await asyncio.wait_for(process.wait(), timeout=1.0)
                 except TimeoutError:
-                    logger.warning(
-                        "Replay process didn't terminate, killing it"
-                    )
+                    logger.warning("Replay process didn't terminate, killing it")  # fmt: off
                     process.kill()
                     await process.wait()
 
