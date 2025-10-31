@@ -1,52 +1,34 @@
 # Introduction
 
-This is a fairly technical documentation about the things that i am building.
-For me as a reference and for the interested reader to learn about blockperf.
-Whenever i talk about blockperf i mean the client that is running alongside
-the node.
+The OpenBlockperf Client collects various data points from a running cardano-node.
+It reads the nodes logs and collects the entries it is interested in. These
+can be categorize into three main parts.
 
-Roughly speaking blockperf needs to do the following
+* **Block timings** is about measuring different times regarding to a specific block.
+    See blocksamples.md
+* **Node Peers** is about monitoring the peers a node is connected to.
+    See peers.md
+* **Transactions** is about the transactions this node sees and has seen.
+    Transactions have not been implemented yet
 
-* Ingest logs from the node, from either the node.json link or the journd logstream.
-* Store all these logs... in a local sqlite? Just in memory? -> In memory sqlite?!
-    Every log is some kind of event that has happened in the node.
-* From all these logs, filter out the ones that we want to see. The node
-    can and does provide a lot of things in its logs but we are only interested
-    in some.
-* That filtering will need to happen regularly, I want to see a specific
-    set of events for every block.
-* * That set of events can take a long time until its completed.
-* * It may never happen for a given block
+Everything is specific to the local cardano-node this client is supposed to
+run with.
 
-* Collect all events for a given block (group by block). Then preprocess
-    that "blockevent". And store it?
-* Then send that data sample in.
+## OpenBlockperf API
 
-## Components
+The OpenBlockperf client collects the data and sends it to the api.
 
-* **Log Parser** The log parser is able to ingest logs from various sources.
-    It is not required to be able to use more than one source at a time.
-    It
+### API Key
 
+To access that api, the client needs to have an api key.
 
-The following are the modules of the application:
+### Client UUID
 
-### cli
-
-Takes care of all the cli parsing and using the different aspects of the application
-
-### app
-
-Implements the application as a class. This class will be used in the different
-ways that the cli interface provides. Which will mostly be
-
-### client
-
-Will implement the openblockperf backend client. It provides an abstraction
-over the openblockperf api and its use.
-
-
-## Registration
-
-The client can either be registered as an SPO or as an anonymous relay. Either
-way it needs to register with the server to receive a client id.
+Every client creates a uuid, which will be stored locally. Should that
+uuid be deleted, then the client will simply generate a new one. The
+user should not need to worry about this at all. The idea behind this is
+to allow the server to uniquely identify each client. The API Key alone
+would not be able to do that, because we assume that people might not want
+to issue individual keys for all their relays but just have one that they
+share among them. But uniquely identifiying each client is important to
+better understand the peer connections and its access to the cardano network.

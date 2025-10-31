@@ -1,12 +1,14 @@
-# Tracking the nodes peers
+# Tracking peers
 
-Notes on how it currently is implemented and what is missing.
+The client tracks the nodes peers by reading through the nodes logs.
+We are interested in all the peers the node is connected to. But also
+when these peers change their states. That is
 
-* The client holds a single list of all its peers.
-* Every peer in that list is unqiquely identified by the combination of the
-    remotes ip and port. In fact thats the key of the peers dictionary.
 
-## Peer States
+
+## Peer status changes
+
+
 
 * Every peer can be in one of many states. See `blockperf.models:PeerState`
 * A peer is either outbound or inbound. That is either the node connected
@@ -35,12 +37,6 @@ connection.
 
 There are the following messages in the logs. Many of the are self explanatory.
 The StatusChanged needs more explanation
-
-> **Note**
->
-> This list is probably incomplete... will add more events once I know which
->
-
 
 ### StatusChangedEvent
 

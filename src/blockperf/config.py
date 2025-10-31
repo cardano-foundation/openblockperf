@@ -35,6 +35,7 @@ class AppSettings(BaseSettings):
     api_client_secret: str | None = None
     check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
+
     local_addr: str = "0.0.0.0"
     local_port: int = 3001
     # Using Field to validate input values match one of the possible enum values

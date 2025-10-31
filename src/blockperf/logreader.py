@@ -77,9 +77,17 @@ class NodeLogReader(abc.ABC):
 
 
 class JournalCtlLogReader(NodeLogReader):
-    """Concrete implementation of a log reader. Starts a subprocess which
-    runs the journalctl tool to receive the messages. The read_messages()
-    function is a generator that will yield every single line from the logs.
+    """Implementation of a log reader based on the journalctl cli tool.
+
+    Starts a subprocess which runs the journalctl tool to receive the logs
+    from journald. Upon creation the systemd unit to log must be provided.
+
+    The read_messages() function is an async generator that will yield every
+    single line from the logs forever.
+
+    The replay_from_startup() function is also an async generator but
+    it will only ever read messages from the past. It tries to find the
+    last starting point of the node and then yield all messages until now.
     """
 
     def __init__(self, unit: str):
@@ -403,13 +411,15 @@ class JournalCtlLogReader(NodeLogReader):
                     await process.wait()
 
 
-def create_log_reader(reader_type: str, unit: str | None):
+def create_log_reader(reader_type: str, unit: str | None) -> NodeLogReader:
     """Creates a log reader of the given type.
+
     Args:
         reader_type: The type of the reader, currently only journalctl is supported
         unit: The unit to follow the log stream of. Defaults to cardano-tracer
 
     Returns:
+        An instance of a subclass of NodeLogReader.
     """
     unit = unit or "cardano-tracer"
     if reader_type == "journalctl":

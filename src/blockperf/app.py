@@ -17,6 +17,7 @@ from blockperf.errors import (
     EventError,
     InvalidEventDataError,
     StartupMarkerNotFoundError,
+    UnknowEventNameSpaceError,
 )
 from blockperf.handler import EventHandler
 from blockperf.logreader import NodeLogReader, create_log_reader
@@ -73,8 +74,7 @@ class Blockperf:
 
     def _validate_configuration(self) -> None:
         """Validate application configuration."""
-        config = settings()
-        if not config.check_interval or config.check_interval <= 0:
+        if not settings().check_interval or settings().check_interval <= 0:
             raise ConfigurationError("Invalid check_interval in configuration")
 
     async def start(self):
@@ -91,15 +91,14 @@ class Blockperf:
                 self.create_task(self.send_block_samples_task, tg)
                 self.create_task(self.print_peer_statistics_task, tg)
 
-        except* asyncio.CancelledError as eg:
+        except* asyncio.CancelledError as _eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
             # canceles all tasks. Each one will send an CancelledError.
             # Thus this needs to be an exception group catch and rais
             # to signal clean shutdown.
             raise
 
-        except* ApiConnectionError as eg:
-            rich.print("Does this work here")
+        except* ApiConnectionError as _eg:
             raise
 
         except* Exception as eg:
@@ -202,14 +201,14 @@ class Blockperf:
         Then it adds that event to
         """
         try:
-            ns = message.get("ns")
-            # If the handler cant take it, we dont want it
-            if ns not in self.handler.registered_namespaces:
-                return
-            event = self.handler.make_event(message)
-            await self.handler.handle_event(event)
+            # Pass message to handler to handle the event it represents
+            await self.handler.handle_message(message)
+        # Except all errors the handler might see
+        # NotInterestedError
+        except UnknowEventNameSpaceError:
+            pass  # The Messages namespace is not registered as an event
         except InvalidEventDataError:
-            self.console.print(f"[bold red]Validation error for {ns}[/]")
+            self.console.print(f"[bold red]Validation error for {message.get('ns')}[/]")  # fmt: off
         except EventError as e:
             logger.error("Error processing event")
             self.console.print(f"[bold red]Error handling event. {e}[/]")

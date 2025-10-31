@@ -1,5 +1,5 @@
 """
-logevent
+Block sample events
 
 The logevent module
 """
@@ -16,7 +16,13 @@ from blockperf.models.peer import (
 from .base import BaseEvent
 
 
-class DownloadedHeaderEvent(BaseEvent):
+class BlockSampleEvent(BaseEvent):
+    """Any of the events relevant for taking block sample data"""
+
+    pass
+
+
+class DownloadedHeaderEvent(BlockSampleEvent):
     """
     {
         "at": "2025-09-12T16:51:39.269022269Z",
@@ -68,7 +74,7 @@ class DownloadedHeaderEvent(BaseEvent):
         return self.data.peer.connectionId.remote_port
 
 
-class SendFetchRequestEvent(BaseEvent):
+class SendFetchRequestEvent(BlockSampleEvent):
     """
     {
         "at": "2025-09-12T16:52:11.098464254Z",
@@ -111,7 +117,7 @@ class SendFetchRequestEvent(BaseEvent):
         return self.data.peer.connectionId.remote_port
 
 
-class CompletedBlockFetchEvent(BaseEvent):
+class CompletedBlockFetchEvent(BlockSampleEvent):
     """
     {
         "at": "2025-09-12T16:52:11.263418188Z",
@@ -163,7 +169,7 @@ class CompletedBlockFetchEvent(BaseEvent):
         return self.data.peer.connectionId.remote_port
 
 
-class AddedToCurrentChainEvent(BaseEvent):
+class AddedToCurrentChainEvent(BlockSampleEvent):
     """
 
     {
@@ -223,7 +229,7 @@ class AddedToCurrentChainEvent(BaseEvent):
         return _hash
 
 
-class SwitchedToAForkEvent(BaseEvent):
+class SwitchedToAForkEvent(BlockSampleEvent):
     """
     {
         "at": "2025-09-12T16:51:18.698911267Z",
@@ -280,28 +286,6 @@ class SwitchedToAForkEvent(BaseEvent):
         if _hash.endswith('"'):
             _hash = _hash[:-1]
         return _hash
-
-
-class InboundGovernorCountersEvent(BaseEvent):
-    """ """
-
-    idle_peers: int
-    cold_peers: int
-    warm_peers: int
-    hot_peers: int
-
-    @model_validator(mode="before")
-    @classmethod
-    def parse(cls, data: Any):
-        data["idle_peers"] = data.get("data").get("idlePeers")
-        data["cold_peers"] = data.get("data").get("coldPeers")
-        data["warm_peers"] = data.get("data").get("warmPeers")
-        data["hot_peers"] = data.get("data").get("hotPeers")
-
-        return data
-
-    def __str__(self):
-        return f"<{self.__class__.__name__}, idle: {self.idle_peers}, cold: {self.cold_peers}, warm: {self.warm_peers} hot: {self.hot_peers}>"
 
 
 class StartedEvent(BaseEvent):

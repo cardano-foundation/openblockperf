@@ -195,3 +195,43 @@ class PeerEvent(BaseEvent):
         data["remote_addr"] = remote_addr
         data["remote_port"] = remote_port
         return data
+
+
+class InboundGovernorCountersEvent(BaseEvent):
+    """ """
+
+    idle_peers: int
+    cold_peers: int
+    warm_peers: int
+    hot_peers: int
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse(cls, data: Any):
+        data["idle_peers"] = data.get("data").get("idlePeers")
+        data["cold_peers"] = data.get("data").get("coldPeers")
+        data["warm_peers"] = data.get("data").get("warmPeers")
+        data["hot_peers"] = data.get("data").get("hotPeers")
+
+        return data
+
+    def __str__(self):
+        return f"<{self.__class__.__name__}, idle: {self.idle_peers}, cold: {self.cold_peers}, warm: {self.warm_peers} hot: {self.hot_peers}>"
+
+
+class StatusChangedEvent(PeerEvent):
+    """ """
+
+    pass
+
+
+class PromotedPeerEvent(PeerEvent):
+    """ """
+
+    pass
+
+
+class DemotedPeerEvent(PeerEvent):
+    """ """
+
+    pass

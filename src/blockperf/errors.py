@@ -55,3 +55,9 @@ class InvalidEventDataError(BlockperfError):
         self.ns = ns
         self.model_class = model_class
         self.raw_data = raw_data
+
+
+class UnknowEventNameSpaceError(BlockperfError):
+    """ """
+
+    pass

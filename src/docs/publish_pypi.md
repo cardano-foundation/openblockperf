@@ -1,4 +1,4 @@
-# Publishing
+# Publishing to PyPI
 
 A few notes on  how to publish to PyPI. With uv this actually is
 suprisingly simple. You need to have an account on pypi. Besides the
