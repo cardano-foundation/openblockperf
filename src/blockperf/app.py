@@ -80,16 +80,21 @@ class Blockperf:
     async def start(self):
         """Run all application tasks with proper error handling and coordination."""
         self._validate_configuration()
+        self.api = BlockperfApiClient()  # Single api client for app
         self.log_reader = create_log_reader("journalctl", "cardano-tracer")
-        self.handler = EventHandler(self.block_sample_groups, self.peers)
+        self.handler = EventHandler(
+            self.block_sample_groups,  # Sample Groups the handler will put events into
+            self.peers,  # The live list of peers that is being updated by the handler
+            self.api,  # Provide api to handler
+        )
 
         try:
             async with asyncio.TaskGroup() as tg:
                 # Create all long running tasks that run in this app
-                self.create_task(self.process_events_task, tg)
-                # self.create_task(self.peerstatuschanges_task, tg)
-                self.create_task(self.send_block_samples_task, tg)
-                self.create_task(self.print_peer_statistics_task, tg)
+                self._create_task(self.process_events_task, tg)
+                # self._create_task(self.peerstatuschanges_task, tg)
+                self._create_task(self.send_block_samples_task, tg)
+                # self._create_task(self.print_peer_statistics_task, tg)
 
         except* asyncio.CancelledError as _eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
@@ -123,7 +128,7 @@ class Blockperf:
         if self.tasks:
             await asyncio.gather(*self.tasks.values(), return_exceptions=True)
 
-    def create_task(
+    def _create_task(
         self,
         func: Callable,
         tg: asyncio.TaskGroup,
@@ -192,18 +197,17 @@ class Blockperf:
             # Now switch to live log tailing, this should run forever
             self.console.print("Starting live log processing...")
             async for message in log_reader.read_messages():
-                await self._process_message(message)
+                await self._process_single_message(message)
 
-    async def _process_message(self, message: dict):
-        """Process a single log message.
+    async def _process_single_message(self, message: dict):
+        """Processes every incoming message. It does not care about any
+        details of these messages. Just receive them, "handle" them,
+        and either be happy or throw appropriate errors.
 
-        First it creeates an event out of the message.
-        Then it adds that event to
         """
         try:
             # Pass message to handler to handle the event it represents
             await self.handler.handle_message(message)
-        # Except all errors the handler might see
         # NotInterestedError
         except UnknowEventNameSpaceError:
             pass  # The Messages namespace is not registered as an event
@@ -294,28 +298,26 @@ class Blockperf:
             if self.replaying:
                 rich.print("Wont send samples coz of the replay")
                 continue
+            ready_groups = {}
+            for k, group in self.block_sample_groups.items():
+                if (
+                    group.is_complete()
+                    and group.age_seconds > settings().min_age
+                ):
+                    ready_groups[k] = group
 
-            async with BlockperfApiClient() as api:
-                ready_groups = {}
-                for k, group in self.block_sample_groups.items():
-                    if (
-                        group.is_complete()
-                        and group.age_seconds > settings().min_age
-                    ):
-                        ready_groups[k] = group
-
-                for k, group in ready_groups.items():
-                    # If the group is not ok, dont send it
-                    if not group.is_sane():
-                        continue
-                    # Group is ok, grab and send the sample
-                    sample = group.sample()
-                    resp = await api.post_block_sample(sample)
-                    rich.print(
-                        f"[bold green]Sample {group.block_hash[:8]} published. Id: {resp.get('id')}.[/]"
-                    )
-                    # Delete group
-                    del self.block_sample_groups[k]
+            for k, group in ready_groups.items():
+                # If the group is not ok, dont send it
+                if not group.is_sane():
+                    continue
+                # Group is ok, grab and send the sample
+                sample = group.sample()
+                resp = await self.api.post_block_sample(sample)
+                rich.print(
+                    f"[bold green]Sample {group.block_hash[:8]} published. {resp=}.[/]"
+                )
+                # Delete group
+                del self.block_sample_groups[k]
 
     async def print_peer_statistics_task(self):
         """Print peer statistics periodically."""
@@ -355,6 +357,6 @@ class Blockperf:
     async def peerstatuschanges_task(self):
         while True:
             await asyncio.sleep(2)
-            async with BlockperfApiClient() as api:
-                print("go")
-                await api.post_status_change()
+
+            print("go")
+            await self.api.post_status_change()

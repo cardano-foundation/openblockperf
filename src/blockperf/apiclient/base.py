@@ -25,8 +25,7 @@ async with BlockperfApiClient(...) as client:
 
 import time
 from collections.abc import Mapping
-from contextlib import asynccontextmanager
-from typing import Any, TypeVar
+from typing import Any
 
 import httpx
 from loguru import logger
@@ -36,10 +35,8 @@ from blockperf.clientid import get_clientid
 from blockperf.config import settings
 from blockperf.errors import ApiConnectionError, ApiError
 
-T = TypeVar("T", bound=BaseModel)
 
-
-class BlockperfApiClient:
+class BlockperfApiBase:
     """
     An async client for the openblockperf backend.
 
@@ -47,7 +44,7 @@ class BlockperfApiClient:
     async requests with automatic JSON/Pydantic conversion.
 
     Usage:
-        async with BlockperfApiClient(base_url, clientid, client_secret) as client:
+        async with BlockperfApiBase(base_url, clientid, client_secret) as client:
             result = await client.get("endpoint", response_model=MyModel)
     """
 
@@ -56,6 +53,10 @@ class BlockperfApiClient:
         timeout: float = 30.0,
         **httpx_kwargs,
     ):
+        # Automagically initialises the api from the settings.
+        # Eventuallly i would like to move this up into the client such that
+        # the Base api is not depending on settings but only its inputs.
+        # The client should handle "the settings" and provide correct values
         self._url = f"{settings().api_base_url}:{settings().api_base_port}{settings().api_base_path}"
         self.clientid: str | None = settings().api_clientid
         self.client_secret: str | None = settings().api_client_secret
@@ -66,18 +67,30 @@ class BlockperfApiClient:
         self._httpx_kwargs = httpx_kwargs
         self._timeout = timeout
 
-    # Context manager creates and closes httpx clients
+    @property
+    def client(self):
+        """Return the client and initialize class cache"""
+        if not self._client:
+            print("Creating client")
+            self._client = httpx.AsyncClient(
+                base_url=self._url,
+                timeout=self._timeout,
+                **self._httpx_kwargs,
+            )
+        return self._client
+
+    async def close(self):
+        """Close the client if there is one"""
+        if self._client:
+            print("Closing client")
+            await self._client.aclose()
+
+    # Provide context manager
     async def __aenter__(self):
-        self._client = httpx.AsyncClient(
-            base_url=self._url,
-            timeout=self._timeout,
-            **self._httpx_kwargs,
-        )
-        return self
+        _ = self.client
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self._client:
-            await self._client.aclose()
+        await self.close()
 
     async def _make_request(
         self,
@@ -94,7 +107,7 @@ class BlockperfApiClient:
             headers["X-Api-Key"] = self.api_key
             headers["X-Client-Id"] = get_clientid()
 
-            response = await self._client.request(
+            response = await self.client.request(
                 method,
                 f"/{endpoint.lstrip('/')}",
                 headers=headers,
@@ -108,7 +121,7 @@ class BlockperfApiClient:
             #    self._token = None
             #    await self._ensure_valid_token()
             #    headers["Authorization"] = f"Bearer {self._token}"
-            #    response = await self._client.request(
+            #    response = await self.client.request(
             #        method,
             #        f"/{endpoint.lstrip('/')}",
             #        headers=headers,
@@ -124,7 +137,7 @@ class BlockperfApiClient:
 
         return response
 
-    def _parse_response(
+    def _parse_response[T](
         self,
         response: httpx.Response,
         response_model: type[T] | None = None,
@@ -137,7 +150,7 @@ class BlockperfApiClient:
 
     async def _get_challenge(self) -> str:
         """Get a challenge from the server for authentication."""
-        response = await self._client.get(
+        response = await self.client.get(
             "/auth/challenge",
             params={"clientid": self.clientid},
         )
@@ -157,7 +170,7 @@ class BlockperfApiClient:
         challenge = await self._get_challenge()
         solution = self._solve_challenge(challenge)
 
-        response = await self._client.post(
+        response = await self.client.post(
             "/auth/token",
             json={
                 "clientid": self.clientid,
@@ -178,7 +191,7 @@ class BlockperfApiClient:
 
     # To all http methods provide an endpoint and optonaly a response mode.
     # The response will be validated against that model if present.
-    async def get(
+    async def get[T](
         self,
         endpoint: str,
         response_model: type[T] | None = None,
@@ -188,7 +201,7 @@ class BlockperfApiClient:
         response = await self._make_request("GET", endpoint, **kwargs)
         return self._parse_response(response, response_model)
 
-    async def post(
+    async def post[T](
         self,
         endpoint: str,
         data: BaseModel | None = None,
@@ -201,7 +214,7 @@ class BlockperfApiClient:
         response = await self._make_request("POST", endpoint, **kwargs)
         return self._parse_response(response, response_model)
 
-    async def put(
+    async def put[T](
         self,
         endpoint: str,
         data: BaseModel | None = None,
@@ -214,7 +227,7 @@ class BlockperfApiClient:
         response = await self._make_request("PUT", endpoint, **kwargs)
         return self._parse_response(response, response_model)
 
-    async def patch(
+    async def patch[T](
         self,
         endpoint: str,
         data: BaseModel | None = None,
@@ -227,7 +240,7 @@ class BlockperfApiClient:
         response = await self._make_request("PATCH", endpoint, **kwargs)
         return self._parse_response(response, response_model)
 
-    async def delete(
+    async def delete[T](
         self,
         endpoint: str,
         response_model: type[T] | None = None,
@@ -238,26 +251,3 @@ class BlockperfApiClient:
         if response.status_code == 204:
             return None
         return self._parse_response(response, response_model)
-
-    async def post_block_sample(self, sample):
-        return await self.post("/submit/blocksample", sample)
-
-    async def post_status_change(self):
-        return await self.post("/submit/peerstatuschange", {})
-
-
-@asynccontextmanager
-async def api():
-    """
-    Context manager for creating a client instance.
-
-    Useful for dependency injection patterns:
-        async with get_client(...) as client:
-            await client.get("endpoint")
-    """
-    settings = settings()
-    client = BlockperfApiClient(
-        settings.api_base_url, clientid, client_secret, **kwargs
-    )
-    async with client:
-        yield client

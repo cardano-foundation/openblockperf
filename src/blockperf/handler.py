@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from functools import singledispatchmethod
 
@@ -5,6 +6,7 @@ import rich
 from loguru import logger
 from pydantic import ValidationError
 
+from blockperf.apiclient import BlockperfApiClient
 from blockperf.blocksamplegroup import BlockSampleGroup
 from blockperf.errors import (
     EventError,
@@ -45,6 +47,7 @@ class EventHandler:
 
     block_sample_groups: dict[str, BlockSampleGroup]  # Groups of block samples
     peers: dict[tuple, Peer]  # The nodes peer list (actually a dictionary)
+    api: BlockperfApiClient
 
     registered_namespaces = {
         "BlockFetch.Client.CompletedBlockFetch": CompletedBlockFetchEvent,
@@ -74,10 +77,12 @@ class EventHandler:
         self,
         block_sample_groups: dict[str, BlockSampleGroup],
         peers: dict[tuple, Peer],
+        api: BlockperfApiClient,
     ):
         super().__init__()
         self.block_sample_groups = block_sample_groups
         self.peers = peers
+        self.api = api
 
     def _make_event_from_message(
         self, message: dict
@@ -91,7 +96,6 @@ class EventHandler:
             event_model_class = self.registered_namespaces.get(ns)
             return event_model_class.model_validate(message)
         except ValidationError as e:
-            breakpoint()
             raise InvalidEventDataError(ns, event_model_class, message) from e
 
     async def handle_message(self, raw_message: dict):
@@ -102,26 +106,29 @@ class EventHandler:
         See https://peps.python.org/pep-0443/ for more details.
         """
         event = self._make_event_from_message(raw_message)
-        if isinstance(event, BlockSampleEvent):
-            print("A Block Event")
-        elif isinstance(event, PeerEvent):
-            print("A Peer Event")
-        elif isinstance(event, InboundGovernorCountersEvent):
-            print("A Governor event")
-        else:
-            breakpoint()
-            print("ge wixen")
-        return
-
-        result = await self._handle_event(event)
+        result = await self.dispatch_event(event)
         return result
 
     @singledispatchmethod
-    async def _handle_event(self, event) -> int | None:
+    async def dispatch_event(self, event) -> int | None:
+        """Calls general events like block samples, peers and others (InboundGovenor, etc)."""
         raise EventError(f"Unhandled event type: {type(event).__name__}")
 
-    @_handle_event.register
-    async def blocksample_event(self, event: BlockSampleEvent):
+    @singledispatchmethod
+    async def dispatch_peer_event(
+        self, peer: Peer, event: PeerEvent
+    ) -> tuple[Peer, PeerEvent]:
+        """Calls the PeerEvent specific handlers. Each handler returns a tuple
+        providing the result and possibly some data to that result. For now
+        these are just two dictionaries.
+        """
+        logger.warning(f"Not a PeerEvent {event}")
+        return {}, {}
+
+    # The single 'dispatch_*()' will call the hdl_*() based on their signature
+    # There are handlers for, block samples, peer events and the inbound govenor
+    @dispatch_event.register
+    async def hdl_blocksample_event(self, event: BlockSampleEvent):
         """Handles any of the block sample events.
 
         Adds the event to the BlockSampleGroup for the events block_hash. Or
@@ -139,24 +146,24 @@ class EventHandler:
         group = self.block_sample_groups[block_hash]
         group.add_event(event)
 
-    @_handle_event.register
-    async def peer_event(self, event: PeerEvent):
-        """Handles a PeerEvent."""
+    @dispatch_event.register
+    async def hdl_peer_event(self, event: PeerEvent):
+        """Handles a PeerEvent.
+        Looks up the peer and does some common peer things before handing
+        it over to the peer_event_handler which will flesh out the details.
+        """
         logger.debug("Handling PeerEvent", event=event)
         if event.key not in self.peers:
             # Creates a new peer
-            _p = Peer(
+            self.peers[event.key] = Peer(
                 ns=event.ns,
                 remote_addr=event.remote_addr,
                 remote_port=event.remote_port,
                 local_addr=event.local_addr,
                 local_port=event.local_port,
             )
-            # rich.print(
-            #    f"New Peer {_p.remote_addr}:{_p.remote_port}: IN '{_p.state_inbound.value}' OUT '{_p.state_outbound.value}'"
-            # )
-            self.peers[event.key] = _p
         peer = self.peers[event.key]
+
         direction = PeerDirection(event.direction)
         if direction == PeerDirection.INBOUND:
             peer.state_inbound = PeerState(event.state)
@@ -164,7 +171,38 @@ class EventHandler:
             peer.state_outbound = PeerState(event.state)
 
         peer.last_updated = datetime.now()
+        # Call the PeerEvent specific dispatcher
+        rich.print(f"{peer.ns=}", event)
+        await self.dispatch_peer_event(peer, event)
 
-    @_handle_event.register
-    async def _(self, event: InboundGovernorCountersEvent):
+    @dispatch_event.register
+    async def hdl_inbound_governor(self, event: InboundGovernorCountersEvent):
         logger.info("Handling InboundGovernorCountersEvent", foo=event)
+
+    """
+    There are different handlers registered for the peer event. Each dealing
+    with a different specific peer event.
+
+    * Status changes
+    * Different Promotion/Demotions from cold, warm, and hot
+    * possible others soon
+
+    All of the handlers receive the peer and original event as arguments.
+
+    """
+
+    @dispatch_peer_event.register
+    async def hdl_peer_event__status_changed(
+        self, peer: Peer, event: StatusChangedEvent
+    ):
+        await self.api.submit_peer_event(peer, event)
+
+    async def hdl_peer_event__promoted_peer(
+        self, peer: Peer, event: PromotedPeerEvent
+    ):
+        await self.api.submit_peer_event(peer, event)
+
+    async def hdl_peer_event__demoted_peer(
+        self, peer: Peer, event: DemotedPeerEvent
+    ):
+        await self.api.submit_peer_event(peer, event)

@@ -23,8 +23,8 @@ class Connection:
 
 
 class PeerDirection(Enum):
-    INBOUND = "Inbound"
-    OUTBOUND = "Outbound"
+    INBOUND = "inbound"
+    OUTBOUND = "outbound"
 
 
 class PeerState(Enum):
