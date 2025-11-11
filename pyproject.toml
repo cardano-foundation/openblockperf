@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openblockperf"
-version = "0.0.4"
+version = "0.0.5"
 description = "The OpenBlockperf client"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -21,14 +21,15 @@ dependencies = [
 keywords = ["cardano", "cardano-foundation", "ops"]
 authors = [
   {name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" },
+  {name = "Markus Gufler", email = "markus.gufler-ext@cardanofoundation.org" },
 ]
 maintainers = [
   {name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" },
+  {name = "Markus Gufler", email = "markus.gufler-ext@cardanofoundation.org" },
 ]
 
 [project.scripts]
 blockperf = "blockperf.__main__:cli"
-blockperfui = "blockperf.__main__:ui"
 
 [project.urls]
 "Homepage" = "https://github.com/cardano-foundation/openblockperf"

@@ -30,7 +30,7 @@ uv build # Builds artefacts in dist/
 uv publish # publisheds to an index
 ```
 
-By default `uv publlish` will upload to the main index. Which is probably
+By default `uv publish` will upload to the main index. Which is probably
 not what you want. The pyproject.toml file has the test pypi configured
 such that you can easily specify that in the publish command like this
 `uv publish --index testpypi`. Remember to provide the correct tokens
