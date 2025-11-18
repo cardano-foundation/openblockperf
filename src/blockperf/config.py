@@ -28,7 +28,7 @@ ENV_PREFIX = "OPENBLOCKPERF_"
 
 class AppSettings(BaseSettings):
     api_base_url: str = "https://api.openblockperf.cardano.org"
-    api_base_port: int = 8080
+    api_base_port: int = 443
     api_base_path: str = "/api/v0/"
     api_key: str
     api_clientid: str | None = None
