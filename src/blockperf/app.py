@@ -92,9 +92,9 @@ class Blockperf:
             async with asyncio.TaskGroup() as tg:
                 # Create all long running tasks that run in this app
                 self._create_task(self.process_events_task, tg)
-                self._create_task(self.peerstatuschanges_task, tg)
+                self._create_task(self.testapi_task, tg)
                 self._create_task(self.send_block_samples_task, tg)
-                # self._create_task(self.print_peer_statistics_task, tg)
+                self._create_task(self.print_peer_statistics_task, tg)
 
         except* asyncio.CancelledError as _eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
@@ -354,7 +354,7 @@ class Blockperf:
             }
             rich.print(stats)
 
-    async def peerstatuschanges_task(self):
+    async def testapi_task(self):
         while True:
             await asyncio.sleep(2)
 
