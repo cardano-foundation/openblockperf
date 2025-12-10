@@ -50,17 +50,17 @@ class BlockperfApiBase:
 
     def __init__(
         self,
+        app_settings=None,
         timeout: float = 30.0,
         **httpx_kwargs,
     ):
-        # Automagically initialises the api from the settings.
-        # Eventuallly i would like to move this up into the client such that
-        # the Base api is not depending on settings but only its inputs.
-        # The client should handle "the settings" and provide correct values
-        self._url = f"{settings().api_base_url}:{settings().api_base_port}{settings().api_base_path}"
-        self.clientid: str | None = settings().api_clientid
-        self.client_secret: str | None = settings().api_client_secret
-        self.api_key = settings().api_key
+        # Initialize from settings instance or create new one
+        # Allows CLI overrides to flow through to API client
+        _settings = app_settings or settings()
+        self._full_api_url = _settings.full_api_url
+        self.clientid: str | None = _settings.api_clientid
+        self.client_secret: str | None = _settings.api_client_secret
+        self.api_key = _settings.api_key
         self._token: str | None = None
         self._token_expiry: float = 0
         self._client: httpx.AsyncClient | None = None
@@ -71,9 +71,8 @@ class BlockperfApiBase:
     def client(self):
         """Return the client and initialize class cache"""
         if not self._client:
-            print("Creating client")
             self._client = httpx.AsyncClient(
-                base_url=self._url,
+                base_url=self._full_api_url,
                 timeout=self._timeout,
                 **self._httpx_kwargs,
             )
@@ -127,9 +126,7 @@ class BlockperfApiBase:
             #        headers=headers,
             #        **kwargs,
             #    )
-            raise ApiError(
-                f"API request failed: {e.response.status_code} {e.response.reason_phrase}"
-            ) from e
+            raise ApiError(f"API request failed: {e.response.status_code} {e.response.reason_phrase}") from e
         except httpx.TimeoutException as e:
             raise ApiError(f"API request timed out: {e}") from e
         except httpx.ConnectError as e:

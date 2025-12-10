@@ -11,7 +11,7 @@ from rich.console import Console
 
 from blockperf.apiclient import BlockperfApiClient
 from blockperf.app import Blockperf
-from blockperf.config import settings
+from blockperf.config import Network, settings
 from blockperf.errors import (
     ApiConnectionError,
     BlockperfError,
@@ -29,10 +29,30 @@ console = Console(file=sys.stdout, force_terminal=True)
 
 
 @async_command
-async def run_cmd() -> None:
+async def run_cmd(
+    network: str = typer.Option(
+        None,
+        "--network",
+        "-n",
+        help="Cardano network to connect to (mainnet, preprod, preview). Defaults to OPENBLOCKPERF_NETWORK env var or 'mainnet'.",
+    ),
+    api_url: str = typer.Option(
+        None,
+        "--api-url",
+        help="Override API base URL (for development/testing). Takes precedence over network-specific URLs.",
+    ),
+) -> None:
     """Implements the run command."""
     try:
-        app = Blockperf(console)
+        # Create settings instance with CLI overrides
+        # Priority: CLI flags > Environment variables > .env file > defaults
+        app_settings = settings(network=network, api_url_override=api_url)
+
+        # Log which network and API we're connecting to
+        console.print(f"[bold cyan]Network:[/] {app_settings.network.value}")
+        console.print(f"[bold cyan]API URL:[/] {app_settings.full_api_url}")
+
+        app = Blockperf(console, app_settings)
 
         # Setup the signal handler for Ctrl-SIGINT or SIGTERM os signals
         shutdown_event = asyncio.Event()
@@ -51,9 +71,7 @@ async def run_cmd() -> None:
         # Wait until app_task or shutdown_task finishes. Either because
         # of a crash in the app (or it finished) or because of a Signal the
         # shutdown event received e.g.: Ctrl-c, SIGIINT, SIGTERM
-        done, pending = await asyncio.wait(
-            [app_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED
-        )
+        done, pending = await asyncio.wait([app_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED)
 
         # Before closing the app, make sure to cleanup work by waiting for
         # remaining tasks from the app.

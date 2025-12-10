@@ -61,9 +61,10 @@ class Blockperf:
     peers: dict[tuple, Peer]  # The nodes peer list (actually a dictionary)
     replaying: bool
 
-    def __init__(self, console: Console):
+    def __init__(self, console: Console, app_settings=None):
         # Keep this simple! Do any complex init in start()
         self.console = console
+        self.settings = app_settings or settings()
         self.replaying = False
         self.tasks: dict[str, asyncio.Task] = {}
         self.since_hours = 0
@@ -74,18 +75,19 @@ class Blockperf:
 
     def _validate_configuration(self) -> None:
         """Validate application configuration."""
-        if not settings().check_interval or settings().check_interval <= 0:
+        if not self.settings.check_interval or self.settings.check_interval <= 0:
             raise ConfigurationError("Invalid check_interval in configuration")
 
     async def start(self):
         """Run all application tasks with proper error handling and coordination."""
         self._validate_configuration()
-        self.api = BlockperfApiClient()  # Single api client for app
+        self.api = BlockperfApiClient(self.settings)  # Single api client for app
         self.log_reader = create_log_reader("journalctl", "cardano-tracer")
         self.handler = EventHandler(
             self.block_sample_groups,  # Sample Groups the handler will put events into
             self.peers,  # The live list of peers that is being updated by the handler
             self.api,  # Provide api to handler
+            self.settings,  # Pass settings for network-specific configuration
         )
 
         try:
@@ -294,7 +296,7 @@ class Blockperf:
         the block samples to the server.
         """
         while True:
-            await asyncio.sleep(settings().check_interval)
+            await asyncio.sleep(self.settings.check_interval)
             if self.replaying:
                 rich.print("Wont send samples coz of the replay")
                 continue
@@ -302,7 +304,7 @@ class Blockperf:
             for k, group in self.block_sample_groups.items():
                 if (
                     group.is_complete()
-                    and group.age_seconds > settings().min_age
+                    and group.age_seconds > self.settings.min_age
                 ):
                     ready_groups[k] = group
 

@@ -30,3 +30,30 @@ $ pip install openblockperf
 $ blockperf version
 ```
 
+
+## Usage
+
+To run the client you need to specify which network it is in.
+
+Usage Examples:
+
+```shell
+  # Use mainnet (default)
+  blockperf run
+
+  # Use preprod network
+  blockperf run --network preprod
+
+  # Use preview network
+  blockperf run -n preview
+
+  # Override API URL for local development
+  blockperf run --api-url http://localhost:8000
+
+  # Combine network with custom API URL
+  blockperf run --network mainnet --api-url https://custom-api.example.com
+
+  # Or use environment variable
+  export OPENBLOCKPERF_NETWORK=preprod
+  blockperf run
+```

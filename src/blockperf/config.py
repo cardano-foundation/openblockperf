@@ -21,15 +21,15 @@ class NetworkConfig:
 
     magic: int
     starttime: int
+    api_url: str
 
 
 ENV_PREFIX = "OPENBLOCKPERF_"
 
 
 class AppSettings(BaseSettings):
-    api_base_url: str = "https://api.openblockperf.cardano.org"
-    api_base_port: int = 443
-    api_base_path: str = "/api/v0/"
+    api_port: int = 443
+    api_path: str = "/api/v0/"
     api_key: str
     api_clientid: str | None = None
     api_client_secret: str | None = None
@@ -41,22 +41,45 @@ class AppSettings(BaseSettings):
     # Using Field to validate input values match one of the possible enum values
     network: Network = Field(default=Network.MAINNET, validation_alias="network")  # fmt: off
 
+    # Private attribute to store CLI override for API URL (set by settings() function)
+    _api_url_override: str | None = None
+
     # Class-level dictionary to store network specific configurations
     _NETWORK_CONFIGS: ClassVar[dict[Network, NetworkConfig]] = {
         # Took network starttimes from shelly-genesis.json
         Network.MAINNET.value: NetworkConfig(
             magic=764824073,
             starttime=1591566291,
+            api_url="https://api.openblockperf.cardano.org",
         ),
         Network.PREPROD.value: NetworkConfig(
             magic=1,
             starttime=1654041600,
+            api_url="https://preprod.api.openblockperf.cardano.org",
         ),
         Network.PREVIEW.value: NetworkConfig(
             magic=2,
             starttime=1666656000,
+            api_url="https://preview.api.openblockperf.cardano.org",
         ),
     }
+
+    # @property
+    # def api_url(self):
+    #    """
+    #    Get the API base URL.
+    #
+    #    Returns CLI override if set, otherwise returns network-specific URL.
+    #    """
+    #    _api_url = self._api_url_override or self._NETWORK_CONFIGS[self.network.value].api_url
+    #    print(f"Fetch api url: '{self._api_url_override}'")
+    #    return _api_url
+
+    @property
+    def full_api_url(self):
+        _api_url = self._api_url_override or self._NETWORK_CONFIGS[self.network.value].api_url
+
+        return f"{_api_url}:{self.api_port}{self.api_path}"
 
     @property
     def network_config(self) -> NetworkConfig:
@@ -67,24 +90,34 @@ class AppSettings(BaseSettings):
 
 
 class AppSettingsDev(AppSettings):
-    model_config = SettingsConfigDict(
-        env_prefix=ENV_PREFIX, env_file=".env.dev"
-    )
+    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env.dev")
 
 
 class AppSettingsTest(AppSettings):
-    model_config = SettingsConfigDict(
-        env_prefix=ENV_PREFIX, env_file=".env.test"
-    )
+    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env.test")
 
 
 class AppSettingsProd(AppSettings):
-    model_config = SettingsConfigDict(
-        env_prefix=ENV_PREFIX, env_file=".env.prod"
-    )
+    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env.prod")
 
 
-def settings() -> AppSettings:
+def settings(
+    network: Network | str | None = None,
+    api_url_override: str | None = None,
+) -> AppSettings:
+    """
+    Create settings instance with optional CLI overrides.
+
+    Priority order (highest to lowest):
+    1. CLI arguments (network, api_url_override)
+    2. Environment variables (OPENBLOCKPERF_*)
+    3. .env file values
+    4. Default values
+
+    Args:
+        network: Network override from CLI (highest priority)
+        api_url_override: API URL override from CLI (bypasses network-specific URL)
+    """
     settings_env_map = {
         "dev": AppSettingsDev,
         "test": AppSettingsProd,
@@ -94,4 +127,24 @@ def settings() -> AppSettings:
     settings_class = settings_env_map.get(env)
     if not settings_class:
         raise RuntimeError(f"No settings found for {env}")
-    return settings_class()
+
+    # Create settings instance
+    settings_instance = settings_class()
+
+    # Apply CLI overrides (highest priority)
+    if network is not None:
+        # Convert string to Network enum if needed
+        if isinstance(network, str):
+            try:
+                network = Network(network.lower())
+            except ValueError:
+                valid_networks = [n.value for n in Network]
+                raise ValueError(f"Invalid network '{network}'. Must be one of: {', '.join(valid_networks)}")
+        # Override the network setting
+        settings_instance.network = network
+
+    # Store API URL override if provided (will be used instead of network-derived URL)
+    if api_url_override is not None:
+        settings_instance._api_url_override = api_url_override
+
+    return settings_instance

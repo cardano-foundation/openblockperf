@@ -78,11 +78,13 @@ class EventHandler:
         block_sample_groups: dict[str, BlockSampleGroup],
         peers: dict[tuple, Peer],
         api: BlockperfApiClient,
+        app_settings=None,
     ):
         super().__init__()
         self.block_sample_groups = block_sample_groups
         self.peers = peers
         self.api = api
+        self.app_settings = app_settings
 
     def _make_event_from_message(
         self, message: dict
@@ -137,11 +139,12 @@ class EventHandler:
         logger.debug("Handling BlockEvent", event=event)
         if not hasattr(event, "block_hash"):
             raise EventError("Block event has no block_hash.")
-        # Find the group or create it before adding the event to it
+        # Find group for block_hash or create it before adding events to it
         block_hash = event.block_hash
         if block_hash not in self.block_sample_groups:
             self.block_sample_groups[block_hash] = BlockSampleGroup(
-                block_hash=block_hash
+                block_hash=block_hash,
+                app_settings=self.app_settings,
             )
         group = self.block_sample_groups[block_hash]
         group.add_event(event)

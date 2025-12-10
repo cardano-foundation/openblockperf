@@ -33,6 +33,7 @@ class BlockSampleGroup:
     """
 
     block_hash: str
+    app_settings: any = field(default=None, repr=False)  # Settings instance
     block_number: int | None = None
     block_size: int | None = None
     block_g: float | None = 0.1
@@ -48,6 +49,11 @@ class BlockSampleGroup:
     block_completed: CompletedBlockFetchEvent | None = None
 
     events: list[BaseEvent] = field(default_factory=list)  # list of events
+
+    def __post_init__(self):
+        # Use provided settings or create default
+        if self.app_settings is None:
+            self.app_settings = settings()
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
 
@@ -103,7 +109,7 @@ class BlockSampleGroup:
             self.slot = event.slot
         if not self.slot_time:
             self.slot_time = datetime.fromtimestamp(
-                settings().network_config.starttime + self.slot, tz=UTC
+                self.app_settings.network_config.starttime + self.slot, tz=UTC
             )
         if not self.block_number:
             self.block_number = event.block_number
@@ -277,9 +283,9 @@ class BlockSampleGroup:
             block_request_delta = int(self.block_request_delta.total_seconds() * 1000),
             block_response_delta = int(self.block_response_delta.total_seconds() * 1000),
             block_adopt_delta = int(self.block_adopt_delta.total_seconds() * 1000),
-            local_addr = settings().local_addr,
-            local_port = int(settings().local_port),
-            magic = settings().network_config.magic,
+            local_addr = self.app_settings.local_addr,
+            local_port = int(self.app_settings.local_port),
+            magic = self.app_settings.network_config.magic,
             client_version = __version__,
         )
 
