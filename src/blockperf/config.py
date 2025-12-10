@@ -38,10 +38,10 @@ class AppSettings(BaseSettings):
 
     local_addr: str = "0.0.0.0"
     local_port: int = 3001
-    # Using Field to validate input values match one of the possible enum values
+    # Using Field() to validate input values match one of the possible enum values
     network: Network = Field(default=Network.MAINNET, validation_alias="network")  # fmt: off
 
-    # Private attribute to store CLI override for API URL (set by settings() function)
+    # Private attribute to store CLI override for API URL
     _api_url_override: str | None = None
 
     # Class-level dictionary to store network specific configurations
@@ -49,43 +49,36 @@ class AppSettings(BaseSettings):
         # Took network starttimes from shelly-genesis.json
         Network.MAINNET.value: NetworkConfig(
             magic=764824073,
-            starttime=1591566291,
+            starttime=1591566291,  # Sun Jun 07 2020 21:44:51 GMT+0000
             api_url="https://api.openblockperf.cardano.org",
         ),
         Network.PREPROD.value: NetworkConfig(
             magic=1,
-            starttime=1654041600,
+            starttime=1654041600,  # Wed Jun 01 2022 00:00:00 GMT+0000
             api_url="https://preprod.api.openblockperf.cardano.org",
         ),
         Network.PREVIEW.value: NetworkConfig(
             magic=2,
-            starttime=1666656000,
+            starttime=1666656000,  # Tue Oct 25 2022 00:00:00 GMT+0000
             api_url="https://preview.api.openblockperf.cardano.org",
         ),
     }
 
-    # @property
-    # def api_url(self):
-    #    """
-    #    Get the API base URL.
-    #
-    #    Returns CLI override if set, otherwise returns network-specific URL.
-    #    """
-    #    _api_url = self._api_url_override or self._NETWORK_CONFIGS[self.network.value].api_url
-    #    print(f"Fetch api url: '{self._api_url_override}'")
-    #    return _api_url
-
     @property
     def full_api_url(self):
-        _api_url = self._api_url_override or self._NETWORK_CONFIGS[self.network.value].api_url
+        """Return the complete url to the api endpoint. If one is provided
+        on the cli, just return that without adding any extra ports or paths.
+        """
+        if self._api_url_override:
+            return self._api_url_override
 
+        _api_url = self._NETWORK_CONFIGS[self.network.value].api_url
         return f"{_api_url}:{self.api_port}{self.api_path}"
 
     @property
     def network_config(self) -> NetworkConfig:
         """Retrieve configuration for the current network."""
-        # The field validation from self.network ensures it will always the
-        # value will always be a valid network
+        # The field validation from self.network ensures value will always be a valid network
         return self._NETWORK_CONFIGS[self.network.value]
 
 

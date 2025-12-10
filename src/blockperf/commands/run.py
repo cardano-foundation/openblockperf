@@ -39,7 +39,11 @@ async def run_cmd(
     api_url: str = typer.Option(
         None,
         "--api-url",
-        help="Override API base URL (for development/testing). Takes precedence over network-specific URLs.",
+        help="""Override API URL (for development/testing). Takes precedence over network-specific URLs.
+
+        You will need to provide the full url, including port and path of the api.
+        E.g.: http://localhost:8000/api/v0
+        """,
     ),
 ) -> None:
     """Implements the run command."""
