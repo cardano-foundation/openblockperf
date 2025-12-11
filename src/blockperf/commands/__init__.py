@@ -8,9 +8,10 @@ from rich.console import Console
 
 from blockperf import __version__
 
+from .register import register_cmd
 from .run import run_cmd
 
-__all__ = ["run_cmd", "version_cmd"]
+__all__ = ["run_cmd", "version_cmd", "register_cmd"]
 
 console = Console()
 

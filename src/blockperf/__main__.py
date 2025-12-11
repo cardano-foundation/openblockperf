@@ -9,7 +9,7 @@ import sys
 
 import typer
 
-from blockperf.commands import run_cmd, version_cmd
+from blockperf.commands import register_cmd, run_cmd, version_cmd
 from blockperf.logging import setup_logging
 
 setup_logging()
@@ -25,6 +25,7 @@ BlockperfCli = typer.Typer(
 # Add commands directly to the app
 BlockperfCli.command("version")(version_cmd)
 BlockperfCli.command("run")(run_cmd)
+BlockperfCli.command("register")(register_cmd)
 # BlockperfCli.add_typer(run_app)
 
 

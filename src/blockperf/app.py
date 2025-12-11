@@ -111,9 +111,7 @@ class Blockperf:
         except* Exception as eg:
             # If any of the tasks throws and excpetion
             if eg.exceptions:
-                logger.error(
-                    f"Task group failed with {len(eg.exceptions)} exceptions"
-                )
+                logger.error(f"Task group failed with {len(eg.exceptions)} exceptions")
                 for exc in eg.exceptions:
                     logger.exception(f"Critical task error: {exc}")
             raise
@@ -155,10 +153,7 @@ class Blockperf:
 
     def _tasks_status(self) -> dict[str, str]:
         """Get status of all running tasks for debugging."""
-        return {
-            name: "running" if not task.done() else "finished"
-            for name, task in self.tasks.items()
-        }
+        return {name: "running" if not task.done() else "finished" for name, task in self.tasks.items()}
 
     async def process_events_task(self):
         """Process events from log reader with startup replay capability.
@@ -191,9 +186,7 @@ class Blockperf:
                 finally:
                     self.replaying = False  # flag replaying has finished
                     if message_count > 0:
-                        self.console.print(
-                            f"Replay completed: processed {message_count} historical messages"
-                        )
+                        self.console.print(f"Replay completed: processed {message_count} historical messages")
 
             # ===== PHASE 2: LIVE TAILING =====
             # Now switch to live log tailing, this should run forever
@@ -242,9 +235,7 @@ class Blockperf:
                 connections.append(conn)
 
             if connections:
-                await self.peer_listener.update_peers_from_connections(
-                    connections
-                )
+                await self.peer_listener.update_peers_from_connections(connections)
 
     async def update_peers_unknown_task(self) -> None:
         """Update unknown peers by searching the logreader for older messages"""
@@ -254,12 +245,9 @@ class Blockperf:
             peers = [
                 p
                 for p in self.peer_listener.peers.values()
-                if p.state_inbound == PeerState.UNKNOWN
-                and p.state_outbound == PeerState.UNKNOWN
+                if p.state_inbound == PeerState.UNKNOWN and p.state_outbound == PeerState.UNKNOWN
             ]
-            self.since_hours = (
-                self.since_hours + 12 if self.since_hours < 2000 else 2000
-            )
+            self.since_hours = self.since_hours + 12 if self.since_hours < 2000 else 2000
 
             # If there are no unknown, no need to update
             if not peers:
@@ -277,13 +265,8 @@ class Blockperf:
                 # BUT: There is a bug here !!!!!
                 # I need to make sure that the message found also matches
                 # the port!!!!
-                async for message in self.log_reader.search_messages(
-                    peer.remote_addr, since_hours=self.since_hours
-                ):
-                    if (
-                        message.get("ns")
-                        in self.peer_listener.registered_namespaces
-                    ):
+                async for message in self.log_reader.search_messages(peer.remote_addr, since_hours=self.since_hours):
+                    if message.get("ns") in self.peer_listener.registered_namespaces:
                         updated += 1
                         # Found a message, insert it and break loop for peer
                         await self.peer_listener.insert(message)
@@ -302,10 +285,7 @@ class Blockperf:
                 continue
             ready_groups = {}
             for k, group in self.block_sample_groups.items():
-                if (
-                    group.is_complete()
-                    and group.age_seconds > self.settings.min_age
-                ):
+                if group.is_complete() and group.age_seconds > self.settings.min_age:
                     ready_groups[k] = group
 
             for k, group in ready_groups.items():
@@ -314,10 +294,8 @@ class Blockperf:
                     continue
                 # Group is ok, grab and send the sample
                 sample = group.sample()
-                resp = await self.api.post_block_sample(sample)
-                rich.print(
-                    f"[bold green]Sample {group.block_hash[:8]} published. {resp=}.[/]"
-                )
+                resp = await self.api.submit_block_sample(sample)
+                rich.print(f"[bold green]Sample {group.block_hash[:8]} published. {resp=}.[/]")
                 # Delete group
                 del self.block_sample_groups[k]
 
@@ -333,14 +311,10 @@ class Blockperf:
             out_warm = [p for p in peers if p.state_outbound == PeerState.WARM]
             in_hot = [p for p in peers if p.state_inbound == PeerState.HOT]
             out_hot = [p for p in peers if p.state_outbound == PeerState.HOT]
-            in_cooling = [
-                p for p in peers if p.state_inbound == PeerState.COOLING
-            ]
+            in_cooling = [p for p in peers if p.state_inbound == PeerState.COOLING]
             out_cooling = [p for p in peers if p.state_outbound == PeerState.COOLING]  # fmt: off
             in_unknown = [p for p in peers if p.state_inbound == PeerState.UNKNOWN]  # fmt: off
-            out_unknown = [
-                p for p in peers if p.state_outbound == PeerState.UNKNOWN
-            ]
+            out_unknown = [p for p in peers if p.state_outbound == PeerState.UNKNOWN]
             stats = {
                 "in_cold": len(in_cold),
                 "out_cold": len(out_cold),
@@ -358,7 +332,7 @@ class Blockperf:
 
     async def testapi_task(self):
         while True:
-            await asyncio.sleep(2)
+            await asyncio.sleep(20)
 
             print("go")
             await self.api.post_status_change()

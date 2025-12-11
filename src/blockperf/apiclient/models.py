@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from blockperf.models.samples import BlockSample
+
 
 class PeerEventRequest(BaseModel):
     """A single Peer event Request as send to the api. Must match the
@@ -22,3 +24,19 @@ class PeerEventRequest(BaseModel):
 
 class PeerEventResponse(BaseModel):
     pass
+
+
+class BlockSampleRequest(BlockSample):
+    pass
+
+
+class BlockSampleResponse(BaseModel):
+    pass
+
+
+class RegistrationChallengeRequest(BaseModel):
+    pool_id: str
+
+
+class RegistrationChallengeResponse(BaseModel):
+    challenge: str

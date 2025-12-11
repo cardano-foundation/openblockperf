@@ -32,7 +32,6 @@ from loguru import logger
 from pydantic import BaseModel
 
 from blockperf.clientid import get_clientid
-from blockperf.config import settings
 from blockperf.errors import ApiConnectionError, ApiError
 
 
@@ -43,38 +42,36 @@ class BlockperfApiBase:
     This client handles authentication and provides methods to make
     async requests with automatic JSON/Pydantic conversion.
 
-    Usage:
-        async with BlockperfApiBase(base_url, clientid, client_secret) as client:
-            result = await client.get("endpoint", response_model=MyModel)
     """
 
     def __init__(
         self,
-        app_settings=None,
+        full_api_url: str,
+        client_id: str,
+        api_key: str,
         timeout: float = 30.0,
         **httpx_kwargs,
     ):
         # Initialize from settings instance or create new one
         # Allows CLI overrides to flow through to API client
-        _settings = app_settings or settings()
-        self._full_api_url = _settings.full_api_url
-        self.clientid: str | None = _settings.api_clientid
-        self.client_secret: str | None = _settings.api_client_secret
-        self.api_key = _settings.api_key
-        self._token: str | None = None
-        self._token_expiry: float = 0
+
+        self.full_api_url = full_api_url
+        self.clientid = client_id
+        self.api_key = api_key
+        self.token = None
+        self.token_expiry = 0
         self._client: httpx.AsyncClient | None = None
-        self._httpx_kwargs = httpx_kwargs
-        self._timeout = timeout
+        self.httpx_kwargs = httpx_kwargs
+        self.timeout = timeout
 
     @property
     def client(self):
         """Return the client and initialize class cache"""
         if not self._client:
             self._client = httpx.AsyncClient(
-                base_url=self._full_api_url,
-                timeout=self._timeout,
-                **self._httpx_kwargs,
+                base_url=self.full_api_url,
+                timeout=self.timeout,
+                **self.httpx_kwargs,
             )
         return self._client
 
@@ -86,6 +83,7 @@ class BlockperfApiBase:
 
     # Provide context manager
     async def __aenter__(self):
+        # call client once to ensure it is created
         _ = self.client
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -117,9 +115,9 @@ class BlockperfApiBase:
         except httpx.HTTPStatusError as e:
             # if response.status_code == 401:
             #    # Token expired, retry once with new token
-            #    self._token = None
+            #    self.token = None
             #    await self._ensure_valid_token()
-            #    headers["Authorization"] = f"Bearer {self._token}"
+            #    headers["Authorization"] = f"Bearer {self.token}"
             #    response = await self.client.request(
             #        method,
             #        f"/{endpoint.lstrip('/')}",
@@ -160,7 +158,7 @@ class BlockperfApiBase:
         Solve the challenge using client secret.
         Real implementation depends on API requirements.
         """
-        return f"{challenge}:{self.client_secret}"
+        return f"{challenge}"
 
     async def _authenticate(self) -> None:
         """Perform the challenge-response authentication flow."""
@@ -178,12 +176,12 @@ class BlockperfApiBase:
         response.raise_for_status()
 
         token_data = response.json()
-        self._token = token_data["token"]
-        self._token_expiry = time.time() + token_data.get("expires_in", 3600)
+        self.token = token_data["token"]
+        self.token_expiry = time.time() + token_data.get("expires_in", 3600)
 
     async def _ensure_valid_token(self) -> None:
         """Ensure we have a valid token, requesting a new one if needed."""
-        if not self._token or time.time() >= self._token_expiry:
+        if not self.token or time.time() >= self.token_expiry:
             await self._authenticate()
 
     # To all http methods provide an endpoint and optonaly a response mode.
