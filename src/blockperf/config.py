@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
@@ -24,10 +23,16 @@ class NetworkConfig:
     api_url: str
 
 
-ENV_PREFIX = "OPENBLOCKPERF_"
-
-
 class AppSettings(BaseSettings):
+    """Application settings loaded from environment variables and .env file"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENBLOCKPERF_",  # Every ENV Variable assumes this prefix such that all env vars are in a similar "namespace"
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     api_port: int = 443
     api_path: str = "/api/v0/"
     api_key: str
@@ -82,18 +87,6 @@ class AppSettings(BaseSettings):
         return self._NETWORK_CONFIGS[self.network.value]
 
 
-class AppSettingsDev(AppSettings):
-    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env.dev")
-
-
-class AppSettingsTest(AppSettings):
-    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env.test")
-
-
-class AppSettingsProd(AppSettings):
-    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env.prod")
-
-
 def settings(
     network: Network | str | None = None,
     api_url_override: str | None = None,
@@ -110,19 +103,12 @@ def settings(
     Args:
         network: Network override from CLI (highest priority)
         api_url_override: API URL override from CLI (bypasses network-specific URL)
-    """
-    settings_env_map = {
-        "dev": AppSettingsDev,
-        "test": AppSettingsProd,
-        "production": AppSettingsProd,
-    }
-    env = os.environ.get("ENV", "dev")
-    settings_class = settings_env_map.get(env)
-    if not settings_class:
-        raise RuntimeError(f"No settings found for {env}")
 
-    # Create settings instance
-    settings_instance = settings_class()
+    Returns:
+        AppSettings instance configured with provided overrides
+    """
+    # Create settings instance from environment variables and .env file
+    settings_instance = AppSettings()
 
     # Apply CLI overrides (highest priority)
     if network is not None:

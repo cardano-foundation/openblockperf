@@ -28,9 +28,8 @@ class BlockperfApiClient:
         """ """
 
         request = RegistrationChallengeRequest(pool_id=pool_id)
-        return await self._api.post("/registration/challenge", request, RegistrationChallengeResponse)
 
-        await self._api.register()
+        return await self._api.post("/registration/challenge", request, RegistrationChallengeResponse)
 
     async def submit_peer_event(self, peer: Peer, event: PeerEvent):
         """Creates the request to submit a peer event.
