@@ -9,10 +9,12 @@ description = "The OpenBlockperf client"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "cbor2>=5.7.1",
   "click>=8.1.8",
   "httpx>=0.28.1",
   "loguru>=0.7.3",
   "psutil>=7.1.0",
+  "pycardano>=0.18.0",
   "pydantic>=2.10.6",
   "pydantic-settings>=2.8.0",
   "textual>=6.1.0",

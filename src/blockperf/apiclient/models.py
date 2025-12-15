@@ -35,8 +35,17 @@ class BlockSampleResponse(BaseModel):
 
 
 class RegistrationChallengeRequest(BaseModel):
-    pool_id: str
+    pool_id_bech32: str
 
 
 class RegistrationChallengeResponse(BaseModel):
     challenge: str
+
+
+class SubmitSignedChallengeRequest(BaseModel):
+    pool_id_bech32: str
+    signature_hex: str
+
+
+class SubmitSignedChallengeResponse(BaseModel):
+    apikey: str

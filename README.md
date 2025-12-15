@@ -57,3 +57,14 @@ Usage Examples:
   export OPENBLOCKPERF_NETWORK=preprod
   blockperf run
 ```
+
+## Registration
+
+To register for an api key, you need to have a calidus key registered on chain.
+Then use the `blockperf register` command to start the registration. That
+You will receive a challenge that you will need to sign with your calidus
+key. Then submit that signature back to the api to receive the apikey.
+
+```bash
+blockperf register --
+```

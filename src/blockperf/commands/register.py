@@ -1,8 +1,8 @@
 import asyncio
-import contextlib
-import signal
 import sys
 from datetime import datetime
+from pathlib import Path
+from typing import Annotated
 
 import rich
 import typer
@@ -10,14 +10,12 @@ from loguru import logger
 from rich.console import Console
 
 from blockperf.apiclient import BlockperfApiClient
-from blockperf.app import Blockperf
-from blockperf.config import Network, settings
-from blockperf.errors import (
-    ApiConnectionError,
-    BlockperfError,
-    ConfigurationError,
+from blockperf.calidus import (
+    extract_signing_key_from_cbor,
+    parse_key_file,
 )
-from blockperf.logging import logger
+from blockperf.config import settings
+from blockperf.errors import ConfigurationError
 from blockperf.utils import async_command
 
 console = Console(file=sys.stdout, force_terminal=True)
@@ -31,11 +29,14 @@ async def register_cmd(
         "-p",
         help="Pool id (bech32) to register with",
     ),
-    calidus_key_id: str = typer.Option(
-        None,
-        "--calidus-key-id",
-        help="Calidus Key to use.",
-    ),
+    calidus_skey: Path = Annotated[
+        Path,
+        typer.Option(
+            None,
+            "--calidus-skey",
+            help="Calidus secret key to use.",
+        ),
+    ],
     network: str = typer.Option(
         None,
         "--network",
@@ -53,13 +54,20 @@ async def register_cmd(
     ),
 ) -> None:
     """Implements the register command."""
+
     try:
         app_settings = settings(network=network, api_url_override=api_url)
         api = BlockperfApiClient(app_settings)
-
-        # Ask the server for a registration challenge for that pool_id
-        response = await api.register(pool_id=pool_id)
-        rich.print(response)
+        challenge = await api.request_registration_challenge(pool_id_bech32=pool_id)
+        skey_data = parse_key_file(calidus_skey)
+        skey = extract_signing_key_from_cbor(skey_data.get("cborHex"))
+        signature = skey.sign(challenge.encode("utf-8"))
+        response = await api.submit_signed_challenge(
+            signature_hex=signature.hex(),
+            pool_id_bech32=pool_id,
+        )
+        console.print(f"Your new Api key is {response.apikey}")
+        await api.test_api_key()
 
     except KeyboardInterrupt:
         console.print("\n[bold green]Shutdown initiated by user[/]")

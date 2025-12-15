@@ -99,9 +99,7 @@ class BlockperfApiBase:
         # await self._ensure_valid_token()
         try:
             headers = kwargs.pop("headers", {})
-            if not self.api_key:
-                raise RuntimeError("No api key found")
-            headers["X-Api-Key"] = self.api_key
+            headers["X-Api-Key"] = self.api_key or ""
             headers["X-Client-Id"] = get_clientid()
 
             response = await self.client.request(

@@ -1,6 +1,13 @@
 import rich
 
-from blockperf.apiclient.models import BlockSampleRequest, BlockSampleResponse, PeerEventRequest, PeerEventResponse
+from blockperf.apiclient.models import (
+    BlockSampleRequest,
+    BlockSampleResponse,
+    PeerEventRequest,
+    PeerEventResponse,
+    SubmitSignedChallengeRequest,
+    SubmitSignedChallengeResponse,
+)
 from blockperf.config import AppSettings, settings
 from blockperf.models.events.peer import PeerEvent
 from blockperf.models.peer import Peer
@@ -24,12 +31,26 @@ class BlockperfApiClient:
     async def post_status_change(self):
         return await self._api.post("/submit/peerstatuschange")
 
-    async def register(self, pool_id: str | None = None, calidus_key_id: str | None = None):
+    async def request_registration_challenge(
+        self, pool_id_bech32: str | None = None, calidus_key_id: str | None = None
+    ) -> str:
         """ """
 
-        request = RegistrationChallengeRequest(pool_id=pool_id)
+        request = RegistrationChallengeRequest(pool_id_bech32=pool_id_bech32)
+        response = await self._api.post("/registration/challenge", request, RegistrationChallengeResponse)
+        rich.print(response)
+        return response.challenge
 
-        return await self._api.post("/registration/challenge", request, RegistrationChallengeResponse)
+    async def submit_signed_challenge(
+        self,
+        signature_hex: str,
+        pool_id_bech32: str | None = None,
+    ):
+        """ """
+        print("Sending signed challenge back")
+        request = SubmitSignedChallengeRequest(signature_hex=signature_hex, pool_id_bech32=pool_id_bech32)
+        rich.print(request)
+        return await self._api.post("/registration/submit", request, SubmitSignedChallengeResponse)
 
     async def submit_peer_event(self, peer: Peer, event: PeerEvent):
         """Creates the request to submit a peer event.
@@ -53,3 +74,7 @@ class BlockperfApiClient:
         resp = await self._api.post("/submit/peerevent", per)
         rich.print("Response:", resp)
         print()
+
+    async def test_api_key(self):
+        resp = await self._api.get("/auth/private")
+        rich.print("Response:", resp)

@@ -35,7 +35,7 @@ class AppSettings(BaseSettings):
 
     api_port: int = 443
     api_path: str = "/api/v0/"
-    api_key: str
+    api_key: str | None = None
     api_clientid: str | None = None
     api_client_secret: str | None = None
     check_interval: int = 2  # Interval in seconds to check for groups/blocks
