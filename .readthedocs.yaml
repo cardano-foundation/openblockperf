@@ -1,0 +1,12 @@
+# .readthedocs.yaml
+version: 2
+
+build:
+  os: ubuntu-22.04
+  tools:
+    rust: "latest"
+  commands:
+    - curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C ~/.local/bin
+    - mdbook build docs/
+    - mkdir -p $READTHEDOCS_OUTPUT/html
+    - cp -r docs/book/* $READTHEDOCS_OUTPUT/html/
