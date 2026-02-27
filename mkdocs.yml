@@ -1,0 +1,16 @@
+site_name: The openBlockPerf Client
+site_description: OpenBlockPerf Client - collect and forward Cardano node performance metrics
+site_author: Manuel Schmidt
+repo_url: https://github.com/cardano-foundation/openblockperf
+docs_dir: docs
+
+nav:
+  - Introduction: index.md
+  - Log Reader: logreader.md
+  - Tracer: tracer.md
+  - Block Sample: blocksample.md
+  - Peers: peers.md
+  - Publishing to PyPI: publish_pypi.md
+
+theme:
+  name: readthedocs

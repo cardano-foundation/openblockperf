@@ -40,6 +40,7 @@ blockperf = "blockperf.__main__:cli"
 [dependency-groups]
 dev = [
   "ipython>=9.5.0",
+  "mkdocs>=1.6.1",
   "mypy>=1.18.2",
   "pudb>=2025.1",
   "pytest>=8.4.2",
