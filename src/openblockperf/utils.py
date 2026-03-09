@@ -89,7 +89,7 @@ def async_to_sync[T](
 
 def check_for_updates():
     current = version("")
-    response = httpx.get("https://pypi.org/pypi/yourtool/json", timeout=3)
+    response = httpx.get("https://pypi.org/pypi/openblockperf/json", timeout=3)
     latest = response.json()["info"]["version"]
     if current != latest:
-        print(f"Update available: {current} → {latest}. Run: pip install --upgrade yourtool")
+        print(f"Update available: {current} → {latest}. Run: pip install --upgrade openblockperf")

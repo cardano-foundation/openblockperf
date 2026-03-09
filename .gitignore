@@ -27,3 +27,4 @@ logeventexamples/
 logs*
 # Tempoary sshfs files
 *.fuse*
+.python-version
