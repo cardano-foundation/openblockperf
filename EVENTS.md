@@ -23,7 +23,7 @@ are many ways to model this. I have started by sublcassing everything and
 have every non simple type be its own model. That felt cumbersome. So
 Now i changed to just slap a model_validator and populate the fields
 i actually only care about into the dict returning from that validator.
-See `blockperf.models.events.peer:PeerEvent` as one such example.
+See `openblockperf.models.events.peer:PeerEvent` as one such example.
 
 Below are some notes on the events i care about. They all only focu on
 the data field!

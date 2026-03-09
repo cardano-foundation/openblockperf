@@ -116,9 +116,9 @@ def settings(
         if isinstance(network, str):
             try:
                 network = Network(network.lower())
-            except ValueError:
+            except ValueError as e:
                 valid_networks = [n.value for n in Network]
-                raise ValueError(f"Invalid network '{network}'. Must be one of: {', '.join(valid_networks)}")
+                raise ValueError(f"Invalid network '{network}'. Must be one of: {', '.join(valid_networks)}") from e
         # Override the network setting
         settings_instance.network = network
 

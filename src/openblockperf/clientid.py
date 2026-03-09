@@ -9,7 +9,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from blockperf.errors import ConfigurationError
+from .errors import ConfigurationError
 
 
 class ClientIdentifier:
@@ -49,9 +49,7 @@ class ClientIdentifier:
             logger.debug(f"Using existing system directory: {system_dir}")
             return system_dir
         elif os.getuid() == 0:  # Running as root
-            logger.debug(
-                f"Running as root, using system directory: {system_dir}"
-            )
+            logger.debug(f"Running as root, using system directory: {system_dir}")
             return system_dir
 
         # 4. Fallback to /tmp with username
@@ -86,9 +84,7 @@ class ClientIdentifier:
             return self._clientid
 
         except Exception as e:
-            raise ConfigurationError(
-                f"Failed to get or create client ID: {e}"
-            ) from e
+            raise ConfigurationError(f"Failed to get or create client ID: {e}") from e
 
     def _load_existing_id(self) -> str | None:
         """Load client ID from existing file.
@@ -134,15 +130,14 @@ class ClientIdentifier:
 
         except OSError as e:
             # Provide helpful error messages for common issues
-            if e.errno == 13:  # Permission denied
+            if e.errno == 13:  # noqa: PLR2004
+                # Permission denied
                 raise ConfigurationError(
                     f"Permission denied creating client ID at {self.clientid_path}. "
                     f"Try running as root or using a different state directory."
                 ) from e
             else:
-                raise ConfigurationError(
-                    f"Failed to create client ID file at {self.clientid_path}: {e}"
-                ) from e
+                raise ConfigurationError(f"Failed to create client ID file at {self.clientid_path}: {e}") from e
 
     @property
     def clientid(self) -> str:
@@ -163,7 +158,7 @@ def get_clientid(state_dir: Path | None = None) -> str:
     Returns:
         UUID string identifying this client instance
     """
-    global _clientidentifier
+    global _clientidentifier  # noqa: PLW0603
 
     if _clientidentifier is None:
         _clientidentifier = ClientIdentifier(state_dir)
@@ -173,5 +168,5 @@ def get_clientid(state_dir: Path | None = None) -> str:
 
 def reset_clientidentifier() -> None:
     """Reset the global client identifier (mainly for testing)."""
-    global _clientidentifier
+    global _clientidentifier  # noqa: PLW0603
     _clientidentifier = None

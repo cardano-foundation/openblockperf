@@ -2,23 +2,14 @@ import asyncio
 import contextlib
 import signal
 import sys
-from datetime import datetime
 
-import rich
 import typer
-from loguru import logger
 from rich.console import Console
 
-from blockperf.apiclient import BlockperfApiClient
-from blockperf.app import Blockperf
-from blockperf.config import Network, settings
-from blockperf.errors import (
-    ApiConnectionError,
-    BlockperfError,
-    ConfigurationError,
-)
-from blockperf.logging import logger
-from blockperf.utils import async_command
+from .app import Blockperf
+from .config import settings
+from .errors import ConfigurationError
+from .utils import async_command
 
 run_app = typer.Typer(
     name="run",

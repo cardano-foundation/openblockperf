@@ -6,12 +6,11 @@ logreader
 import abc
 import asyncio
 import json
-from collections.abc import AsyncGenerator
-from typing import Any
+from collections.abc import Any, AsyncGenerator
 
 from loguru import logger
 
-from blockperf.errors import StartupMarkerNotFoundError
+from .errors import StartupMarkerNotFoundError
 
 
 class NodeLogReader(abc.ABC):
@@ -36,9 +35,7 @@ class NodeLogReader(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def search_messages(
-        self, search_string: str
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    async def search_messages(self, search_string: str) -> AsyncGenerator[dict[str, Any], None]:
         """Search historical messages for a given string.
 
         Args:
@@ -50,9 +47,7 @@ class NodeLogReader(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def replay_from_startup(
-        self, startup_marker: str
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    async def replay_from_startup(self, startup_marker: str) -> AsyncGenerator[dict[str, Any], None]:
         """Replay all log messages from the last service startup to present.
 
         This method should:
@@ -119,18 +114,14 @@ class JournalCtlLogReader(NodeLogReader):
             ]
             logger.debug("Connecting via journalctl subprocess", cmd=cmd)
 
-            self.process: asyncio.subprocess.Process = (
-                await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    limit=10000000,  # 10MB Buffer size
-                )
+            self.process: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=10000000,  # 10MB Buffer size
             )
         except Exception as e:
-            raise RuntimeError(
-                f"Failed to start journalctl subprocess: {e}"
-            ) from e
+            raise RuntimeError(f"Failed to start journalctl subprocess: {e}") from e
 
     async def close(self) -> None:
         """Close the journalctl subprocess."""
@@ -170,9 +161,7 @@ class JournalCtlLogReader(NodeLogReader):
             except Exception as e:
                 print(f"Error processing journalctl line: {e}")
 
-    async def search_messages(
-        self, search_string: str, since_hours: int
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    async def search_messages(self, search_string: str, since_hours: int) -> AsyncGenerator[dict[str, Any], None]:
         """Search historical messages using journalctl for a given string.
 
         Args:
@@ -200,9 +189,7 @@ class JournalCtlLogReader(NodeLogReader):
                 search_string,  # Search for the string
             ]
 
-            logger.debug(
-                f"Searching peer {search_string} since {since_hours} hours ago"
-            )
+            logger.debug(f"Searching peer {search_string} since {since_hours} hours ago")
 
             # Execute the search command as a streaming process
             process = await asyncio.create_subprocess_exec(
@@ -218,10 +205,7 @@ class JournalCtlLogReader(NodeLogReader):
 
                 if not line:
                     # Check if process has finished
-                    if (
-                        process.returncode is not None
-                        or process.stdout.at_eof()
-                    ):
+                    if process.returncode is not None or process.stdout.at_eof():
                         break
                     continue
 
@@ -244,14 +228,8 @@ class JournalCtlLogReader(NodeLogReader):
             await process.wait()
             if process.returncode != 0:
                 stderr_data = await process.stderr.read()
-                error_msg = (
-                    stderr_data.decode("utf-8")
-                    if stderr_data
-                    else "Unknown error"
-                )
-                logger.warning(
-                    f"journalctl search finished with return code {process.returncode}: {error_msg}"
-                )
+                error_msg = stderr_data.decode("utf-8") if stderr_data else "Unknown error"
+                logger.warning(f"journalctl search finished with return code {process.returncode}: {error_msg}")
 
         except Exception as e:
             logger.error(f"Error during log search: {e}")
@@ -262,9 +240,7 @@ class JournalCtlLogReader(NodeLogReader):
                     process.terminate()
                     await asyncio.wait_for(process.wait(), timeout=1.0)
                 except TimeoutError:
-                    logger.warning(
-                        "journalctl search process didn't terminate, killing it"
-                    )
+                    logger.warning("journalctl search process didn't terminate, killing it")
                     process.kill()
                     await process.wait()
 
@@ -311,9 +287,7 @@ class JournalCtlLogReader(NodeLogReader):
             )
             stdout, stderr = await search_process.communicate()
             if search_process.returncode != 0 or not stdout:
-                logger.warning(
-                    f"No startup marker '{startup_marker}' found in logs"
-                )
+                logger.warning(f"No startup marker '{startup_marker}' found in logs")
                 raise StartupMarkerNotFoundError()
 
             #######################################
@@ -324,9 +298,7 @@ class JournalCtlLogReader(NodeLogReader):
                 startup_timestamp = startup_entry.get("__REALTIME_TIMESTAMP")
 
                 if not startup_timestamp:
-                    logger.warning(
-                        "Could not extract timestamp from startup entry"
-                    )
+                    logger.warning("Could not extract timestamp from startup entry")
                     return
                 logger.info(f"Found startup at timestamp: {startup_timestamp}")
             except json.JSONDecodeError as e:
@@ -363,10 +335,7 @@ class JournalCtlLogReader(NodeLogReader):
                 line = await process.stdout.readline()
                 if not line:
                     # If process is finished, break the loop and return function
-                    if (
-                        process.returncode is not None
-                        or process.stdout.at_eof()
-                    ):
+                    if process.returncode is not None or process.stdout.at_eof():
                         break
                     # Keep waiting by continuing the loop
                     continue
@@ -388,11 +357,7 @@ class JournalCtlLogReader(NodeLogReader):
             await process.wait()
             if process.returncode != 0:
                 stderr_data = await process.stderr.read()
-                error_msg = (
-                    stderr_data.decode("utf-8")
-                    if stderr_data
-                    else "Unknown error"
-                )
+                error_msg = stderr_data.decode("utf-8") if stderr_data else "Unknown error"
                 logger.warning(f"Replay finished with return code {process.returncode}: {error_msg}")  # fmt: off
             else:
                 logger.info(f"Replay completed successfully: {message_count} messages processed")  # fmt: off
@@ -425,6 +390,4 @@ def create_log_reader(reader_type: str, unit: str | None) -> NodeLogReader:
     if reader_type == "journalctl":
         return JournalCtlLogReader(unit=unit)
     else:
-        raise ValueError(
-            "Unsupported log reader type. Only 'journalctl' is allowed currently."
-        )
+        raise ValueError("Unsupported log reader type. Only 'journalctl' is allowed currently.")

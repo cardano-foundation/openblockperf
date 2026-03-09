@@ -3,10 +3,7 @@ import json
 from pathlib import Path
 
 import cbor2
-from nacl.encoding import HexEncoder, RawEncoder
-from nacl.exceptions import BadSignatureError
-from nacl.signing import SigningKey, VerifyKey
-from pycardano import PaymentExtendedSigningKey, PaymentVerificationKey
+from pycardano import PaymentExtendedSigningKey
 
 
 def parse_key_file(file_path: Path) -> dict:

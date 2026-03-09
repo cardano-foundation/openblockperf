@@ -28,11 +28,10 @@ from collections.abc import Mapping
 from typing import Any
 
 import httpx
-from loguru import logger
 from pydantic import BaseModel
 
-from blockperf.clientid import get_clientid
-from blockperf.errors import ApiConnectionError, ApiError
+from .clientid import get_clientid
+from .errors import ApiConnectionError, ApiError
 
 
 class BlockperfApiBase:

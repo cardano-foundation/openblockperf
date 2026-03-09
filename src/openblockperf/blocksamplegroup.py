@@ -3,13 +3,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import singledispatchmethod
 
-import rich
 from loguru import logger
 
-from blockperf import __version__
-from blockperf.config import settings
-from blockperf.errors import EventError
-from blockperf.models.events.event import (
+from . import __version__
+from .config import settings
+from .errors import EventError
+from .models.events.event import (
     AddedToCurrentChainEvent,
     BaseEvent,
     CompletedBlockFetchEvent,
@@ -17,7 +16,7 @@ from blockperf.models.events.event import (
     SendFetchRequestEvent,
     SwitchedToAForkEvent,
 )
-from blockperf.models.samples import BlockSample
+from .models.samples import BlockSample
 
 
 @dataclass
@@ -54,6 +53,7 @@ class BlockSampleGroup:
         # Use provided settings or create default
         if self.app_settings is None:
             self.app_settings = settings()
+
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
 
@@ -108,9 +108,7 @@ class BlockSampleGroup:
         if not self.slot:
             self.slot = event.slot
         if not self.slot_time:
-            self.slot_time = datetime.fromtimestamp(
-                self.app_settings.network_config.starttime + self.slot, tz=UTC
-            )
+            self.slot_time = datetime.fromtimestamp(self.app_settings.network_config.starttime + self.slot, tz=UTC)
         if not self.block_number:
             self.block_number = event.block_number
 
@@ -233,12 +231,7 @@ class BlockSampleGroup:
         * Must have downloaded the block
         * Must have adopted the block - Either AddedToCurrentChain or SwitchedToAFork
         """
-        return (
-            self.block_header
-            and self.block_requested
-            and self.block_completed
-            and self.block_adopted
-        )
+        return self.block_header and self.block_requested and self.block_completed and self.block_adopted
 
     def is_sane(self) -> bool:
         """Checks all values are within acceptable ranges.

@@ -2,10 +2,12 @@
 
 import asyncio
 import functools
-import signal
-import sys
+from collections.abc import Any, Callable, Coroutine
 from functools import wraps
-from typing import Any, Callable, Coroutine, Optional, TypeVar, cast
+from importlib.metadata import version
+from typing import TypeVar
+
+import httpx
 
 T = TypeVar("T")
 
@@ -20,7 +22,7 @@ def async_command(func):
     return wrapper
 
 
-def run_async(coroutine: Coroutine[Any, Any, T]) -> T:
+def run_async[T](coroutine: Coroutine[Any, Any, T]) -> T:
     """Run an async coroutine in the current thread.
 
     This function properly handles asyncio event loop creation and cleanup,
@@ -44,15 +46,13 @@ def run_async(coroutine: Coroutine[Any, Any, T]) -> T:
             task.cancel()
 
         # Run the event loop until all tasks are cancelled
-        loop.run_until_complete(
-            asyncio.gather(*pending, return_exceptions=True)
-        )
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         raise
     finally:
         loop.close()
 
 
-async def with_timeout(coroutine: Coroutine[Any, Any, T], timeout: int) -> T:
+async def with_timeout[T](coroutine: Coroutine[Any, Any, T], timeout: int) -> T:
     """Run a coroutine with a timeout.
 
     Args:
@@ -68,7 +68,7 @@ async def with_timeout(coroutine: Coroutine[Any, Any, T], timeout: int) -> T:
     return await asyncio.wait_for(coroutine, timeout=timeout)
 
 
-def async_to_sync(
+def async_to_sync[T](
     func: Callable[..., Coroutine[Any, Any, T]],
 ) -> Callable[..., T]:
     """Decorator to convert an async function to a sync function.
@@ -85,3 +85,11 @@ def async_to_sync(
         return run_async(func(*args, **kwargs))
 
     return wrapper
+
+
+def check_for_updates():
+    current = version("")
+    response = httpx.get("https://pypi.org/pypi/yourtool/json", timeout=3)
+    latest = response.json()["info"]["version"]
+    if current != latest:
+        print(f"Update available: {current} → {latest}. Run: pip install --upgrade yourtool")

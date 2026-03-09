@@ -1,6 +1,5 @@
 import asyncio
 from collections.abc import Callable
-from datetime import datetime
 
 import psutil
 import rich
@@ -8,10 +7,10 @@ from loguru import logger
 from rich.console import Console
 
 # from rich.console import Console
-from blockperf.apiclient import BlockperfApiClient
-from blockperf.blocksamplegroup import BlockSampleGroup
-from blockperf.config import settings
-from blockperf.errors import (
+from .apiclient import BlockperfApiClient
+from .blocksamplegroup import BlockSampleGroup
+from .config import settings
+from .errors import (
     ApiConnectionError,
     ConfigurationError,
     EventError,
@@ -19,9 +18,9 @@ from blockperf.errors import (
     StartupMarkerNotFoundError,
     UnknowEventNameSpaceError,
 )
-from blockperf.handler import EventHandler
-from blockperf.logreader import NodeLogReader, create_log_reader
-from blockperf.models.peer import Peer, PeerState
+from .handler import EventHandler
+from .logreader import NodeLogReader, create_log_reader
+from .models.peer import Peer, PeerState
 
 # console = Console()
 

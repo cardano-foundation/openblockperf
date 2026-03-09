@@ -1,9 +1,8 @@
-import enum
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from blockperf.models.samples import BlockSample
+from .models.samples import BlockSample
 
 
 class PeerEventRequest(BaseModel):

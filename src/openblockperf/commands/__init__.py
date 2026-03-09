@@ -6,8 +6,7 @@ import sys
 
 from rich.console import Console
 
-from blockperf import __version__
-
+from . import __version__
 from .register import register_cmd
 from .run import run_cmd
 

@@ -31,7 +31,7 @@ maintainers = [
 ]
 
 [project.scripts]
-blockperf = "blockperf.__main__:cli"
+blockperf = "openblockperf.__main__:cli"
 
 [project.urls]
 "Homepage" = "https://github.com/cardano-foundation/openblockperf"

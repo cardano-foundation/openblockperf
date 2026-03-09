@@ -10,9 +10,9 @@ when these peers change their states. That is
 
 
 
-* Every peer can be in one of many states. See `blockperf.models:PeerState`
+* Every peer can be in one of many states. See `openblockperf.models:PeerState`
 * A peer is either outbound or inbound. That is either the node connected
-    to the peer or the peer connected to the node. See `blockperf.models:PeerDirection`
+    to the peer or the peer connected to the node. See `openblockperf.models:PeerDirection`
 
 
 ## Peers from the OS

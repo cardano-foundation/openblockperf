@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import datetime
 from functools import singledispatchmethod
 
@@ -6,15 +5,14 @@ import rich
 from loguru import logger
 from pydantic import ValidationError
 
-from blockperf.apiclient import BlockperfApiClient
-from blockperf.blocksamplegroup import BlockSampleGroup
-from blockperf.errors import (
+from .apiclient import BlockperfApiClient
+from .blocksamplegroup import BlockSampleGroup
+from .errors import (
     EventError,
     InvalidEventDataError,
     UnknowEventNameSpaceError,
 )
-from blockperf.models.events.base import BaseEvent
-from blockperf.models.events.event import (
+from .models.events.event import (
     AddedToCurrentChainEvent,
     BlockSampleEvent,
     CompletedBlockFetchEvent,
@@ -22,14 +20,14 @@ from blockperf.models.events.event import (
     SendFetchRequestEvent,
     SwitchedToAForkEvent,
 )
-from blockperf.models.events.peer import (
+from .models.events.peer import (
     DemotedPeerEvent,
     InboundGovernorCountersEvent,
     PeerEvent,
     PromotedPeerEvent,
     StatusChangedEvent,
 )
-from blockperf.models.peer import Peer, PeerDirection, PeerState
+from .models.peer import Peer, PeerDirection, PeerState
 
 
 class EventHandler:
@@ -86,9 +84,7 @@ class EventHandler:
         self.api = api
         self.app_settings = app_settings
 
-    def _make_event_from_message(
-        self, message: dict
-    ) -> BlockSampleEvent | PeerEvent:
+    def _make_event_from_message(self, message: dict) -> BlockSampleEvent | PeerEvent:
         """Takes a raw message as received from the LogReader and create an event."""
         try:
             ns = message.get("ns")
@@ -117,9 +113,7 @@ class EventHandler:
         raise EventError(f"Unhandled event type: {type(event).__name__}")
 
     @singledispatchmethod
-    async def dispatch_peer_event(
-        self, peer: Peer, event: PeerEvent
-    ) -> tuple[Peer, PeerEvent]:
+    async def dispatch_peer_event(self, peer: Peer, event: PeerEvent) -> tuple[Peer, PeerEvent]:
         """Calls the PeerEvent specific handlers. Each handler returns a tuple
         providing the result and possibly some data to that result. For now
         these are just two dictionaries.
@@ -195,17 +189,11 @@ class EventHandler:
     """
 
     @dispatch_peer_event.register
-    async def hdl_peer_event__status_changed(
-        self, peer: Peer, event: StatusChangedEvent
-    ):
+    async def hdl_peer_event__status_changed(self, peer: Peer, event: StatusChangedEvent):
         await self.api.submit_peer_event(peer, event)
 
-    async def hdl_peer_event__promoted_peer(
-        self, peer: Peer, event: PromotedPeerEvent
-    ):
+    async def hdl_peer_event__promoted_peer(self, peer: Peer, event: PromotedPeerEvent):
         await self.api.submit_peer_event(peer, event)
 
-    async def hdl_peer_event__demoted_peer(
-        self, peer: Peer, event: DemotedPeerEvent
-    ):
+    async def hdl_peer_event__demoted_peer(self, peer: Peer, event: DemotedPeerEvent):
         await self.api.submit_peer_event(peer, event)

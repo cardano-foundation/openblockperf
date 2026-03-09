@@ -4,16 +4,11 @@ Block sample events
 The logevent module
 """
 
-from typing import Any
-
-from pydantic import BaseModel, model_validator
-
-from blockperf.errors import EventError
-from blockperf.models.peer import (
-    PeerConnectionSimple,
-)
+from pydantic import BaseModel
 
 from .base import BaseEvent
+from .errors import EventError
+from .models.peer import PeerConnectionSimple
 
 
 class BlockSampleEvent(BaseEvent):
@@ -218,9 +213,7 @@ class AddedToCurrentChainEvent(BlockSampleEvent):
         # TODO: Why is this weird double quote here in the first place?
         _headers = self.data.get("headers")
         if not _headers:
-            raise EventError(
-                f"No or invalid headers in {self.__class__.__name__} at: '{self.at}' "
-            )
+            raise EventError(f"No or invalid headers in {self.__class__.__name__} at: '{self.at}' ")
         _hash = _headers[0].get("hash")
         if _hash.startswith('"'):
             _hash = _hash[1:]
@@ -277,9 +270,7 @@ class SwitchedToAForkEvent(BlockSampleEvent):
         #       double quotes ???
         _headers = self.data.get("headers")
         if not _headers:
-            raise EventError(
-                f"No or invalid headers in {self.__class__.__name__} at: '{self.at}' "
-            )
+            raise EventError(f"No or invalid headers in {self.__class__.__name__} at: '{self.at}' ")
         _hash = _headers[0].get("hash")
         if _hash.startswith('"'):
             _hash = _hash[1:]

@@ -2,15 +2,14 @@
 
 import enum
 import re
+from collections.abc import Any
 from ipaddress import ip_address
-from typing import Any
 
 from loguru import logger
 from pydantic import model_validator
 
-from blockperf.errors import EventError
-
 from .base import BaseEvent
+from .errors import EventError
 
 # Used strings here and not the PeerState enum to keep the events simple
 # as well as not coupled to the event module.
@@ -205,18 +204,14 @@ class PeerEvent(BaseEvent):
             remote_addr = groups[3] or groups[4]
             remote_port = int(groups[5])
         else:
-            raise ValueError(
-                f"Unrecognized format (no 'Just' or 'ConnectionId'): {psct}"
-            )
+            raise ValueError(f"Unrecognized format (no 'Just' or 'ConnectionId'): {psct}")
 
         # Check if we actually extraced something that is an ip address
         try:
             ip_address(local_addr)
             ip_address(remote_addr)
         except ValueError as e:
-            raise ValueError(
-                f"Invalid IP address in connection string: {e}"
-            ) from e
+            raise ValueError(f"Invalid IP address in connection string: {e}") from e
 
         # Assuming the StatusChange is alwasy from the local peer
         direction = "outbound"
@@ -224,9 +219,7 @@ class PeerEvent(BaseEvent):
         # Change Type
         #
 
-        data["change_type"] = PeerEventChangeType(
-            f"{from_state.lower()}_to_{to_state.lower()}"
-        )
+        data["change_type"] = PeerEventChangeType(f"{from_state.lower()}_to_{to_state.lower()}")
 
         # Pack everything back into data and return
         data["state"] = to_state

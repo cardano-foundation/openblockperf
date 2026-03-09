@@ -1,22 +1,19 @@
 import asyncio
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
-import rich
 import typer
-from loguru import logger
 from rich.console import Console
 
-from blockperf.apiclient import BlockperfApiClient
-from blockperf.calidus import (
+from .apiclient import BlockperfApiClient
+from .calidus import (
     extract_signing_key_from_cbor,
     parse_key_file,
 )
-from blockperf.config import settings
-from blockperf.errors import ConfigurationError
-from blockperf.utils import async_command
+from .config import settings
+from .errors import ConfigurationError
+from .utils import async_command
 
 console = Console(file=sys.stdout, force_terminal=True)
 

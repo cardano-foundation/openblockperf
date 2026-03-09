@@ -1,28 +1,16 @@
 """
-blockperf.models.events.base
 
-The blockperf.models.events.base module implements the BaseEvent model
-for all events from the log messages of the node.
+Implements the BaseEvent model for all events from the log messages of the node.
 
 """
 
-from __future__ import annotations
-
-import re
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Any
 from datetime import datetime
-from enum import Enum
-from ipaddress import ip_address
-from typing import Any, Dict, Optional, Union
 
-import rich
 from pydantic import (
     BaseModel,
     ConfigDict,
-    Field,
     ValidationError,
-    model_validator,
     validator,
 )
 

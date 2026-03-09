@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from blockperf.models.peer import Peer
+from .peer import Peer
 
 
 class BlockSample(BaseModel):

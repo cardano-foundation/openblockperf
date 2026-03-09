@@ -1,20 +1,18 @@
 import rich
 
-from blockperf.apiclient.models import (
+from .apiclient.models import (
     BlockSampleRequest,
     BlockSampleResponse,
     PeerEventRequest,
-    PeerEventResponse,
     SubmitSignedChallengeRequest,
     SubmitSignedChallengeResponse,
 )
-from blockperf.config import AppSettings, settings
-from blockperf.models.events.peer import PeerEvent
-from blockperf.models.peer import Peer
-from blockperf.models.samples import BlockSample
-
 from .base import BlockperfApiBase
+from .config import AppSettings, settings
 from .models import RegistrationChallengeRequest, RegistrationChallengeResponse
+from .models.events.peer import PeerEvent
+from .models.peer import Peer
+from .models.samples import BlockSample
 
 
 class BlockperfApiClient:
