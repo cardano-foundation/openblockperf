@@ -1,12 +1,12 @@
 """Base commands implementation for BlockPerf CLI."""
 
-import asyncio
 import platform
 import sys
 
 from rich.console import Console
 
-from . import __version__
+from openblockperf import __version__
+
 from .register import register_cmd
 from .run import run_cmd
 

@@ -5,10 +5,10 @@ from functools import singledispatchmethod
 
 from loguru import logger
 
-from . import __version__
-from .config import settings
-from .errors import EventError
-from .models.events.event import (
+from openblockperf import __version__
+from openblockperf.config import settings
+from openblockperf.errors import EventError
+from openblockperf.models.events.event import (
     AddedToCurrentChainEvent,
     BaseEvent,
     CompletedBlockFetchEvent,
@@ -16,7 +16,7 @@ from .models.events.event import (
     SendFetchRequestEvent,
     SwitchedToAForkEvent,
 )
-from .models.samples import BlockSample
+from openblockperf.models.samples import BlockSample
 
 
 @dataclass

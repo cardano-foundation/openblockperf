@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from .models.samples import BlockSample
+from openblockperf.models.samples import BlockSample
 
 
 class PeerEventRequest(BaseModel):

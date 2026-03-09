@@ -2,14 +2,15 @@
 
 import enum
 import re
-from collections.abc import Any
 from ipaddress import ip_address
+from typing import Any
 
 from loguru import logger
 from pydantic import model_validator
 
+from openblockperf.errors import EventError
+
 from .base import BaseEvent
-from .errors import EventError
 
 # Used strings here and not the PeerState enum to keep the events simple
 # as well as not coupled to the event module.

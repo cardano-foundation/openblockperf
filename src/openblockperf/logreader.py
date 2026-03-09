@@ -6,11 +6,12 @@ logreader
 import abc
 import asyncio
 import json
-from collections.abc import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from loguru import logger
 
-from .errors import StartupMarkerNotFoundError
+from openblockperf.errors import StartupMarkerNotFoundError
 
 
 class NodeLogReader(abc.ABC):

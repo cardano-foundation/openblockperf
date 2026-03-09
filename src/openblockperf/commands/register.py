@@ -6,14 +6,14 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from .apiclient import BlockperfApiClient
-from .calidus import (
+from openblockperf.apiclient import BlockperfApiClient
+from openblockperf.calidus import (
     extract_signing_key_from_cbor,
     parse_key_file,
 )
-from .config import settings
-from .errors import ConfigurationError
-from .utils import async_command
+from openblockperf.config import settings
+from openblockperf.errors import ConfigurationError
+from openblockperf.utils import async_command
 
 console = Console(file=sys.stdout, force_terminal=True)
 

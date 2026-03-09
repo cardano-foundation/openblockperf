@@ -5,14 +5,14 @@ import rich
 from loguru import logger
 from pydantic import ValidationError
 
-from .apiclient import BlockperfApiClient
-from .blocksamplegroup import BlockSampleGroup
-from .errors import (
+from openblockperf.apiclient import BlockperfApiClient
+from openblockperf.blocksamplegroup import BlockSampleGroup
+from openblockperf.errors import (
     EventError,
     InvalidEventDataError,
     UnknowEventNameSpaceError,
 )
-from .models.events.event import (
+from openblockperf.models.events.event import (
     AddedToCurrentChainEvent,
     BlockSampleEvent,
     CompletedBlockFetchEvent,
@@ -20,14 +20,14 @@ from .models.events.event import (
     SendFetchRequestEvent,
     SwitchedToAForkEvent,
 )
-from .models.events.peer import (
+from openblockperf.models.events.peer import (
     DemotedPeerEvent,
     InboundGovernorCountersEvent,
     PeerEvent,
     PromotedPeerEvent,
     StatusChangedEvent,
 )
-from .models.peer import Peer, PeerDirection, PeerState
+from openblockperf.models.peer import Peer, PeerDirection, PeerState
 
 
 class EventHandler:

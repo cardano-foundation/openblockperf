@@ -30,8 +30,8 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-from .clientid import get_clientid
-from .errors import ApiConnectionError, ApiError
+from openblockperf.clientid import get_clientid
+from openblockperf.errors import ApiConnectionError, ApiError
 
 
 class BlockperfApiBase:

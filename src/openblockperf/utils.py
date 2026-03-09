@@ -2,10 +2,10 @@
 
 import asyncio
 import functools
-from collections.abc import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
 from functools import wraps
 from importlib.metadata import version
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import httpx
 

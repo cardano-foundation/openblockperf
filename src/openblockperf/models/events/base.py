@@ -4,8 +4,8 @@ Implements the BaseEvent model for all events from the log messages of the node.
 
 """
 
-from collections.abc import Any
 from datetime import datetime
+from typing import Any
 
 from pydantic import (
     BaseModel,

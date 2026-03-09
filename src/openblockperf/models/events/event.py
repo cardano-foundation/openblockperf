@@ -6,9 +6,10 @@ The logevent module
 
 from pydantic import BaseModel
 
+from openblockperf.errors import EventError
+from openblockperf.models.peer import PeerConnectionSimple
+
 from .base import BaseEvent
-from .errors import EventError
-from .models.peer import PeerConnectionSimple
 
 
 class BlockSampleEvent(BaseEvent):

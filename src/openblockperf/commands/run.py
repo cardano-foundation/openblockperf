@@ -6,10 +6,10 @@ import sys
 import typer
 from rich.console import Console
 
-from .app import Blockperf
-from .config import settings
-from .errors import ConfigurationError
-from .utils import async_command
+from openblockperf.app import Blockperf
+from openblockperf.config import settings
+from openblockperf.errors import ConfigurationError
+from openblockperf.utils import async_command
 
 run_app = typer.Typer(
     name="run",

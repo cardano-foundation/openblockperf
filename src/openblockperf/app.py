@@ -7,10 +7,10 @@ from loguru import logger
 from rich.console import Console
 
 # from rich.console import Console
-from .apiclient import BlockperfApiClient
-from .blocksamplegroup import BlockSampleGroup
-from .config import settings
-from .errors import (
+from openblockperf.apiclient import BlockperfApiClient
+from openblockperf.blocksamplegroup import BlockSampleGroup
+from openblockperf.config import settings
+from openblockperf.errors import (
     ApiConnectionError,
     ConfigurationError,
     EventError,
@@ -18,9 +18,9 @@ from .errors import (
     StartupMarkerNotFoundError,
     UnknowEventNameSpaceError,
 )
-from .handler import EventHandler
-from .logreader import NodeLogReader, create_log_reader
-from .models.peer import Peer, PeerState
+from openblockperf.handler import EventHandler
+from openblockperf.logreader import NodeLogReader, create_log_reader
+from openblockperf.models.peer import Peer, PeerState
 
 # console = Console()
 

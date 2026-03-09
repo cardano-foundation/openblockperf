@@ -14,8 +14,8 @@ import sys
 
 import typer
 
-from .commands import register_cmd, run_cmd, version_cmd
-from .logging import setup_logging
+from openblockperf.commands import register_cmd, run_cmd, version_cmd
+from openblockperf.logging import setup_logging
 
 setup_logging()
 

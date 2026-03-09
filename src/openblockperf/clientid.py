@@ -9,7 +9,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from .errors import ConfigurationError
+from openblockperf.errors import ConfigurationError
 
 
 class ClientIdentifier:
