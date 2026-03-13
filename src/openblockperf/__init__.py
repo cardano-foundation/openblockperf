@@ -2,8 +2,8 @@
 # Version is read from pyproject.toml - edit the version there
 
 import tomllib
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from importlib.metadata import version
 
 
 def _get_version() -> str:
@@ -14,7 +14,7 @@ def _get_version() -> str:
     try:
         if _version := version("openblockperf"):
             return _version
-    except PackageNotFound:
+    except PackageNotFoundError:
         pass
 
     pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
