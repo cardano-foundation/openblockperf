@@ -1,8 +1,9 @@
 """Base commands implementation for BlockPerf CLI."""
-import httpx
+
 import platform
 import sys
 
+import httpx
 from rich.console import Console
 
 from openblockperf import __version__
@@ -27,9 +28,7 @@ async def version_cmd() -> None:
     latest = response.json()["info"]["version"]
 
     console.print(f"BlockPerf version: [bold green]{__version__}[/]")
-    if  __version__ != latest:
+    if __version__ != latest:
         console.print(f"New Version available: [bold red]{latest}[/]")
     console.print(f"Python version: [cyan]{sys.version}[/]")
     console.print(f"Platform: [cyan]{platform.platform()}[/]")
-
-

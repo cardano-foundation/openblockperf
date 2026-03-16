@@ -6,14 +6,13 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 
-def _get_version() -> str:
+def get_version() -> str:
     """
     Returns the version if openblockperf. Either from installed package
     or the pyproject.toml file during development
     """
     try:
-        if _version := version("openblockperf"):
-            return _version
+        return version("openblockperf")
     except PackageNotFoundError:
         pass
 
@@ -29,4 +28,4 @@ def _get_version() -> str:
     return "unknown"
 
 
-__version__ = _get_version()
+__version__ = get_version()
