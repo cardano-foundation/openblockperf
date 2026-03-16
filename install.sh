@@ -29,6 +29,8 @@
 #                     Default: cardano
 #   SERVICE_FILE      Path for the systemd unit file
 #                     Default: /etc/systemd/system/openblockperf.service
+#   WRAPPER_COMMAND   Script that will start the client within its environment
+#                     Default: /usr/local/bin/blockperf
 #   ENV_FILE          Path for the environment configuration file
 #                     Default: /etc/default/openblockperf
 #   NETWORK           Cardano network: mainnet | preprod | preview
@@ -46,6 +48,7 @@ PACKAGE_VERSION="${PACKAGE_VERSION:-}"
 SERVICE_USER="${SERVICE_USER:-cardano}"
 SERVICE_GROUP="${SERVICE_GROUP:-cardano}"
 SERVICE_FILE="${SERVICE_FILE:-/etc/systemd/system/openblockperf.service}"
+WRAPPER_COMMAND="${WRAPPER_COMMAND:-/usr/local/bin/blockperf}"
 ENV_FILE="${ENV_FILE:-/etc/default/openblockperf}"
 NETWORK="${NETWORK:-mainnet}"
 
@@ -112,18 +115,17 @@ check_network_value() {
 # Installation steps
 # ---------------------------------------------------------------------------
 create_install_dir() {
-    info "Creating installation directory: ${INSTALL_DIR}"
-    mkdir -p "${INSTALL_DIR}"
-    ok "Directory ready."
+    ok "Creating installation directory: ${INSTALL_DIR}"
+    rm -rf "${INSTALL_DIR}"
+    mkdir "${INSTALL_DIR}"
 }
 
 create_venv() {
     if [[ -d "${VENV_DIR}" ]]; then
         warn "Virtual environment already exists at ${VENV_DIR} — reusing it."
     else
-        info "Creating virtual environment at ${VENV_DIR} ..."
+        ok "Creating virtual environment at ${VENV_DIR} ..."
         "${PYTHON}" -m venv "${VENV_DIR}"
-        ok "Virtual environment created."
     fi
     # Some distro Python builds create a venv without pip even when ensurepip is
     # available (e.g. when the venv was created by an older script without --upgrade-deps).
@@ -132,16 +134,13 @@ create_venv() {
         info "pip not found in venv — bootstrapping via ensurepip ..."
         "${VENV_DIR}/bin/python" -m ensurepip --upgrade
     fi
-    info "Upgrading pip inside venv ..."
     "${VENV_DIR}/bin/python" -m pip install --quiet --upgrade pip
 }
 
 install_package() {
-    info "Installing ${PACKAGE_SPEC} from PyPI ..."
+    ok "Installing ${PACKAGE_SPEC} from PyPI ..."
     "${VENV_DIR}/bin/pip" install --quiet "${PACKAGE_SPEC}"
     local installed_version
-    installed_version=$("${VENV_DIR}/bin/pip" show "${PACKAGE_NAME}" | awk '/^Version:/ {print $2}')
-    ok "Installed ${PACKAGE_NAME} ${installed_version}."
 }
 
 configure_ownership() {
@@ -162,7 +161,7 @@ write_env_file() {
         return
     fi
 
-    info "Writing environment file: ${ENV_FILE}"
+    ok "Writing environment file: ${ENV_FILE}"
     cat > "${ENV_FILE}" <<EOF
 # OpenBlockPerf client configuration
 # Documentation: https://openblockperf.readthedocs.io
@@ -192,7 +191,6 @@ EOF
     # systemd reads EnvironmentFile as root before dropping privileges,
     # so mode 600 is sufficient and keeps the secret off other users.
     chmod 600 "${ENV_FILE}"
-    ok "Environment file written: ${ENV_FILE}"
     echo
     warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     warn " ACTION REQUIRED: Set OPENBLOCKPERF_API_KEY in ${ENV_FILE}"
@@ -203,7 +201,7 @@ EOF
 
 write_service_file() {
     local bin="${VENV_DIR}/bin/blockperf"
-    info "Writing systemd unit: ${SERVICE_FILE}"
+    ok "Writing systemd unit: ${SERVICE_FILE}"
     cat > "${SERVICE_FILE}" <<EOF
 [Unit]
 Description=OpenBlockPerf Client
@@ -229,15 +227,25 @@ WantedBy=multi-user.target
 EOF
 
     chmod 644 "${SERVICE_FILE}"
-    ok "Service unit written: ${SERVICE_FILE}"
+}
+
+write_wrappercommand_file() {
+    local bin="${WRAPPER_COMMAND}"
+    ok "Writing wrapper command: ${WRAPPER_COMMAND}"
+    cat > "${WRAPPER_COMMAND}" <<EOF
+#!/usr/bin/env bash
+exec ${INSTALL_DIR}/venv/bin/blockperf "\$@"
+EOF
+
+    chmod 755 "${WRAPPER_COMMAND}"
 }
 
 enable_service() {
-    info "Reloading systemd daemon ..."
+    ok "Reloading systemd daemon ..."
     systemctl daemon-reload
-    info "Enabling openblockperf.service ..."
+    ok "Enabling openblockperf.service ..."
     systemctl enable openblockperf.service
-    ok "Service enabled (will start automatically on next boot)."
+    ok "Service enabled. To starte use 'systemctl start openblockperf'."
 }
 
 # ---------------------------------------------------------------------------
@@ -254,6 +262,7 @@ main() {
     printf "  %-14s %s\n" "Network:"      "${NETWORK}"
     printf "  %-14s %s\n" "Service file:" "${SERVICE_FILE}"
     printf "  %-14s %s\n" "Env file:"     "${ENV_FILE}"
+    printf "  %-14s %s\n" "Command:"      "${WRAPPER_COMMAND}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
 
@@ -268,6 +277,7 @@ main() {
     configure_ownership
     write_env_file
     write_service_file
+    write_wrappercommand_file
     enable_service
 
     echo

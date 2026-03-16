@@ -16,15 +16,10 @@ yourself, this tool is probably not very usefull for you.
 
 ## Installation / Get started
 
-You will need a `cardano-node` and and the `cardano-tracer` up and running.
-Read up on the details here [in the developer portal](https://developers.cardano.org/docs/operate-a-stake-pool/node-operations/new-tracing-system/new-tracing-system).
-
-Install openblockperf client from pypi.
-
+Install openblockperf client using our installer script:
 
 ```shell
-$ pip install openblockperf
-# Or 'uv pip install" if you prefer
+curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/install.sh | sudo bash
 
 # Once installed you should have a 'blockperf' executable installed.
 $ blockperf version
