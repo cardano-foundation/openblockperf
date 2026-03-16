@@ -26,7 +26,7 @@ async def version_cmd() -> None:
     """
     response = httpx.get("https://pypi.org/pypi/openblockperf/json", timeout=3)
     latest = response.json()["info"]["version"]
-
+    console.print(f"Latest: {latest}")
     console.print(f"BlockPerf version: [bold green]{__version__}[/]")
     if __version__ != latest:
         console.print(f"New Version available: [bold red]{latest}[/]")
