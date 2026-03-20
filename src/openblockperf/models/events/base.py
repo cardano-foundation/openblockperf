@@ -10,8 +10,7 @@ from typing import Any
 from pydantic import (
     BaseModel,
     ConfigDict,
-    ValidationError,
-    validator,
+    field_validator,
 )
 
 
@@ -31,12 +30,12 @@ class BaseEvent(BaseModel):
     # thread: str
     host: str
 
-    @validator("at", pre=True)
+    @field_validator("at", mode="before")
     @classmethod
     def parse_datetime(cls, value):
         """Convert ISO format string to datetime object."""
         if not isinstance(value, str):
-            raise ValidationError(f"Timestamp is not a string [{value}]")
+            raise ValueError(f"Timestamp is not a string [{value}]")
         return datetime.fromisoformat(value)  # this is tz aware!
 
     def print_debug(self):

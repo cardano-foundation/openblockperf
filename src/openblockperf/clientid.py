@@ -13,7 +13,11 @@ from openblockperf.errors import ConfigurationError
 
 
 class ClientIdentifier:
-    """Manages unique client identification using persistent UUIDs."""
+    """Manages unique client identification using persistent UUIDs.
+
+    To identifiy every instance running the blockperf client individualy we
+    generate a uuid which will be stored on the client side.
+    """
 
     clientid_file = "clientid.uuid"
 
