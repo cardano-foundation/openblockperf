@@ -124,9 +124,9 @@ class EkgClient:
             name: The name of the metric to fetch the value from.
         """
         for sample in await self.fetch():
-            if sample.name == name:
-                return sample.value
-
+            if sample.name != name:
+                continue
+            return sample.value
         logger.debug(f"metric '{name}' not found at {self.url}")
         return None
 
@@ -145,7 +145,6 @@ class EkgClient:
         for sample in await self.fetch():
             if sample.name in names:
                 result[sample.name] = sample.value
-
         return result
 
     async def get_sample(self, name: str) -> MetricSample | None:
@@ -155,13 +154,13 @@ class EkgClient:
             name: The name of the metric to fetch the sample from.
         """
         for sample in await self.fetch():
-            if sample.name == name:
-                return sample
-
-        logger.debug(f"metric '{name}' not found at {self.url}")
+            if sample.name != name:
+                continue
+            return sample
+        logger.debug(f"prometheus: metric '{name}' not found at {self.url}")
         return None
 
-    async def get_samples(self, names: list[str]) -> dict[str, MetricSample | None]:
+    async def get_samples(self, names: list[str]) -> list[MetricSample]:
         """Return all samples for a metric name across all label sets.
 
         Useful for metrics that appear multiple times with different labels,
@@ -175,7 +174,7 @@ class EkgClient:
             if sample.name in names:
                 result[sample.name] = sample
 
-        return result
+        return [s for s in  if s.name == name]
 
 
 class EkgError(Exception):
