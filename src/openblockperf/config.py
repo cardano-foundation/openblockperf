@@ -41,6 +41,14 @@ class AppSettings(BaseSettings):
     check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
 
+    # Ekg endpoint url
+    ekg_url: str = "http://localhost:12798/metrics"
+
+    # Node Sync Check verifies the node is synced with the chain
+    sync_check_interval: int = 30  # How often (seconds) to poll sync state
+    sync_check_enabled: bool = True  # Whether to enable the sync gate at all (set False to skip during dev/testing)
+    sync_check_threshold: float = 99.9
+
     local_addr: str = "0.0.0.0"
     local_port: int = 3001
     # Using Field() to validate input values match one of the possible enum values

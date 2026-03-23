@@ -10,6 +10,7 @@ from rich.console import Console
 from openblockperf.apiclient import BlockperfApiClient
 from openblockperf.blocksamplegroup import BlockSampleGroup
 from openblockperf.config import settings
+from openblockperf.ekg import EkgClient, EkgError
 from openblockperf.errors import (
     ApiConnectionError,
     ConfigurationError,
@@ -26,26 +27,25 @@ from openblockperf.models.peer import Peer, PeerState
 
 
 class Blockperf:
-    """The Blockperf application.
+    """Implements the Blockperf application.
 
-    The Blockperf application does a few different things. This class creates
-    one asyncio TaskGroup and implements all the tasks that will run in that
-    group.
-
-    The main function of this is start(). Thats what will start the app
-    by creating that TaskGroup and the adding the individual tasks to it.
+    The main application loop is built around an asyncio TaskGroup. The
+    start() function implements the creation of various needed resources
+    (api client, log reader, event handler, etc.) as well as the TaskGroup
+    itself. Most functionality of the app is inside one such task with the
+    idea being that they all run concurrently (within asyncio).
 
     * create_task() creates the task in the taskgroup using the provided callable
-    * _run_task() is what will actually execute (await!) the task.
+    * run_task() is what will actually execute (await!) the task.
 
     The create_task() is just a simple wrapper around the process of calling
-    the taskgroups create_task() and adding the resulting to to the internal
-    list of tasks. The interesting part is _run_task() because that is
+    the taskgroups create_task(). It adds the returned task object to the
+    list of tasks (Blockperf.tasks). Then  run_task() because that is
     what allows every task to propagate its errors cleanly. This is important
     to do because if the app receives a SIGINT or SIGTERM signal (Users
     presses Ctrl-C), we want all tasks to get properly canceled. But the
     application should not "die in blood". That is, it should exit cleanly.
-    The _run_task() is what handles the "individual task" exceptions and
+    The run_task() is what handles the "individual task" exceptions and
     in the start() try/catch block handles "all tasks". Most importantly
     asnyncio.CancelledError. Currently if any of the tasks fail, the whole
     group should fail.
@@ -72,6 +72,12 @@ class Blockperf:
         self.peers = {}
         # self._peers_lock = asyncio.Lock()
 
+        # AsyncIO Events allow coroutines to wait for an event to happen
+        self.node_synced_event: asyncio.Event = asyncio.Event()  # Defaults to false (unset)
+        if not self.settings.sync_check_enabled:
+            # If disabled always, assume the node is synced.
+            self.node_synced_event.set()
+
     def _validate_configuration(self) -> None:
         """Validate application configuration."""
         if not self.settings.check_interval or self.settings.check_interval <= 0:
@@ -88,14 +94,16 @@ class Blockperf:
             self.api,  # Provide api to handler
             self.settings,  # Pass settings for network-specific configuration
         )
+        self.ekg = EkgClient(self.settings.ekg_url)
 
         try:
             async with asyncio.TaskGroup() as tg:
                 # Create all long running tasks that run in this app
-                self._create_task(self.process_events_task, tg)
-                self._create_task(self.testapi_task, tg)
-                self._create_task(self.send_block_samples_task, tg)
-                self._create_task(self.print_peer_statistics_task, tg)
+                self.create_task(self.process_events_task, tg)
+                self.create_task(self.testapi_task, tg)
+                self.create_task(self.send_block_samples_task, tg)
+                self.create_task(self.print_peer_statistics_task, tg)
+                self.create_task(self.monitor_sync_state_task, tg)  # ← add this
 
         except* asyncio.CancelledError as _eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
@@ -127,19 +135,19 @@ class Blockperf:
         if self.tasks:
             await asyncio.gather(*self.tasks.values(), return_exceptions=True)
 
-    def _create_task(
+    def create_task(
         self,
         func: Callable,
         tg: asyncio.TaskGroup,
     ):
         """Create a task from provided function in the taskgroup provided.
 
-        Also stores the task in self.tasks for later access.
+        Stores the task in self.tasks for later access.
         """
         _name = func.__name__
-        self.tasks[_name] = tg.create_task(self._run_task(_name, func))
+        self.tasks[_name] = tg.create_task(self.run_task(_name, func))
 
-    async def _run_task(self, task_name: str, task):
+    async def run_task(self, task_name: str, task):
         """Wrapper that provides consistent error handling for all tasks."""
         try:
             await task()
@@ -191,7 +199,13 @@ class Blockperf:
             # Now switch to live log tailing, this should run forever
             self.console.print("Starting live log processing...")
             async for message in log_reader.read_messages():
-                await self._process_single_message(message)
+                # The generate will constantly generate messages. We only
+                # want to process them though, when we know the node is synced.
+                # I wanted to avoid that log messages from the generate keep piling
+                # up and then once the node is synced all flush through at once.
+                # Thats why there is no `await self.node_synced_event.wait()` call!
+                if self.node_synced_event.is_set():
+                    await self._process_single_message(message)
 
     async def _process_single_message(self, message: dict):
         """Processes every incoming message. It does not care about any
@@ -335,3 +349,48 @@ class Blockperf:
 
             print("go")
             await self.api.post_status_change()
+
+    async def monitor_sync_state_task(self) -> None:
+        """Polls the node's EKG endpoint and gates ingestion on sync state.
+
+        The self.node_synced_event is what holds the gate. This function
+        will update that gate accordingly. Every coroutine that needs to
+        check if the node is sync must await that event `await self.node_synced_event
+        """
+
+        # If sync check is disabled, there is nothing to do here
+        if not self.settings.sync_check_enabled:
+            return
+
+        while True:
+            try:
+                rpl_prg = await self.ekg.get("cardano_node_metrics_blockReplayProgress_real")
+                synced = rpl_prg is not None and rpl_prg >= self.settings.sync_check_threshold
+                block_replay_progress = f"{rpl_prg:.2f}%" if rpl_prg else "unknown"
+
+                if synced:
+                    # Set node_synced_event if its not set
+                    if not self.node_synced_event.is_set():
+                        rich.print(f"[green]Node fully synced ({block_replay_progress}), resuming log ingestion.[/]")
+                        self.node_synced_event.set()
+                    else:
+                        rich.print(
+                            f"[yellow]Node not fully synced ({block_replay_progress}%), pausing log ingestion.[/]"
+                        )
+
+                else:
+                    pct_str = f"{block_replay_progress:.2f}%" if block_replay_progress is not None else "unknown"
+                    if self.node_synced_event.is_set():
+                        rich.print(f"[yellow]Node sync dropped ({pct_str}), pausing log ingestion.[/yellow]")
+                        self.node_synced_event.clear()
+                    else:
+                        rich.print(f"[yellow]Waiting for node to sync ({pct_str})...[/yellow]")
+            except EkgError as exc:
+                # EKG unreachable — treat as not-synced and keep waiting
+                if self.node_synced_event.is_set():
+                    rich.print(f"[red]EKG unreachable ({exc}), pausing log ingestion.[/red]")
+                    self.node_synced_event.clear()
+                else:
+                    rich.print(f"[red]EKG still unreachable: {exc}[/red]")
+
+            await asyncio.sleep(self.config.sync_check_interval)
