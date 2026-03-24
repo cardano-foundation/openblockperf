@@ -274,7 +274,8 @@ write_env_file() {
 #   systemctl restart openblockperf
 
 # -----------------------------------------------------------------------
-# Required: API key issued at https://openblockperf.cardano.org
+# Required: API key issued with the 'blockperf register' command
+# registration requires the pool bech32 id and the calidus secret (s)key
 # -----------------------------------------------------------------------
 OPENBLOCKPERF_API_KEY=
 
@@ -316,6 +317,7 @@ Wants=network-online.target
 Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
+WorkingDirectory=${INSTALL_DIR}
 EnvironmentFile=${ENV_FILE}
 ExecStart=${bin} run
 Restart=on-failure
