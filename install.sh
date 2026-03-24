@@ -12,6 +12,8 @@
 #
 # Usage:
 #   sudo ./install.sh
+#   sudo ./install.sh --reinstall
+#   sudo ./install.sh --remove
 #   sudo NETWORK=preprod ./install.sh
 #   sudo INSTALL_DIR=/srv/openblockperf SERVICE_USER=ada ./install.sh
 #   sudo PACKAGE_VERSION=0.0.5 ./install.sh
@@ -24,9 +26,9 @@
 #   PACKAGE_VERSION   Specific package version to install (empty = latest)
 #                     Default: (empty)
 #   SERVICE_USER      System user the service runs as
-#                     Default: cardano
+#                     Default: resolved from SUDO_USER / caller (interactive fallback)
 #   SERVICE_GROUP     System group the service runs as
-#                     Default: cardano
+#                     Default: primary group of SERVICE_USER
 #   SERVICE_FILE      Path for the systemd unit file
 #                     Default: /etc/systemd/system/openblockperf.service
 #   WRAPPER_COMMAND   Script that will start the client within its environment
@@ -45,16 +47,20 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/cardano/openblockperf}"
 PYTHON="${PYTHON:-python3}"
 PACKAGE_NAME="openblockperf"
 PACKAGE_VERSION="${PACKAGE_VERSION:-}"
-SERVICE_USER="${SERVICE_USER:-cardano}"
-SERVICE_GROUP="${SERVICE_GROUP:-cardano}"
+SERVICE_USER="${SERVICE_USER:-}"
+SERVICE_GROUP="${SERVICE_GROUP:-}"
 SERVICE_FILE="${SERVICE_FILE:-/etc/systemd/system/openblockperf.service}"
 WRAPPER_COMMAND="${WRAPPER_COMMAND:-/usr/local/bin/blockperf}"
 ENV_FILE="${ENV_FILE:-/etc/default/openblockperf}"
 NETWORK="${NETWORK:-mainnet}"
+MODE="install"        # install | reinstall | remove
+ASSUME_YES="false"    # true to skip interactive confirmations
+PURGE_CONFIG="false"  # true to remove ENV_FILE on --remove
 
 # Derived values
 VENV_DIR="${INSTALL_DIR}/venv"
 PACKAGE_SPEC="${PACKAGE_NAME}${PACKAGE_VERSION:+==${PACKAGE_VERSION}}"
+UNIT_NAME="$(basename "${SERVICE_FILE}")"
 
 # ---------------------------------------------------------------------------
 # Terminal helpers
@@ -71,11 +77,105 @@ ok()    { echo -e "${GREEN}[ OK ]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 die()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
 
+usage() {
+    cat <<EOF
+Usage:
+  sudo $0 [--install|--reinstall|--remove] [--yes] [--purge]
+
+Modes:
+  --install      Install if target paths are empty (default)
+  --reinstall    Reinstall package and replace install directory
+  --remove       Remove service, wrapper, and installation directory
+
+Options:
+  --yes          Non-interactive: assume "yes" for confirmations
+  --purge        With --remove, also delete ${ENV_FILE}
+  -h, --help     Show this help
+EOF
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --install) MODE="install" ;;
+            --reinstall) MODE="reinstall" ;;
+            --remove) MODE="remove" ;;
+            --yes|-y) ASSUME_YES="true" ;;
+            --purge) PURGE_CONFIG="true" ;;
+            -h|--help) usage; exit 0 ;;
+            *)
+                die "Unknown argument: $1 (use --help)"
+                ;;
+        esac
+        shift
+    done
+}
+
+confirm_or_die() {
+    local prompt="$1"
+    if [[ "${ASSUME_YES}" == "true" ]]; then
+        return 0
+    fi
+    [[ -t 0 ]] || die "${prompt} (re-run with --yes to continue non-interactively)"
+    local answer
+    read -r -p "${prompt} [y/N]: " answer
+    case "${answer}" in
+        y|Y|yes|YES) return 0 ;;
+        *) die "Aborted by user." ;;
+    esac
+}
+
+resolve_service_identity() {
+    local guessed_user=""
+
+    if [[ -n "${SERVICE_USER}" ]]; then
+        guessed_user="${SERVICE_USER}"
+    elif [[ -n "${SUDO_USER:-}" ]]; then
+        guessed_user="${SUDO_USER}"
+    elif command -v logname &>/dev/null; then
+        guessed_user="$(logname 2>/dev/null || true)"
+    fi
+
+    if [[ -z "${guessed_user}" ]]; then
+        guessed_user="$(whoami 2>/dev/null || true)"
+    fi
+
+    if [[ -z "${guessed_user}" || "${guessed_user}" == "root" ]]; then
+        if [[ "${ASSUME_YES}" == "true" ]]; then
+            die "Could not infer non-root service user. Set SERVICE_USER=... explicitly."
+        fi
+        [[ -t 0 ]] || die "Could not infer non-root service user in non-interactive mode. Set SERVICE_USER=..."
+        read -r -p "Service user (non-root) to own ${INSTALL_DIR}: " guessed_user
+    fi
+
+    id "${guessed_user}" &>/dev/null || die "User '${guessed_user}' does not exist."
+    SERVICE_USER="${guessed_user}"
+
+    if [[ -z "${SERVICE_GROUP}" ]]; then
+        SERVICE_GROUP="$(id -gn "${SERVICE_USER}" 2>/dev/null || true)"
+    fi
+
+    [[ -n "${SERVICE_GROUP}" ]] || die "Could not resolve group for '${SERVICE_USER}'. Set SERVICE_GROUP=..."
+    getent group "${SERVICE_GROUP}" &>/dev/null || die "Group '${SERVICE_GROUP}' does not exist."
+}
+
 # ---------------------------------------------------------------------------
 # Preflight checks
 # ---------------------------------------------------------------------------
 check_root() {
     [[ $EUID -eq 0 ]] || die "This script must be run as root. Try: sudo $0"
+}
+
+check_linux() {
+    [[ "$(uname -s)" == "Linux" ]] || die "This installer supports Linux only."
+}
+
+check_required_commands() {
+    local cmds=("id" "getent" "mkdir" "rm" "chmod" "chown" "install")
+    local c
+    for c in "${cmds[@]}"; do
+        command -v "${c}" &>/dev/null || die "Required command '${c}' not found."
+    done
 }
 
 check_python() {
@@ -115,9 +215,16 @@ check_network_value() {
 # Installation steps
 # ---------------------------------------------------------------------------
 create_install_dir() {
-    ok "Creating installation directory: ${INSTALL_DIR}"
-    rm -rf "${INSTALL_DIR}"
-    mkdir "${INSTALL_DIR}"
+    if [[ -d "${INSTALL_DIR}" ]]; then
+        if [[ "${MODE}" == "install" ]]; then
+            die "Install directory already exists: ${INSTALL_DIR}. Use --reinstall to replace it."
+        fi
+        ok "Replacing existing installation directory: ${INSTALL_DIR}"
+        rm -rf "${INSTALL_DIR}"
+    else
+        ok "Creating installation directory: ${INSTALL_DIR}"
+    fi
+    mkdir -p "${INSTALL_DIR}"
 }
 
 create_venv() {
@@ -144,14 +251,10 @@ install_package() {
 }
 
 configure_ownership() {
-    if id "${SERVICE_USER}" &>/dev/null; then
-        chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}"
-        ok "Ownership of ${INSTALL_DIR} set to ${SERVICE_USER}:${SERVICE_GROUP}."
-    else
-        warn "User '${SERVICE_USER}' does not exist — skipping ownership change."
-        warn "Create the user and then run:"
-        warn "  chown -R ${SERVICE_USER}:${SERVICE_GROUP} ${INSTALL_DIR}"
-    fi
+    id "${SERVICE_USER}" &>/dev/null || die "User '${SERVICE_USER}' does not exist."
+    getent group "${SERVICE_GROUP}" &>/dev/null || die "Group '${SERVICE_GROUP}' does not exist."
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}"
+    ok "Ownership of ${INSTALL_DIR} set to ${SERVICE_USER}:${SERVICE_GROUP}."
 }
 
 write_env_file() {
@@ -243,17 +346,79 @@ EOF
 enable_service() {
     ok "Reloading systemd daemon ..."
     systemctl daemon-reload
-    ok "Enabling openblockperf.service ..."
-    systemctl enable openblockperf.service
-    ok "Service enabled. To starte use 'systemctl start openblockperf'."
+    ok "Enabling ${UNIT_NAME} ..."
+    systemctl enable "${UNIT_NAME}"
+    ok "Service enabled. To start use 'systemctl start ${UNIT_NAME}'."
+}
+
+stop_disable_service_if_present() {
+    if systemctl list-unit-files "${UNIT_NAME}" --no-pager &>/dev/null; then
+        info "Stopping ${UNIT_NAME} (if running) ..."
+        systemctl stop "${UNIT_NAME}" 2>/dev/null || true
+        info "Disabling ${UNIT_NAME} (if enabled) ..."
+        systemctl disable "${UNIT_NAME}" 2>/dev/null || true
+    fi
+}
+
+remove_installation() {
+    confirm_or_die "This will remove service files and ${INSTALL_DIR}. Continue?"
+    stop_disable_service_if_present
+
+    if [[ -f "${SERVICE_FILE}" ]]; then
+        ok "Removing service file: ${SERVICE_FILE}"
+        rm -f "${SERVICE_FILE}"
+    fi
+    if [[ -f "${WRAPPER_COMMAND}" ]]; then
+        ok "Removing wrapper command: ${WRAPPER_COMMAND}"
+        rm -f "${WRAPPER_COMMAND}"
+    fi
+    if [[ -d "${INSTALL_DIR}" ]]; then
+        ok "Removing installation directory: ${INSTALL_DIR}"
+        rm -rf "${INSTALL_DIR}"
+    fi
+
+    if [[ "${PURGE_CONFIG}" == "true" && -f "${ENV_FILE}" ]]; then
+        ok "Removing environment file: ${ENV_FILE}"
+        rm -f "${ENV_FILE}"
+    elif [[ -f "${ENV_FILE}" ]]; then
+        warn "Keeping existing environment file: ${ENV_FILE} (use --purge to remove it)."
+    fi
+
+    systemctl daemon-reload || true
+    ok "Removal complete."
 }
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
+    parse_args "$@"
+    check_root
+    check_linux
+    check_required_commands
+    check_systemd
+
+    if [[ "${MODE}" == "remove" ]]; then
+        echo
+        echo -e "${BOLD}OpenBlockPerf Installer (${MODE})${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        printf "  %-14s %s\n" "Install dir:"  "${INSTALL_DIR}"
+        printf "  %-14s %s\n" "Service file:" "${SERVICE_FILE}"
+        printf "  %-14s %s\n" "Env file:"     "${ENV_FILE}"
+        printf "  %-14s %s\n" "Command:"      "${WRAPPER_COMMAND}"
+        printf "  %-14s %s\n" "Purge config:" "${PURGE_CONFIG}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo
+        remove_installation
+        exit 0
+    fi
+
+    check_python
+    check_network_value
+    resolve_service_identity
+
     echo
-    echo -e "${BOLD}OpenBlockPerf Client Installer${NC}"
+    echo -e "${BOLD}OpenBlockPerf Installer (${MODE})${NC}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     printf "  %-14s %s\n" "Install dir:"  "${INSTALL_DIR}"
     printf "  %-14s %s\n" "Python:"       "${PYTHON}"
@@ -266,10 +431,10 @@ main() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
 
-    check_root
-    check_python
-    check_systemd
-    check_network_value
+    if [[ "${MODE}" == "reinstall" ]]; then
+        confirm_or_die "Reinstall will replace ${INSTALL_DIR}. Continue?"
+        stop_disable_service_if_present
+    fi
 
     create_install_dir
     create_venv
@@ -285,9 +450,9 @@ main() {
     echo
     echo "Next steps:"
     echo "  1. Set your API key:  ${ENV_FILE}"
-    echo "  2. Start the service: systemctl start openblockperf"
-    echo "  3. Check its status:  systemctl status openblockperf"
-    echo "  4. Follow the logs:   journalctl -fu openblockperf"
+    echo "  2. Start the service: systemctl start ${UNIT_NAME}"
+    echo "  3. Check its status:  systemctl status ${UNIT_NAME}"
+    echo "  4. Follow the logs:   journalctl -fu ${UNIT_NAME}"
     echo
 }
 
