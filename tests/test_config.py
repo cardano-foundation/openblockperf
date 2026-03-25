@@ -57,7 +57,7 @@ class TestSettingsDefaults:
         assert default_settings.local_port == 3001
 
     def test_default_check_interval(self, default_settings):
-        assert default_settings.check_interval == 2
+        assert default_settings.block_sample_check_interval == 2
 
     # TODO: test that min_age default is 10
 

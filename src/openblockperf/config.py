@@ -38,14 +38,14 @@ class AppSettings(BaseSettings):
     api_key: str | None = None
     api_clientid: str | None = None
     api_client_secret: str | None = None
-    check_interval: int = 2  # Interval in seconds to check for groups/blocks
+    block_sample_check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
 
     # Ekg endpoint url
     ekg_url: str = "http://localhost:12798/metrics"
 
     # Node Sync Check verifies the node is synced with the chain
-    sync_check_interval: int = 30  # How often (seconds) to poll sync state
+    sync_check_interval: int = 15  # How often (seconds) to poll sync state
     sync_check_enabled: bool = True  # Whether to enable the sync gate at all (set False to skip during dev/testing)
     sync_check_threshold: float = 99.9
 

@@ -21,8 +21,7 @@ import re
 
 import httpx
 from loguru import logger
-from pydantic import BaseModel
-from pydantic.errors import ValidationError
+from pydantic import BaseModel, ValidationError
 
 # ---------------------------------------------------------------------------
 # Prometheus text format parser

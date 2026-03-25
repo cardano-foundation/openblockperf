@@ -72,15 +72,17 @@ class Blockperf:
         self.peers = {}
         # self._peers_lock = asyncio.Lock()
 
-        # AsyncIO Events allow coroutines to wait for an event to happen
-        self.node_synced_event: asyncio.Event = asyncio.Event()  # Defaults to false (unset)
+        # AsyncIO Events allow coroutines to wait for an event to happen.
+        # It holds an internal booleanj flag that can be set (set()), cleared (clear())
+        # or checked (is_set()). See asyncio.Event docs.
+        self.node_synced_event: asyncio.Event = asyncio.Event()  # Defaults to false/unset
         if not self.settings.sync_check_enabled:
-            # If disabled always, assume the node is synced.
+            # If disabled always, assume the node is synced
             self.node_synced_event.set()
 
     def _validate_configuration(self) -> None:
         """Validate application configuration."""
-        if not self.settings.check_interval or self.settings.check_interval <= 0:
+        if not self.settings.block_sample_check_interval or self.settings.block_sample_check_interval <= 0:
             raise ConfigurationError("Invalid check_interval in configuration")
 
     async def start(self):
@@ -112,7 +114,9 @@ class Blockperf:
             # to signal clean shutdown.
             raise
 
-        except* ApiConnectionError as _eg:
+        except* ApiConnectionError as eg:
+            for exc in eg.exceptions:
+                logger.exception(f"{type(exc).__name__}: {str(exc)}")
             raise
 
         except* Exception as eg:
@@ -205,9 +209,9 @@ class Blockperf:
                 # up and then once the node is synced all flush through at once.
                 # Thats why there is no `await self.node_synced_event.wait()` call!
                 if self.node_synced_event.is_set():
-                    await self._process_single_message(message)
+                    await self._process_message(message)
 
-    async def _process_single_message(self, message: dict):
+    async def _process_message(self, message: dict):
         """Processes every incoming message. It does not care about any
         details of these messages. Just receive them, "handle" them,
         and either be happy or throw appropriate errors.
@@ -291,8 +295,14 @@ class Blockperf:
 
         the block samples to the server.
         """
+
         while True:
-            await asyncio.sleep(self.settings.check_interval)
+            await asyncio.sleep(self.settings.block_sample_check_interval)
+
+            # Dont send block samples when not synced
+            if self.settings.sync_check_enabled and not self.node_synced_event.is_set():
+                return
+
             if self.replaying:
                 rich.print("Wont send samples coz of the replay")
                 continue
@@ -367,30 +377,20 @@ class Blockperf:
                 rpl_prg = await self.ekg.get("cardano_node_metrics_blockReplayProgress_real")
                 synced = rpl_prg is not None and rpl_prg >= self.settings.sync_check_threshold
                 block_replay_progress = f"{rpl_prg:.2f}%" if rpl_prg else "unknown"
-
                 if synced:
-                    # Set node_synced_event if its not set
                     if not self.node_synced_event.is_set():
-                        rich.print(f"[green]Node fully synced ({block_replay_progress}), resuming log ingestion.[/]")
                         self.node_synced_event.set()
-                    else:
-                        rich.print(
-                            f"[yellow]Node not fully synced ({block_replay_progress}%), pausing log ingestion.[/]"
-                        )
-
+                    logger.info(f"Node fully synced ({block_replay_progress}), resuming log ingestion.")
                 else:
-                    pct_str = f"{block_replay_progress:.2f}%" if block_replay_progress is not None else "unknown"
                     if self.node_synced_event.is_set():
-                        rich.print(f"[yellow]Node sync dropped ({pct_str}), pausing log ingestion.[/yellow]")
                         self.node_synced_event.clear()
-                    else:
-                        rich.print(f"[yellow]Waiting for node to sync ({pct_str})...[/yellow]")
+                    msg = f"Waiting for node to sync ({block_replay_progress})..."
+                    rich.print(f"[yellow]{msg}[/yellow]")
+                    logger.info(msg)
             except EkgError as exc:
+                logger.error(str(exc))
                 # EKG unreachable — treat as not-synced and keep waiting
                 if self.node_synced_event.is_set():
-                    rich.print(f"[red]EKG unreachable ({exc}), pausing log ingestion.[/red]")
                     self.node_synced_event.clear()
-                else:
-                    rich.print(f"[red]EKG still unreachable: {exc}[/red]")
-
-            await asyncio.sleep(self.config.sync_check_interval)
+                rich.print(f"[red]EKG unreachable: {exc}[/red]")
+            await asyncio.sleep(self.settings.sync_check_interval)
