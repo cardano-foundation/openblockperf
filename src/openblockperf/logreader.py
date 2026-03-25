@@ -9,9 +9,8 @@ import json
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from loguru import logger
-
 from openblockperf.errors import StartupMarkerNotFoundError
+from openblockperf.logging import logger
 
 
 class NodeLogReader(abc.ABC):

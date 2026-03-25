@@ -8,32 +8,31 @@ Logging
 
 """
 
+__all__ = ["logger", "setup_logging"]
+
+import sys
+
 from loguru import logger
 
 
-def setup_logging():
+def setup_logging(level: str = "INFO"):
     # Start fresh and remove defaults
     logger.remove()
-
-    # Log everything to a file, keep it for a week.abs
-    # logger.add(
-    #    "logs.json",
-    #    serialize=True,
-    #    rotation="50 MB",
-    #    compression="zip",
-    # )
     logger.add(
-        "logs.txt",
-        rotation="50 MB",
-        compression="zip",
-        level="TRACE",
-        format="{time:YYYY-MM-DD}T{time:HH:mm:ss}.{time:SSS} | {message} | {extra}",
+        sys.stdout,
+        level=level,
+        colorize=True,  # TTY-aware: loguru checks if stdout is a TTY
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss}</green>|"
+            "<level>{level: <6}</level>|"
+            "<cyan>{name}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        ),
     )
-
     # logger.add(
-    #    sys.stderr,
-    #    format="{time} {level} {message}",
-    #    level="TRACE",
+    #   sys.stderr,
+    #   format="{time} {level} {message}",
+    #   level="TRACE",
     # )
 
-    logger.debug("Logger loaded")
+    logger.info("Logger loaded")

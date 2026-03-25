@@ -7,9 +7,8 @@ import os
 import uuid
 from pathlib import Path
 
-from loguru import logger
-
 from openblockperf.errors import ConfigurationError
+from openblockperf.logging import logger
 
 
 class ClientIdentifier:

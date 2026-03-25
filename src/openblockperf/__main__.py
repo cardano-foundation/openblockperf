@@ -17,8 +17,6 @@ import typer
 from openblockperf.commands import register_cmd, run_cmd, version_cmd
 from openblockperf.logging import setup_logging
 
-setup_logging()
-
 # Initialize the Typer application
 BlockperfCli = typer.Typer(
     name="blockperf",
@@ -43,4 +41,5 @@ def cli():
 
 # Entry point for python -m blockperf
 if __name__ == "__main__":
+    setup_logging()
     cli()

@@ -3,7 +3,6 @@ from collections.abc import Callable
 
 import psutil
 import rich
-from loguru import logger
 from rich.console import Console
 
 # from rich.console import Console
@@ -20,6 +19,7 @@ from openblockperf.errors import (
     UnknowEventNameSpaceError,
 )
 from openblockperf.handler import EventHandler
+from openblockperf.logging import logger
 from openblockperf.logreader import NodeLogReader, create_log_reader
 from openblockperf.models.peer import Peer, PeerState
 
@@ -379,8 +379,8 @@ class Blockperf:
                 block_replay_progress = f"{rpl_prg:.2f}%" if rpl_prg else "unknown"
                 if synced:
                     if not self.node_synced_event.is_set():
+                        logger.info(f"Node fully synced ({block_replay_progress}), resuming log ingestion.")
                         self.node_synced_event.set()
-                    logger.info(f"Node fully synced ({block_replay_progress}), resuming log ingestion.")
                 else:
                     if self.node_synced_event.is_set():
                         self.node_synced_event.clear()

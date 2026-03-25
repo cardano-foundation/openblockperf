@@ -4,10 +4,7 @@ import asyncio
 import functools
 from collections.abc import Callable, Coroutine
 from functools import wraps
-from importlib.metadata import version
 from typing import Any, TypeVar
-
-import httpx
 
 T = TypeVar("T")
 
@@ -85,4 +82,3 @@ def async_to_sync[T](
         return run_async(func(*args, **kwargs))
 
     return wrapper
-

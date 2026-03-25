@@ -20,8 +20,9 @@ Typical usage::
 import re
 
 import httpx
-from loguru import logger
 from pydantic import BaseModel, ValidationError
+
+from openblockperf.logging import logger
 
 # ---------------------------------------------------------------------------
 # Prometheus text format parser

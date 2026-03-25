@@ -2,7 +2,6 @@ from datetime import datetime
 from functools import singledispatchmethod
 
 import rich
-from loguru import logger
 from pydantic import ValidationError
 
 from openblockperf.apiclient import BlockperfApiClient
@@ -12,6 +11,7 @@ from openblockperf.errors import (
     InvalidEventDataError,
     UnknowEventNameSpaceError,
 )
+from openblockperf.logging import logger
 from openblockperf.models.events.event import (
     AddedToCurrentChainEvent,
     BlockSampleEvent,

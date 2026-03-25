@@ -5,10 +5,10 @@ import re
 from ipaddress import ip_address
 from typing import Any
 
-from loguru import logger
 from pydantic import model_validator
 
 from openblockperf.errors import EventError
+from openblockperf.logging import logger
 
 from .base import BaseEvent
 

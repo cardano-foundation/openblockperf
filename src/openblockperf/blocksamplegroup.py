@@ -3,11 +3,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import singledispatchmethod
 
-from loguru import logger
-
 from openblockperf import __version__
 from openblockperf.config import settings
 from openblockperf.errors import EventError
+from openblockperf.logging import logger
 from openblockperf.models.events.event import (
     AddedToCurrentChainEvent,
     BaseEvent,
