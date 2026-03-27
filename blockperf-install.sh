@@ -48,6 +48,8 @@
 #                     Default: /etc/default/openblockperf
 #   NETWORK           Cardano network: mainnet | preprod | preview
 #                     Default: unset → derived from Shelley genesis or mainnet; use --network to set.
+#   NODE_NAME         Operator node label (defaults to OS hostname).
+#                     Written to OPENBLOCKPERF_NODE_NAME in /etc/default/openblockperf.
 #   NODE_UNIT_NAME    systemd unit for cardano-node (e.g. cardano-node.service).
 #                     Default: auto-discover; use --node-unit-name to set explicitly.
 #   NODE_CONFIG_PATH  Absolute path to cardano-node config.json (TraceOptions).
@@ -71,6 +73,7 @@ SERVICE_FILE="${SERVICE_FILE:-/etc/systemd/system/openblockperf.service}"
 WRAPPER_COMMAND="${WRAPPER_COMMAND:-/usr/local/bin/blockperf}"
 ENV_FILE="${ENV_FILE:-/etc/default/openblockperf}"
 NETWORK="${NETWORK:-}"
+NODE_NAME="${NODE_NAME:-}"
 NODE_UNIT_NAME="${NODE_UNIT_NAME:-}"
 NODE_CONFIG_PATH="${NODE_CONFIG_PATH:-}"
 MODE="install"        # install | reinstall | remove
@@ -80,6 +83,7 @@ CLI_USER_CONTEXT=""   # set by --user-context <username> (overrides SERVICE_USER
 CLI_NODE_UNIT_NAME="" # set by --node-unit-name <unit>
 CLI_NODE_CONFIG=""    # set by --node-config <path>
 CLI_NETWORK=""        # set by --network mainnet|preprod|preview
+CLI_NODE_NAME=""      # set by --node-name <name>
 CLI_API_KEY=""        # set by --api-key <value>
 CLI_API_KEY_FILE=""   # set by --api-key-file <path>
 DRY_RUN="false"       # true to print plan and resolved values only
@@ -162,7 +166,7 @@ print_intro_and_confirm() {
     echo
     echo -e "${BOLD}OpenBlockPerf installer overview${NC}"
     echo "  1) Check/install prerequisites (Debian/Ubuntu and RHEL-family)"
-    echo "  2) Resolve service user/group and cardano-node unit/config"
+    echo "  2) Resolve service user/group, node name, and cardano-node unit/config"
     echo "  3) Resolve network and API-key strategy"
     echo "  4) Install venv/package, write env+unit+wrapper, enable service"
     echo "  5) Print summary and next steps"
@@ -182,7 +186,8 @@ usage() {
 Usage:
   sudo $0 [--install|--reinstall|--remove] [--yes] [--purge] [--dry-run]
           [--user-context <username>] [--node-unit-name <unit>] [--node-config <path>]
-          [--network mainnet|preprod|preview] [--api-key <value>|--api-key-file <path>]
+          [--network mainnet|preprod|preview] [--node-name <name>]
+          [--api-key <value>|--api-key-file <path>]
 
 Modes:
   --install      Install if target paths are empty (default)
@@ -204,6 +209,9 @@ Options:
                  from the unit ExecStart. Same as NODE_CONFIG_PATH=...
   --network mainnet|preprod|preview
                  Cardano network. Skips genesis-based detection. Same as NETWORK=...
+  --node-name <name>
+                 Operator node label used as OPENBLOCKPERF_NODE_NAME in ${ENV_FILE}.
+                 Defaults to OS hostname if omitted.
   --api-key <value>
                  OPENBLOCKPERF_API_KEY to store in ${ENV_FILE}. Skips prompts. Same as
                  exporting OPENBLOCKPERF_API_KEY=... (visible in process list — prefer env file).
@@ -241,6 +249,11 @@ parse_args() {
             --network)
                 [[ $# -ge 2 ]] || die "--network requires mainnet, preprod, or preview"
                 CLI_NETWORK="$2"
+                shift 2
+                ;;
+            --node-name)
+                [[ $# -ge 2 ]] || die "--node-name requires a value"
+                CLI_NODE_NAME="$2"
                 shift 2
                 ;;
             --api-key)
@@ -321,7 +334,7 @@ resolve_service_identity() {
             : # accept guess without prompting
         elif [[ -t 0 ]]; then
             local input=""
-            read -r -p "Service user [${guessed_user}]: " input
+            read -r -p "Service user [${guessed_user}] (Enter to keep): " input
             if [[ -n "${input}" ]]; then
                 guessed_user="${input}"
             fi
@@ -351,6 +364,32 @@ resolve_service_identity() {
     fi
 
     info "Service identity: ${SERVICE_USER}:${SERVICE_GROUP}"
+}
+
+# Step 2b — Operator node name (hostname-based default)
+resolve_node_name() {
+    if [[ -n "${CLI_NODE_NAME}" ]]; then
+        NODE_NAME="${CLI_NODE_NAME}"
+    fi
+
+    if [[ -z "${NODE_NAME}" ]]; then
+        NODE_NAME="$(hostname 2>/dev/null || true)"
+    fi
+    if [[ -z "${NODE_NAME}" ]]; then
+        NODE_NAME="$(uname -n 2>/dev/null || true)"
+    fi
+    [[ -n "${NODE_NAME}" ]] || NODE_NAME="node-unknown"
+
+    if [[ "${ASSUME_YES}" != "true" ]] && [[ -t 0 ]] && [[ -z "${CLI_NODE_NAME}" ]]; then
+        local in_name=""
+        read -r -p "Operator node name [${NODE_NAME}] (used in aggregated data): " in_name
+        if [[ -n "${in_name}" ]]; then
+            NODE_NAME="${in_name}"
+        fi
+    fi
+
+    [[ -n "${NODE_NAME}" ]] || die "NODE_NAME cannot be empty."
+    info "Node name: ${NODE_NAME}"
 }
 
 # Step 3 — Cardano node systemd unit
@@ -708,7 +747,7 @@ resolve_api_key() {
         *)
             echo
             info "After this install finishes, register your pool and obtain an API key with:"
-            echo "    ${INSTALL_DIR}/venv/bin/blockperf register"
+            echo "    blockperf register"
             info "Registration requires a Calidus key; see:  ${OBP_DOC_REGISTER_URL}"
             info "Then set OPENBLOCKPERF_API_KEY in ${ENV_FILE} and start the service."
             ;;
@@ -1036,6 +1075,11 @@ ${api_line}
 OPENBLOCKPERF_NETWORK=${NETWORK}
 
 # -----------------------------------------------------------------------
+# Operator-defined node label (used to identify this node in aggregated data)
+# -----------------------------------------------------------------------
+OPENBLOCKPERF_NODE_NAME=${NODE_NAME}
+
+# -----------------------------------------------------------------------
 # cardano-node config.json path (resolved by install.sh)
 # -----------------------------------------------------------------------
 OPENBLOCKPERF_NODE_CONFIG=${NODE_CONFIG_PATH}
@@ -1145,6 +1189,7 @@ print_post_install_summary() {
         warn "The existing env file was kept. Resolved values from this run were NOT written."
         warn "Check and update these entries manually in ${ENV_FILE}:"
         warn "  OPENBLOCKPERF_NETWORK=${NETWORK}"
+        warn "  OPENBLOCKPERF_NODE_NAME=${NODE_NAME}"
         warn "  OPENBLOCKPERF_NODE_CONFIG=${NODE_CONFIG_PATH}"
     fi
     echo
@@ -1284,6 +1329,7 @@ main() {
 
     check_python
     resolve_service_identity
+    resolve_node_name
     resolve_cardano_node_unit
     resolve_node_config_path
     resolve_network
@@ -1296,6 +1342,7 @@ main() {
     printf "  %-14s %s\n" "Python:"       "${PYTHON}"
     printf "  %-14s %s\n" "Package:"      "${PACKAGE_SPEC}"
     printf "  %-14s %s\n" "Service user:" "${SERVICE_USER}:${SERVICE_GROUP}"
+    printf "  %-14s %s\n" "Node name:"    "${NODE_NAME}"
     printf "  %-14s %s\n" "Node unit:"    "${NODE_UNIT_NAME}"
     printf "  %-14s %s\n" "Node config:"  "${NODE_CONFIG_PATH}"
     printf "  %-14s %s\n" "Network:"      "${NETWORK}"
