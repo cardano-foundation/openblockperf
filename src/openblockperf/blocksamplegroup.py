@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from functools import singledispatchmethod
 
 from openblockperf import __version__
+from openblockperf.clientid import get_clientid
 from openblockperf.config import settings
 from openblockperf.errors import EventError
 from openblockperf.logging import logger
@@ -260,7 +261,7 @@ class BlockSampleGroup:
         # TODO: This should not live here. Either in the BlockSample model validation
         # Or in the block listener....
         return BlockSample(
-            host = "dummy",
+            host = self.app_settings.hostname,
             block_hash = self.block_hash,
             block_number = self.block_number,
             block_size = self.block_size,

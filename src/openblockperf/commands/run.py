@@ -4,6 +4,7 @@ import signal
 import sys
 
 import typer
+from pydantic import ValidationError
 from rich.console import Console
 
 from openblockperf.app import Blockperf
@@ -45,11 +46,15 @@ async def run_cmd(
 
         # Log which network and API we're connecting to
         console.print(f"[bold cyan]Network:[/] {app_settings.network.value}")
+        console.print(f"[bold cyan]Hostname:[/] {app_settings.hostname}")
         console.print(f"[bold cyan]API URL:[/] {app_settings.full_api_url}")
         console.print(f"[bold cyan]API Key:[/] {app_settings.api_key.split('_')[0] if app_settings.api_key else None}")
+    except ValidationError as e:
+        console.print("[bold red]ValidationError during startup\n[/]", str(e))
+        sys.exit(1)
 
+    try:
         app = Blockperf(console, app_settings)
-
         # Setup the signal handler for Ctrl-SIGINT or SIGTERM os signals
         shutdown_event = asyncio.Event()
 
