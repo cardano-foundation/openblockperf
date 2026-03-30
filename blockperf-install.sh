@@ -1085,6 +1085,11 @@ OPENBLOCKPERF_NODE_NAME=${NODE_NAME}
 OPENBLOCKPERF_NODE_CONFIG=${NODE_CONFIG_PATH}
 
 # -----------------------------------------------------------------------
+# cardano-node systemd unit name (used for journald node log lookup)
+# -----------------------------------------------------------------------
+OPENBLOCKPERF_NODE_UNIT_NAME=${NODE_UNIT_NAME}
+
+# -----------------------------------------------------------------------
 # Local cardano-node connection address and port (EKG / cardano-tracer)
 # -----------------------------------------------------------------------
 OPENBLOCKPERF_LOCAL_ADDR=0.0.0.0
@@ -1191,6 +1196,7 @@ print_post_install_summary() {
         warn "  OPENBLOCKPERF_NETWORK=${NETWORK}"
         warn "  OPENBLOCKPERF_NODE_NAME=${NODE_NAME}"
         warn "  OPENBLOCKPERF_NODE_CONFIG=${NODE_CONFIG_PATH}"
+        warn "  OPENBLOCKPERF_NODE_UNIT_NAME=${NODE_UNIT_NAME}"
     fi
     echo
 }
