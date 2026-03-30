@@ -279,7 +279,7 @@ class BlockSampleGroup:
             local_addr = self.app_settings.local_addr,
             local_port = int(self.app_settings.local_port),
             magic = self.app_settings.network_config.magic,
-            client_version = __version__,
+            client_version = str(__version__),
         )
 
     # fmt: on

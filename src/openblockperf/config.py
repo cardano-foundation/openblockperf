@@ -46,6 +46,8 @@ class AppSettings(BaseSettings):
 
     log_level: str = "INFO"
 
+    node_unit_name: str = "cardano-tracer"
+
     # Ekg endpoint url
     ekg_url: str = "http://localhost:12798/metrics"
 

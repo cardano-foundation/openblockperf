@@ -47,6 +47,7 @@ async def run_cmd(
         # Log which network and API we're connecting to
         console.print(f"[bold cyan]Network:[/] {app_settings.network.value}")
         console.print(f"[bold cyan]Hostname:[/] {app_settings.hostname}")
+        console.print(f"[bold cyan]Node Unit:[/] {app_settings.node_unit_name}")
         console.print(f"[bold cyan]API URL:[/] {app_settings.full_api_url}")
         console.print(f"[bold cyan]API Key:[/] {app_settings.api_key.split('_')[0] if app_settings.api_key else None}")
     except ValidationError as e:

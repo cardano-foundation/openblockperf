@@ -89,7 +89,7 @@ class Blockperf:
         """Run all application tasks with proper error handling and coordination."""
         self._validate_configuration()
         self.api = BlockperfApiClient(self.settings)  # Single api client for app
-        self.log_reader = create_log_reader("journalctl", "cardano-tracer")
+        self.log_reader = create_log_reader("journalctl", self.settings.node_unit_name)
         self.handler = EventHandler(
             self.block_sample_groups,  # Sample Groups the handler will put events into
             self.peers,  # The live list of peers that is being updated by the handler
