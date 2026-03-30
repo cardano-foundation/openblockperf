@@ -1274,13 +1274,14 @@ wheels = [
 
 [[package]]
 name = "openblockperf"
-version = "0.0.16"
+version = "0.0.18"
 source = { editable = "." }
 dependencies = [
     { name = "cbor2" },
     { name = "click" },
     { name = "httpx" },
     { name = "loguru" },
+    { name = "packaging" },
     { name = "psutil" },
     { name = "pycardano" },
     { name = "pydantic" },
@@ -1305,6 +1306,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.1.8" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "loguru", specifier = ">=0.7.3" },
+    { name = "packaging", specifier = ">=26.0" },
     { name = "psutil", specifier = ">=7.1.0" },
     { name = "pycardano", specifier = ">=0.18.0" },
     { name = "pydantic", specifier = ">=2.10.6" },

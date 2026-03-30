@@ -2,7 +2,6 @@
 
 __all__ = ["run_cmd", "version_cmd", "register_cmd"]
 
-
 import platform
 import sys
 
