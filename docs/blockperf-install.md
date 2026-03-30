@@ -26,6 +26,7 @@ Then run without `--dry-run` to apply changes.
 
 - `--yes`: non-interactive mode, accepts prompts automatically.
 - `--dry-run`: resolve and display settings only, no system changes.
+- `--version`: print installer script version and exit.
 - `--user-context <username>`: service user.
 - `--node-unit-name <unit>`: cardano-node systemd unit.
 - `--node-name <name>`: operator node label (defaults to OS hostname).
