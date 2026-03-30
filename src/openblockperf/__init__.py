@@ -5,14 +5,16 @@ import tomllib
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from packaging.version import Version
 
-def get_version() -> str:
+
+def get_version() -> Version | None:
     """
     Returns the version if openblockperf. Either from installed package
     or the pyproject.toml file during development
     """
     try:
-        return version("openblockperf")
+        return Version(version("openblockperf"))
     except PackageNotFoundError:
         pass
 
@@ -21,11 +23,11 @@ def get_version() -> str:
         try:
             with open(pyproject_path, "rb") as f:
                 pyproject = tomllib.load(f)
-            return pyproject["project"]["version"]
+            return Version(pyproject["project"]["version"])
         except Exception:
             pass
 
-    return "unknown"
+    return None
 
 
-__version__ = get_version()
+__version__: Version = get_version()

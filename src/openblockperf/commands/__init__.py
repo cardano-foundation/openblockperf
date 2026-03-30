@@ -7,6 +7,7 @@ import platform
 import sys
 
 import httpx
+from packaging.version import Version
 from rich.console import Console
 
 from openblockperf import __version__
@@ -26,9 +27,9 @@ async def version_cmd() -> None:
         verbose: Display more detailed version information
     """
     response = httpx.get("https://pypi.org/pypi/openblockperf/json", timeout=3)
-    latest = response.json()["info"]["version"]
-    if __version__ != latest:
-        console.print(f"[bold yellow]New Version available: {latest}[/]")
+    latest = Version(response.json()["info"]["version"])
+    if latest > __version__:
+        console.print(f"[bold yellow]New Version available '{str(latest)}' (current: {str(__version__)}[/]")
     else:
         console.print(f"Installed version: [bold green]{__version__}[/]")
     console.print(f"Python version: [cyan]{sys.version}[/]")
