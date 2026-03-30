@@ -36,10 +36,10 @@ BlockperfCli.command("register")(register_cmd)
 def cli():
     if sys.platform != "linux":
         sys.exit("Only Linux is supported at this time")
+    setup_logging()
     BlockperfCli()
 
 
 # Entry point for python -m blockperf
 if __name__ == "__main__":
-    setup_logging()
     cli()

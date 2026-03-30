@@ -44,6 +44,8 @@ class AppSettings(BaseSettings):
 
     hostname: str = socket.gethostname()
 
+    log_level: str = "INFO"
+
     # Ekg endpoint url
     ekg_url: str = "http://localhost:12798/metrics"
 

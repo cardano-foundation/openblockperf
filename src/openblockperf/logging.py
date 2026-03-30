@@ -14,8 +14,11 @@ import sys
 
 from loguru import logger
 
+from openblockperf.config import settings
 
-def setup_logging(level: str = "INFO"):
+
+def setup_logging(level: str | None = None):
+    level = level or settings().log_level
     # Start fresh and remove defaults
     logger.remove()
     logger.add(
