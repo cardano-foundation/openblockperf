@@ -102,7 +102,7 @@ class Blockperf:
             async with asyncio.TaskGroup() as tg:
                 # Create all long running tasks that run in this app
                 self.create_task(self.process_events_task, tg)
-                self.create_task(self.testapi_task, tg)
+                # self.create_task(self.testapi_task, tg)
                 self.create_task(self.send_block_samples_task, tg)
                 self.create_task(self.print_peer_statistics_task, tg)
                 self.create_task(self.monitor_sync_state_task, tg)  # ← add this
@@ -304,7 +304,7 @@ class Blockperf:
                 return
 
             if self.replaying:
-                rich.print("Wont send samples coz of the replay")
+                rich.print("Wont send samples because of the replay")
                 continue
             ready_groups = {}
             for k, group in self.block_sample_groups.items():
@@ -356,8 +356,6 @@ class Blockperf:
     async def testapi_task(self):
         while True:
             await asyncio.sleep(20)
-
-            print("go")
             await self.api.post_status_change()
 
     async def monitor_sync_state_task(self) -> None:
