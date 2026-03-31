@@ -26,6 +26,7 @@ Then run without `--dry-run` to apply changes.
 
 - `--yes`: non-interactive mode, accepts prompts automatically.
 - `--dry-run`: resolve and display settings only, no system changes.
+- `--version`: print installer script version and exit.
 - `--user-context <username>`: service user.
 - `--node-unit-name <unit>`: cardano-node systemd unit.
 - `--node-name <name>`: operator node label (defaults to OS hostname).
@@ -53,6 +54,14 @@ Calidus-key documentation placeholder:
 
 Env file path defaults to `/etc/default/openblockperf`.
 
+When a new env file is written, the installer sets:
+
+- `OPENBLOCKPERF_API_KEY` (if provided)
+- `OPENBLOCKPERF_NETWORK`
+- `OPENBLOCKPERF_NODE_NAME`
+- `OPENBLOCKPERF_NODE_CONFIG`
+- `OPENBLOCKPERF_NODE_UNIT_NAME` (used to identify cardano-node journald messages)
+
 When the env file already exists:
 
 - Interactive mode (without `--yes`): asks whether to keep or replace.
@@ -60,6 +69,13 @@ When the env file already exists:
   - `<envfile>-YYYY-MM-DD_HH-MM.backup`
   - falls back to seconds suffix if needed
   - then writes a fresh env file.
+
+If you choose to keep the existing env file, update these manually as needed:
+
+- `OPENBLOCKPERF_NETWORK`
+- `OPENBLOCKPERF_NODE_NAME`
+- `OPENBLOCKPERF_NODE_CONFIG`
+- `OPENBLOCKPERF_NODE_UNIT_NAME`
 
 ## Reliability behavior
 

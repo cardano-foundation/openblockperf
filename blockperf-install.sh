@@ -59,6 +59,8 @@
 set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://openblockperf.cardano.org/docs#TODO"
+# Internal installer version (reserved for future remote update checks).
+INSTALLER_VERSION="0.2.0"
 
 # ---------------------------------------------------------------------------
 # Configuration — all values can be overridden via environment variables
@@ -165,6 +167,7 @@ on_error() {
 print_intro_and_confirm() {
     echo
     echo -e "${BOLD}OpenBlockPerf installer overview${NC}"
+    echo "  Version: ${INSTALLER_VERSION}"
     echo "  1) Check/install prerequisites (Debian/Ubuntu and RHEL-family)"
     echo "  2) Resolve service user/group, node name, and cardano-node unit/config"
     echo "  3) Resolve network and API-key strategy"
@@ -187,7 +190,7 @@ Usage:
   sudo $0 [--install|--reinstall|--remove] [--yes] [--purge] [--dry-run]
           [--user-context <username>] [--node-unit-name <unit>] [--node-config <path>]
           [--network mainnet|preprod|preview] [--node-name <name>]
-          [--api-key <value>|--api-key-file <path>]
+          [--api-key <value>|--api-key-file <path>] [--version]
 
 Modes:
   --install      Install if target paths are empty (default)
@@ -218,6 +221,7 @@ Options:
   --api-key-file <path>
                  Read OPENBLOCKPERF_API_KEY from a file (recommended over --api-key).
   --dry-run      Resolve configuration and print plan without changing the system.
+  --version      Print installer script version and exit.
   --purge        With --remove, also delete ${ENV_FILE}
   -h, --help     Show this help
 EOF
@@ -269,6 +273,10 @@ parse_args() {
             --dry-run)
                 DRY_RUN="true"
                 shift
+                ;;
+            --version)
+                echo "blockperf-install.sh version ${INSTALLER_VERSION}"
+                exit 0
                 ;;
             -h|--help) usage; exit 0 ;;
             *)
@@ -970,8 +978,26 @@ create_install_dir() {
         if [[ "${MODE}" == "install" ]]; then
             die "Install directory already exists: ${INSTALL_DIR}. Use --reinstall to replace it."
         fi
-        ok "Replacing existing installation directory: ${INSTALL_DIR}"
-        rm -rf "${INSTALL_DIR}"
+        # In reinstall mode we keep INSTALL_DIR and replace only VENV_DIR.
+        # If cwd is inside VENV_DIR, removing it will break later os.getcwd()
+        # calls (e.g. python -m venv -> pip bootstrap). Move to a safe cwd first.
+        local current_pwd="" venv_real=""
+        current_pwd="$(pwd -P 2>/dev/null || true)"
+        if command -v realpath &>/dev/null; then
+            venv_real="$(realpath -m "${VENV_DIR}" 2>/dev/null || echo "${VENV_DIR}")"
+        else
+            venv_real="${VENV_DIR}"
+        fi
+        if [[ -n "${current_pwd}" && -n "${venv_real}" && "${current_pwd}" == "${venv_real}"* ]]; then
+            warn "Current working directory is inside ${VENV_DIR}; switching to / before reinstall cleanup."
+            cd /
+        fi
+        if [[ -d "${VENV_DIR}" ]]; then
+            ok "Reinstall mode: replacing virtual environment directory: ${VENV_DIR}"
+            rm -rf "${VENV_DIR}"
+        else
+            info "Reinstall mode: no existing virtual environment found at ${VENV_DIR}; creating fresh."
+        fi
     else
         ok "Creating installation directory: ${INSTALL_DIR}"
         CREATED_INSTALL_DIR="true"
@@ -1085,6 +1111,11 @@ OPENBLOCKPERF_NODE_NAME=${NODE_NAME}
 OPENBLOCKPERF_NODE_CONFIG=${NODE_CONFIG_PATH}
 
 # -----------------------------------------------------------------------
+# cardano-node systemd unit name (used for journald node log lookup)
+# -----------------------------------------------------------------------
+OPENBLOCKPERF_NODE_UNIT_NAME=${NODE_UNIT_NAME}
+
+# -----------------------------------------------------------------------
 # Local cardano-node connection address and port (EKG / cardano-tracer)
 # -----------------------------------------------------------------------
 OPENBLOCKPERF_LOCAL_ADDR=0.0.0.0
@@ -1155,6 +1186,7 @@ maybe_start_service_after_install() {
 print_post_install_summary() {
     echo
     echo -e "${GREEN}${BOLD}Installation complete.${NC}"
+    echo "Installer version: ${INSTALLER_VERSION}"
     echo
     echo "Summary:"
     echo "  • Virtual env:     ${VENV_DIR}"
@@ -1191,6 +1223,7 @@ print_post_install_summary() {
         warn "  OPENBLOCKPERF_NETWORK=${NETWORK}"
         warn "  OPENBLOCKPERF_NODE_NAME=${NODE_NAME}"
         warn "  OPENBLOCKPERF_NODE_CONFIG=${NODE_CONFIG_PATH}"
+        warn "  OPENBLOCKPERF_NODE_UNIT_NAME=${NODE_UNIT_NAME}"
     fi
     echo
 }
@@ -1337,6 +1370,7 @@ main() {
 
     echo
     echo -e "${BOLD}OpenBlockPerf Installer (${MODE})${NC}"
+    printf "  %-14s %s\n" "Version:"      "${INSTALLER_VERSION}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     printf "  %-14s %s\n" "Install dir:"  "${INSTALL_DIR}"
     printf "  %-14s %s\n" "Python:"       "${PYTHON}"
