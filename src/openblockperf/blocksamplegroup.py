@@ -5,10 +5,10 @@ from functools import singledispatchmethod
 
 from openblockperf import __version__
 from openblockperf.clientid import get_clientid
-from openblockperf.config import settings
+from openblockperf.config import AppSettings
 from openblockperf.errors import EventError
 from openblockperf.logging import logger
-from openblockperf.models.events.event import (
+from openblockperf.models.events import (
     AddedToCurrentChainEvent,
     BaseEvent,
     CompletedBlockFetchEvent,
@@ -32,7 +32,7 @@ class BlockSampleGroup:
     """
 
     block_hash: str
-    app_settings: any = field(default=None, repr=False)  # Settings instance
+    settings: AppSettings
     block_number: int | None = None
     block_size: int | None = None
     block_g: float | None = 0.1
@@ -48,11 +48,6 @@ class BlockSampleGroup:
     block_completed: CompletedBlockFetchEvent | None = None
 
     events: list[BaseEvent] = field(default_factory=list)  # list of events
-
-    def __post_init__(self):
-        # Use provided settings or create default
-        if self.app_settings is None:
-            self.app_settings = settings()
 
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
@@ -108,7 +103,7 @@ class BlockSampleGroup:
         if not self.slot:
             self.slot = event.slot
         if not self.slot_time:
-            self.slot_time = datetime.fromtimestamp(self.app_settings.network_config.starttime + self.slot, tz=UTC)
+            self.slot_time = datetime.fromtimestamp(self.settings.network_config.starttime + self.slot, tz=UTC)
         if not self.block_number:
             self.block_number = event.block_number
 
@@ -261,7 +256,7 @@ class BlockSampleGroup:
         # TODO: This should not live here. Either in the BlockSample model validation
         # Or in the block listener....
         return BlockSample(
-            host = self.app_settings.hostname,
+            host = self.settings.hostname,
             block_hash = self.block_hash,
             block_number = self.block_number,
             block_size = self.block_size,
@@ -276,9 +271,9 @@ class BlockSampleGroup:
             block_request_delta = int(self.block_request_delta.total_seconds() * 1000),
             block_response_delta = int(self.block_response_delta.total_seconds() * 1000),
             block_adopt_delta = int(self.block_adopt_delta.total_seconds() * 1000),
-            local_addr = self.app_settings.local_addr,
-            local_port = int(self.app_settings.local_port),
-            magic = self.app_settings.network_config.magic,
+            local_addr = self.settings.local_addr,
+            local_port = int(self.settings.local_port),
+            magic = self.settings.network_config.magic,
             client_version = str(__version__),
         )
 

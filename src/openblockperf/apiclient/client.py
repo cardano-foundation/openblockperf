@@ -1,7 +1,7 @@
 import rich
 
-from openblockperf.config import AppSettings, settings
-from openblockperf.models.events.peer import PeerEvent
+from openblockperf.config import AppSettings
+from openblockperf.models.events import PeerEvent
 from openblockperf.models.peer import Peer
 from openblockperf.models.samples import BlockSample
 
@@ -18,10 +18,9 @@ from .models import (
 
 
 class BlockperfApiClient:
-    def __init__(self, app_settings: AppSettings | None = None):
-        _settings = app_settings or settings()
+    def __init__(self, settings: AppSettings):
         self._api = BlockperfApiBase(
-            full_api_url=_settings.full_api_url, client_id=_settings.api_clientid, api_key=_settings.api_key
+            full_api_url=settings.full_api_url, client_id=settings.api_clientid, api_key=settings.api_key
         )
 
     async def submit_block_sample(self, sample: BlockSample) -> BlockSampleResponse:
@@ -72,7 +71,7 @@ class BlockperfApiClient:
 
         rich.print("---\nRequest:", per.model_dump(mode="json", exclude_none=True))
         resp = await self._api.post("/submit/peerevent", per)
-        rich.print("Response:", resp)
+        rich.print(f"Response: {resp}")
         print()
 
     async def test_api_key(self):

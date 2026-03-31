@@ -11,7 +11,7 @@ Covers:
 import pytest
 from pydantic import ValidationError
 
-from openblockperf.models.events.event import (
+from openblockperf.models.events import (
     AddedToCurrentChainEvent,
     CompletedBlockFetchEvent,
     DownloadedHeaderEvent,

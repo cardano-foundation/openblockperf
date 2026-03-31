@@ -6,26 +6,25 @@ from pydantic import ValidationError
 
 from openblockperf.apiclient import BlockperfApiClient
 from openblockperf.blocksamplegroup import BlockSampleGroup
+from openblockperf.config import AppSettings
 from openblockperf.errors import (
     EventError,
     InvalidEventDataError,
     UnknowEventNameSpaceError,
 )
 from openblockperf.logging import logger
-from openblockperf.models.events.event import (
+from openblockperf.models.events import (
     AddedToCurrentChainEvent,
     BlockSampleEvent,
     CompletedBlockFetchEvent,
-    DownloadedHeaderEvent,
-    SendFetchRequestEvent,
-    SwitchedToAForkEvent,
-)
-from openblockperf.models.events.peer import (
     DemotedPeerEvent,
+    DownloadedHeaderEvent,
     InboundGovernorCountersEvent,
     PeerEvent,
     PromotedPeerEvent,
+    SendFetchRequestEvent,
     StatusChangedEvent,
+    SwitchedToAForkEvent,
 )
 from openblockperf.models.peer import Peer, PeerDirection, PeerState
 
@@ -76,13 +75,13 @@ class EventHandler:
         block_sample_groups: dict[str, BlockSampleGroup],
         peers: dict[tuple, Peer],
         api: BlockperfApiClient,
-        app_settings=None,
+        settings: AppSettings,
     ):
         super().__init__()
         self.block_sample_groups = block_sample_groups
         self.peers = peers
         self.api = api
-        self.app_settings = app_settings
+        self.settings = settings
 
     def _make_event_from_message(self, message: dict) -> BlockSampleEvent | PeerEvent:
         """Takes a raw message as received from the LogReader and create an event."""
@@ -90,7 +89,6 @@ class EventHandler:
             ns = message.get("ns")
             if ns not in self.registered_namespaces:
                 raise UnknowEventNameSpaceError()
-            logger.info(ns)
             event_model_class = self.registered_namespaces.get(ns)
             return event_model_class.model_validate(message)
         except ValidationError as e:
@@ -130,7 +128,7 @@ class EventHandler:
         Adds the event to the BlockSampleGroup for the events block_hash. Or
         creates a new group if no group if found for the given block_hash.
         """
-        logger.debug("Handling BlockEvent", event=event)
+        logger.debug("BlockEvent", event=event)
         if not hasattr(event, "block_hash"):
             raise EventError("Block event has no block_hash.")
         # Find group for block_hash or create it before adding events to it
@@ -138,7 +136,7 @@ class EventHandler:
         if block_hash not in self.block_sample_groups:
             self.block_sample_groups[block_hash] = BlockSampleGroup(
                 block_hash=block_hash,
-                app_settings=self.app_settings,
+                settings=self.settings,
             )
         group = self.block_sample_groups[block_hash]
         group.add_event(event)
@@ -149,7 +147,7 @@ class EventHandler:
         Looks up the peer and does some common peer things before handing
         it over to the peer_event_handler which will flesh out the details.
         """
-        logger.debug("Handling PeerEvent", event=event)
+        logger.debug("PeerEvent", event=event)
         if event.key not in self.peers:
             # Creates a new peer
             self.peers[event.key] = Peer(
@@ -174,7 +172,7 @@ class EventHandler:
 
     @dispatch_event.register
     async def hdl_inbound_governor(self, event: InboundGovernorCountersEvent):
-        logger.info("Handling InboundGovernorCountersEvent", foo=event)
+        logger.info("InboundGovernorCountersEvent", event=event)
 
     """
     There are different handlers registered for the peer event. Each dealing
@@ -190,10 +188,13 @@ class EventHandler:
 
     @dispatch_peer_event.register
     async def hdl_peer_event__status_changed(self, peer: Peer, event: StatusChangedEvent):
+        logger.debug(f"Peer event: Status change <{peer}, {event}>")
         await self.api.submit_peer_event(peer, event)
 
     async def hdl_peer_event__promoted_peer(self, peer: Peer, event: PromotedPeerEvent):
+        logger.debug(f"Peer event: Promoted peer <{peer}, {event}>")
         await self.api.submit_peer_event(peer, event)
 
     async def hdl_peer_event__demoted_peer(self, peer: Peer, event: DemotedPeerEvent):
+        logger.debug(f"Peer event: Demoted peer <{peer}, {event}>")
         await self.api.submit_peer_event(peer, event)

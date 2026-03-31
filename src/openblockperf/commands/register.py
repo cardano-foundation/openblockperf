@@ -11,7 +11,7 @@ from openblockperf.calidus import (
     extract_signing_key_from_cbor,
     parse_key_file,
 )
-from openblockperf.config import settings
+from openblockperf.config import AppSettings, Network
 from openblockperf.errors import ConfigurationError
 from openblockperf.utils import async_command
 
@@ -53,8 +53,21 @@ async def register_cmd(
     """Implements the register command."""
 
     try:
-        app_settings = settings(network=network, api_url_override=api_url)
-        api = BlockperfApiClient(app_settings)
+        overrides = {}
+        if network:
+            if not isinstance(network, str):
+                sys.exit(f"{network=} is not a string")
+            try:
+                network = Network(network.lower())
+            except ValueError as e:
+                valid_networks = [n.value for n in Network]
+                sys.exit(f"Invalid network '{network}'. Must be one of: {', '.join(valid_networks)}")
+            overrides["network"] = network
+        if api_url:
+            overrides["api_url"] = api_url
+        settings = AppSettings(**overrides)
+
+        api = BlockperfApiClient(settings)
         challenge = await api.request_registration_challenge(pool_id_bech32=pool_id)
         skey_data = parse_key_file(calidus_skey)
         skey = extract_signing_key_from_cbor(skey_data.get("cborHex"))

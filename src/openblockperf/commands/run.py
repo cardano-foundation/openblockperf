@@ -8,8 +8,9 @@ from pydantic import ValidationError
 from rich.console import Console
 
 from openblockperf.app import Blockperf
-from openblockperf.config import settings
+from openblockperf.config import AppSettings, Network
 from openblockperf.errors import ConfigurationError
+from openblockperf.logging import logger
 from openblockperf.utils import async_command
 
 run_app = typer.Typer(
@@ -40,22 +41,32 @@ async def run_cmd(
 ) -> None:
     """Implements the run command."""
     try:
-        # Create settings instance with CLI overrides
-        # Priority: CLI flags > Environment variables > .env file > defaults
-        app_settings = settings(network=network, api_url_override=api_url)
+        overrides = {}
+        if network:
+            if not isinstance(network, str):
+                sys.exit(f"{network=} is not a string")
+            try:
+                network = Network(network.lower())
+            except ValueError as e:
+                valid_networks = [n.value for n in Network]
+                sys.exit(f"Invalid network '{network}'. Must be one of: {', '.join(valid_networks)}")
+            overrides["network"] = network
+        if api_url:
+            overrides["api_url"] = api_url
+        settings = AppSettings(**overrides)
 
-        # Log which network and API we're connecting to
-        console.print(f"[bold cyan]Network:[/] {app_settings.network.value}")
-        console.print(f"[bold cyan]Hostname:[/] {app_settings.hostname}")
-        console.print(f"[bold cyan]Node Unit:[/] {app_settings.node_unit_name}")
-        console.print(f"[bold cyan]API URL:[/] {app_settings.full_api_url}")
-        console.print(f"[bold cyan]API Key:[/] {app_settings.api_key.split('_')[0] if app_settings.api_key else None}")
+        # Print important settings
+        console.print(f"[bold cyan]Network:[/] {settings.network.value}")
+        console.print(f"[bold cyan]Hostname:[/] {settings.hostname}")
+        console.print(f"[bold cyan]Node Unit:[/] {settings.node_unit_name}")
+        console.print(f"[bold cyan]API URL:[/] {settings.full_api_url}")
+        console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
     except ValidationError as e:
-        console.print("[bold red]ValidationError during startup\n[/]", str(e))
+        console.print("[bold red]Configuration error\n[/]", str(e))
         sys.exit(1)
 
     try:
-        app = Blockperf(console, app_settings)
+        app = Blockperf(console, settings)
         # Setup the signal handler for Ctrl-SIGINT or SIGTERM os signals
         shutdown_event = asyncio.Event()
 

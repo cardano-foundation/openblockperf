@@ -98,28 +98,28 @@ def raw_added_to_current_chain() -> dict:
 
 @pytest.fixture(scope="session")
 def downloaded_header_event(raw_downloaded_header):
-    from openblockperf.models.events.event import DownloadedHeaderEvent
+    from openblockperf.models.events import DownloadedHeaderEvent
 
     return DownloadedHeaderEvent(**raw_downloaded_header)
 
 
 @pytest.fixture(scope="session")
 def send_fetch_request_event(raw_send_fetch_request):
-    from openblockperf.models.events.event import SendFetchRequestEvent
+    from openblockperf.models.events import SendFetchRequestEvent
 
     return SendFetchRequestEvent(**raw_send_fetch_request)
 
 
 @pytest.fixture(scope="session")
 def completed_block_fetch_event(raw_completed_block_fetch):
-    from openblockperf.models.events.event import CompletedBlockFetchEvent
+    from openblockperf.models.events import CompletedBlockFetchEvent
 
     return CompletedBlockFetchEvent(**raw_completed_block_fetch)
 
 
 @pytest.fixture(scope="session")
 def added_to_current_chain_event(raw_added_to_current_chain):
-    from openblockperf.models.events.event import AddedToCurrentChainEvent
+    from openblockperf.models.events import AddedToCurrentChainEvent
 
     return AddedToCurrentChainEvent(**raw_added_to_current_chain)
 
@@ -135,7 +135,7 @@ def default_settings() -> AppSettings:
 
 @pytest.fixture
 def preprod_settings() -> AppSettings:
-    return settings(network=Network.PREPROD)
+    return AppSettings(network=Network.PREPROD)
 
 
 @pytest.fixture

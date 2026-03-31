@@ -33,7 +33,7 @@ class AppSettings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
-
+    api_url: str | None = None
     api_port: int = 443
     api_path: str = "/api/v0/"
     api_key: str | None = None
@@ -43,8 +43,6 @@ class AppSettings(BaseSettings):
     min_age: int = 10  # Wait x seconds before even processing a group/block
 
     hostname: str = socket.gethostname()
-
-    log_level: str = "INFO"
 
     node_unit_name: str = "cardano-tracer"
 
@@ -60,9 +58,6 @@ class AppSettings(BaseSettings):
     local_port: int = 3001
     # Using Field() to validate input values match one of the possible enum values
     network: Network = Field(default=Network.MAINNET, validation_alias="network")  # fmt: off
-
-    # Private attribute to store CLI override for API URL
-    _api_url_override: str | None = None
 
     # Class-level dictionary to store network specific configurations
     _NETWORK_CONFIGS: ClassVar[dict[Network, NetworkConfig]] = {
@@ -89,9 +84,11 @@ class AppSettings(BaseSettings):
         """Return the complete url to the api endpoint. If one is provided
         on the cli, just return that without adding any extra ports or paths.
         """
-        if self._api_url_override:
-            return self._api_url_override
+        # Use api_url if set
+        if self.api_url:
+            return f"{self.api_url}:{self.api_port}{self.api_path}"
 
+        # else look up from network configuration
         _api_url = self._NETWORK_CONFIGS[self.network.value].api_url
         return f"{_api_url}:{self.api_port}{self.api_path}"
 
@@ -102,43 +99,6 @@ class AppSettings(BaseSettings):
         return self._NETWORK_CONFIGS[self.network.value]
 
 
-def settings(
-    network: Network | str | None = None,
-    api_url_override: str | None = None,
-) -> AppSettings:
-    """
-    Create settings instance with optional CLI overrides.
-
-    Priority order (highest to lowest):
-    1. CLI arguments (network, api_url_override)
-    2. Environment variables (OPENBLOCKPERF_*)
-    3. .env file values
-    4. Default values
-
-    Args:
-        network: Network override from CLI (highest priority)
-        api_url_override: API URL override from CLI (bypasses network-specific URL)
-
-    Returns:
-        AppSettings instance configured with provided overrides
-    """
-    # Create settings instance from environment variables and .env file
-    settings_instance = AppSettings()
-
-    # Apply CLI overrides (highest priority)
-    if network is not None:
-        # Convert string to Network enum if needed
-        if isinstance(network, str):
-            try:
-                network = Network(network.lower())
-            except ValueError as e:
-                valid_networks = [n.value for n in Network]
-                raise ValueError(f"Invalid network '{network}'. Must be one of: {', '.join(valid_networks)}") from e
-        # Override the network setting
-        settings_instance.network = network
-
-    # Store API URL override if provided (will be used instead of network-derived URL)
-    if api_url_override is not None:
-        settings_instance._api_url_override = api_url_override
-
-    return settings_instance
+# There is no global settings object here because i wanted the cli to
+# be able to override things. Hence the settings is created in the command
+# and then passed into the app.

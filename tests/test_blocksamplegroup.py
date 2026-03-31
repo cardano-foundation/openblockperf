@@ -20,7 +20,7 @@ BLOCK_HASH = "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1"
 @pytest.fixture
 def empty_group(mock_settings):
     """A brand-new BlockSampleGroup with no events."""
-    return BlockSampleGroup(block_hash=BLOCK_HASH, app_settings=mock_settings)
+    return BlockSampleGroup(block_hash=BLOCK_HASH, settings=mock_settings)
 
 
 @pytest.fixture
@@ -187,7 +187,7 @@ class TestIsSane:
 
 class TestBlockAdopted:
     def test_returns_added_to_current_chain_event(self, complete_group, added_to_current_chain_event):
-        from openblockperf.models.events.event import AddedToCurrentChainEvent
+        from openblockperf.models.events import AddedToCurrentChainEvent
 
         assert isinstance(complete_group.block_adopted, AddedToCurrentChainEvent)
 

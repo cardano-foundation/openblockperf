@@ -10,6 +10,7 @@ via python -m openblockperf.
 
 """
 
+import os
 import sys
 
 import typer
@@ -36,7 +37,7 @@ BlockperfCli.command("register")(register_cmd)
 def cli():
     if sys.platform != "linux":
         sys.exit("Only Linux is supported at this time")
-    setup_logging()
+    setup_logging(os.getenv("OPENBLOCKPERF_LOG_LEVEL", "INFO"))
     BlockperfCli()
 
 

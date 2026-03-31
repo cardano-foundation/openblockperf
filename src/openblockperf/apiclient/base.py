@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 from openblockperf.clientid import get_clientid
 from openblockperf.errors import ApiConnectionError, ApiError
+from openblockperf.logging import logger
 
 
 class BlockperfApiBase:
@@ -93,7 +94,7 @@ class BlockperfApiBase:
         method: str,
         endpoint: str,
         **kwargs,
-    ) -> httpx.Response:
+    ) -> httpx.Response | None:
         """Make an authenticated request to the API."""
         # await self._ensure_valid_token()
         try:
@@ -121,7 +122,8 @@ class BlockperfApiBase:
             #        headers=headers,
             #        **kwargs,
             #    )
-            raise ApiError(f"API request failed: {e.response.status_code} {e.response.reason_phrase}") from e
+            logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}")
+            return None
         except httpx.TimeoutException as e:
             raise ApiError(f"API request timed out: {e}") from e
         except httpx.ConnectError as e:
@@ -131,10 +133,12 @@ class BlockperfApiBase:
 
     def _parse_response[T](
         self,
-        response: httpx.Response,
+        response: httpx.Response | None,
         response_model: type[T] | None = None,
     ) -> T | Mapping[str, Any]:
         """Parse response JSON into Pydantic model or dict."""
+        if not response:
+            return {}
         data = response.json()
         if response_model:
             return response_model.model_validate(data)

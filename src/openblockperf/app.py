@@ -8,7 +8,6 @@ from rich.console import Console
 # from rich.console import Console
 from openblockperf.apiclient import BlockperfApiClient
 from openblockperf.blocksamplegroup import BlockSampleGroup
-from openblockperf.config import settings
 from openblockperf.ekg import EkgClient, EkgError
 from openblockperf.errors import (
     ApiConnectionError,
@@ -60,10 +59,10 @@ class Blockperf:
     peers: dict[tuple, Peer]  # The nodes peer list (actually a dictionary)
     replaying: bool
 
-    def __init__(self, console: Console, app_settings=None):
+    def __init__(self, console: Console, settings):
         # Keep this simple! Do any complex init in start()
         self.console = console
-        self.settings = app_settings or settings()
+        self.settings = settings
         self.replaying = False
         self.tasks: dict[str, asyncio.Task] = {}
         self.since_hours = 0
