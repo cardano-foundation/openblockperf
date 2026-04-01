@@ -61,7 +61,7 @@ set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://openblockperf.cardano.org/docs#TODO"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.2.1"
+INSTALLER_VERSION="0.1.0"
 INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
