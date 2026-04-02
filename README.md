@@ -19,7 +19,7 @@ yourself, this tool is probably not very usefull for you.
 Install openblockperf client using our installer script:
 
 ```shell
-curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh | sudo bash
 
 # Once installed you should have a 'blockperf' executable installed.
 $ blockperf version
