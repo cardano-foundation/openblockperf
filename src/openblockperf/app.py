@@ -373,21 +373,16 @@ class Blockperf:
             try:
                 rpl_prg = await self.ekg.get("cardano_node_metrics_blockReplayProgress_real")
                 synced = rpl_prg is not None and rpl_prg >= self.settings.sync_check_threshold
-                block_replay_progress = f"{rpl_prg:.2f}%" if rpl_prg else "unknown"
                 if synced:
-                    if not self.node_synced_event.is_set():
-                        logger.info(f"Node fully synced ({block_replay_progress}), resuming log ingestion.")
-                        self.node_synced_event.set()
+                    self.node_synced_event.set()
                 else:
-                    if self.node_synced_event.is_set():
-                        self.node_synced_event.clear()
-                    msg = f"Waiting for node to sync ({block_replay_progress})..."
+                    self.node_synced_event.clear()
+                    msg = "Node not yet synced!"
                     rich.print(f"[yellow]{msg}[/yellow]")
                     logger.info(msg)
             except EkgError as exc:
                 logger.error(str(exc))
                 # EKG unreachable — treat as not-synced and keep waiting
-                if self.node_synced_event.is_set():
-                    self.node_synced_event.clear()
+                self.node_synced_event.clear()
                 rich.print(f"[red]EKG unreachable: {exc}[/red]")
             await asyncio.sleep(self.settings.sync_check_interval)
