@@ -20,6 +20,7 @@ Then run without `--dry-run` to apply changes.
 
 - `--install` (default): install to a new target directory.
 - `--reinstall`: replace install directory and reinstall artifacts.
+- `--update`: update only the installed `openblockperf` package in the existing venv.
 - `--remove`: remove service, wrapper, and install directory.
 
 ## Common options
@@ -34,6 +35,8 @@ Then run without `--dry-run` to apply changes.
 - `--network mainnet|preprod|preview`: network override.
 - `--api-key-file <path>`: read API key from file (recommended).
 - `--api-key <value>`: provide API key directly (less secure, visible in process list).
+
+The installer also performs an online installer-version check and can offer a self-update if a newer script is available.
 
 ## API key flow
 
@@ -58,6 +61,7 @@ When a new env file is written, the installer sets:
 
 - `OPENBLOCKPERF_API_KEY` (if provided)
 - `OPENBLOCKPERF_NETWORK`
+- `OPENBLOCKPERF_LOG_LEVEL` (default `WARNING`; valid values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `EXCEPTION`)
 - `OPENBLOCKPERF_NODE_NAME`
 - `OPENBLOCKPERF_NODE_CONFIG`
 - `OPENBLOCKPERF_NODE_UNIT_NAME` (used to identify cardano-node journald messages)

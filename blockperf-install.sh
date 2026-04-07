@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Install and configure the OpenBlockPerf client on a Linux system
+# blockperf-install.sh — Install and configure the OpenBlockPerf client on a Linux system
 #
 # This script:
 #   1. Creates an installation directory for the virtual environment
@@ -11,23 +11,24 @@
 # All steps are configurable via environment variables (see below).
 #
 # Usage:
-#   sudo ./install.sh
-#   sudo ./install.sh --reinstall
-#   sudo ./install.sh --remove
+#   sudo ./blockperf-install.sh
+#   sudo ./blockperf-install.sh --update
+#   sudo ./blockperf-install.sh --reinstall
+#   sudo ./blockperf-install.sh --remove
 #
 # On Debian/Ubuntu and CentOS/RHEL-family systems, missing dependencies (e.g. jq,
 # python3, python3-full / python3-pip) may be installed via the package manager
 # after confirmation, or non-interactively with --yes.
 #   sudo NETWORK=preprod ./install.sh
 #   sudo INSTALL_DIR=/srv/openblockperf SERVICE_USER=ada ./install.sh
-#   sudo ./install.sh --user-context ada
-#   sudo ./install.sh --node-unit-name cardano-node.service
-#   sudo ./install.sh --node-config /path/to/config.json
-#   sudo ./install.sh --network preprod
-#   sudo ./install.sh --api-key 'YOUR_KEY'   # or: sudo -E ./install.sh   with OPENBLOCKPERF_API_KEY set
-#   sudo ./install.sh --api-key-file /root/openblockperf-api-key.txt
-#   sudo ./install.sh --dry-run
-#   sudo PACKAGE_VERSION=0.0.5 ./install.sh
+#   sudo ./blockperf-install.sh --user-context ada
+#   sudo ./blockperf-install.sh --node-unit-name cardano-node.service
+#   sudo ./blockperf-install.sh --node-config /path/to/config.json
+#   sudo ./blockperf-install.sh --network preprod
+#   sudo ./blockperf-install.sh --api-key 'YOUR_KEY'   # or: sudo -E ./install.sh   with OPENBLOCKPERF_API_KEY set
+#   sudo ./blockperf-install.sh --api-key-file /root/openblockperf-api-key.txt
+#   sudo ./blockperf-install.sh --dry-run
+#   sudo PACKAGE_VERSION=0.0.5 ./blockperf-install.sh
 #
 # Configurable environment variables:
 #   INSTALL_DIR       Base directory for the virtual environment and data
@@ -60,7 +61,8 @@ set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://openblockperf.cardano.org/docs#TODO"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.2.0"
+INSTALLER_VERSION="0.1.0"
+INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
 # Configuration — all values can be overridden via environment variables
@@ -78,7 +80,7 @@ NETWORK="${NETWORK:-}"
 NODE_NAME="${NODE_NAME:-}"
 NODE_UNIT_NAME="${NODE_UNIT_NAME:-}"
 NODE_CONFIG_PATH="${NODE_CONFIG_PATH:-}"
-MODE="install"        # install | reinstall | remove
+MODE="install"        # install | reinstall | update | remove
 ASSUME_YES="false"    # true to skip interactive confirmations
 PURGE_CONFIG="false"  # true to remove ENV_FILE on --remove
 CLI_USER_CONTEXT=""   # set by --user-context <username> (overrides SERVICE_USER from env)
@@ -184,10 +186,78 @@ print_intro_and_confirm() {
     confirm_or_die "Continue?"
 }
 
+print_update_intro_and_confirm() {
+    echo
+    echo -e "${BOLD}OpenBlockPerf package update overview${NC}"
+    echo "  Version: ${INSTALLER_VERSION}"
+    echo "  1) Check existing virtual environment and package versions"
+    echo "  2) Show installed/latest openblockperf version"
+    echo "  3) Optionally run: pip install --upgrade openblockperf"
+    echo
+    info "Only the Python package in ${VENV_DIR} is updated."
+    info "No systemd unit, env file, install folder layout, or node config is modified."
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        info "You are currently in dry-run mode."
+    fi
+    confirm_or_die "Continue with update mode?"
+}
+
+version_gt() {
+    # Returns success if $1 > $2
+    [[ "$(printf '%s\n' "$1" "$2" | sort -V | tail -n1)" == "$1" && "$1" != "$2" ]]
+}
+
+check_installer_update_online() {
+    local remote_content remote_version script_path tmp_file
+    info "Checking for updates..."
+    remote_content="$(curl -fsSL "${INSTALLER_REMOTE_URL}" 2>/dev/null || true)"
+    if [[ -z "${remote_content}" ]]; then
+        warn "Could not check online installer version from ${INSTALLER_REMOTE_URL}"
+        return 0
+    fi
+    remote_version="$(printf '%s\n' "${remote_content}" | sed -nE 's/^INSTALLER_VERSION="([^"]+)".*/\1/p' | head -n1)"
+    [[ -n "${remote_version}" ]] || return 0
+
+    if version_gt "${remote_version}" "${INSTALLER_VERSION}"; then
+        info "A newer installer is available: local=${INSTALLER_VERSION}, available=${remote_version}"
+        if [[ "${ASSUME_YES}" == "true" || ! -t 0 ]]; then
+            info "Non-interactive mode: skipping self-update prompt."
+            return 0
+        fi
+        local ans=""
+        read -r -p "Download the newer installer now and restart from it? [y/N]: " ans
+        case "${ans}" in
+            y|Y|yes|YES)
+                script_path="$(realpath "$0" 2>/dev/null || echo "$0")"
+                tmp_file="${script_path}.tmp.$$"
+                printf '%s' "${remote_content}" > "${tmp_file}"
+                chmod +x "${tmp_file}"
+                mv "${tmp_file}" "${script_path}"
+                if [[ -n "${SUDO_USER:-}" ]] && id "${SUDO_USER}" &>/dev/null; then
+                    local sg=""
+                    sg="$(id -gn "${SUDO_USER}" 2>/dev/null || true)"
+                    if [[ -n "${sg}" ]]; then
+                        chown "${SUDO_USER}:${sg}" "${script_path}" 2>/dev/null || true
+                    else
+                        chown "${SUDO_USER}" "${script_path}" 2>/dev/null || true
+                    fi
+                fi
+                ok "Updated installer at ${script_path}"
+                info "Please restart the installer now:"
+                info "  sudo ${script_path}"
+                exit 0
+                ;;
+            *)
+                info "Continuing with current installer version ${INSTALLER_VERSION}."
+                ;;
+        esac
+    fi
+}
+
 usage() {
     cat <<EOF
 Usage:
-  sudo $0 [--install|--reinstall|--remove] [--yes] [--purge] [--dry-run]
+  sudo $0 [--install|--reinstall|--update|--remove] [--yes] [--purge] [--dry-run]
           [--user-context <username>] [--node-unit-name <unit>] [--node-config <path>]
           [--network mainnet|preprod|preview] [--node-name <name>]
           [--api-key <value>|--api-key-file <path>] [--version]
@@ -195,6 +265,7 @@ Usage:
 Modes:
   --install      Install if target paths are empty (default)
   --reinstall    Reinstall package and replace install directory
+  --update       Update only the installed openblockperf package in the existing venv
   --remove       Remove service, wrapper, and installation directory
 
 Options:
@@ -232,6 +303,7 @@ parse_args() {
         case "$1" in
             --install) MODE="install"; shift ;;
             --reinstall) MODE="reinstall"; shift ;;
+            --update) MODE="update"; shift ;;
             --remove) MODE="remove"; shift ;;
             --yes|-y) ASSUME_YES="true"; shift ;;
             --purge) PURGE_CONFIG="true"; shift ;;
@@ -298,6 +370,13 @@ confirm_or_die() {
         y|Y|yes|YES) return 0 ;;
         *) die "Aborted by user." ;;
     esac
+}
+
+ensure_valid_working_directory() {
+    if ! pwd >/dev/null 2>&1; then
+        warn "Current working directory is no longer available. Switching to /"
+        cd / || die "Could not switch to a safe working directory (/)."
+    fi
 }
 
 # Step 2 — Service user and group 
@@ -390,7 +469,7 @@ resolve_node_name() {
 
     if [[ "${ASSUME_YES}" != "true" ]] && [[ -t 0 ]] && [[ -z "${CLI_NODE_NAME}" ]]; then
         local in_name=""
-        read -r -p "Operator node name [${NODE_NAME}] (used in aggregated data): " in_name
+        read -r -p "This node name [${NODE_NAME}] (used in aggregated data): " in_name
         if [[ -n "${in_name}" ]]; then
             NODE_NAME="${in_name}"
         fi
@@ -430,6 +509,7 @@ collect_cardano_node_unit_candidates() {
         [[ "${u}" == *.service ]] || continue
         case "${u,,}" in
             *openblockperf*) continue ;;
+            cnode-*) continue ;;
             *cardano*|*cnode*) seen["${u}"]=1 ;;
         esac
     done < <(systemctl list-unit-files --type=service --no-legend 2>/dev/null || true)
@@ -441,6 +521,7 @@ collect_cardano_node_unit_candidates() {
             b=$(basename "${f}")
             case "${b,,}" in
                 *openblockperf*) continue ;;
+                cnode-*) continue ;;
                 *cardano*|*cnode*) seen["${b}"]=1 ;;
             esac
         done
@@ -865,6 +946,16 @@ ensure_dependencies_step1() {
         esac
     fi
 
+    if ! command -v curl &>/dev/null; then
+        case "${DISTRO_FAMILY}" in
+            debian) deb_pkgs_[curl]=1 ;;
+            rhel)   rpm_pkgs_[curl]=1 ;;
+            *)
+                die "Command 'curl' not found. Install curl, then re-run (auto-install is only supported on Debian/Ubuntu and CentOS/RHEL-family)."
+                ;;
+        esac
+    fi
+
     if ! command -v systemctl &>/dev/null; then
         case "${DISTRO_FAMILY}" in
             debian) deb_pkgs_[systemd]=1 ;;
@@ -918,6 +1009,7 @@ ensure_dependencies_step1() {
 
     command -v "${PYTHON}" &>/dev/null || die "After package install, '${PYTHON}' is still not in PATH. Set PYTHON= to the installed interpreter."
     command -v jq &>/dev/null || die "Command 'jq' not found after package install."
+    command -v curl &>/dev/null || die "Command 'curl' not found after package install."
     command -v systemctl &>/dev/null || die "Command 'systemctl' not found after package install."
 
     ensure_ensurepip_available
@@ -929,7 +1021,7 @@ check_remove_prerequisites() {
 }
 
 check_required_commands() {
-    local cmds=("id" "getent" "mkdir" "rm" "chmod" "chown" "install" "jq")
+    local cmds=("id" "getent" "mkdir" "rm" "chmod" "chown" "install" "jq" "curl")
     local c
     for c in "${cmds[@]}"; do
         command -v "${c}" &>/dev/null || die "Required command '${c}' not found."
@@ -1033,6 +1125,62 @@ install_package() {
     local installed_version
 }
 
+get_current_installed_package_version() {
+    [[ -x "${VENV_DIR}/bin/pip" ]] || return 1
+    "${VENV_DIR}/bin/pip" show "${PACKAGE_NAME}" 2>/dev/null | sed -nE 's/^Version: (.+)$/\1/p' | head -n1
+}
+
+get_latest_pypi_package_version() {
+    [[ -x "${VENV_DIR}/bin/pip" ]] || return 1
+    "${VENV_DIR}/bin/pip" index versions "${PACKAGE_NAME}" 2>/dev/null | sed -nE "s/^${PACKAGE_NAME} \\(([^)]+)\\).*/\1/p" | head -n1
+}
+
+get_pypi_summary_text() {
+    curl -fsSL "https://pypi.org/pypi/${PACKAGE_NAME}/json" 2>/dev/null | jq -r '.info.summary // empty' 2>/dev/null || true
+}
+
+update_package_only_mode() {
+    [[ -x "${VENV_DIR}/bin/pip" ]] || die "No venv found at ${VENV_DIR}. Install first before using --update."
+
+    local current_version latest_version summary
+    current_version="$(get_current_installed_package_version || true)"
+    latest_version="$(get_latest_pypi_package_version || true)"
+    summary="$(get_pypi_summary_text || true)"
+
+    echo
+    echo -e "${BOLD}OpenBlockPerf Package Update${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    printf "  %-20s %s\n" "Installer version:" "${INSTALLER_VERSION}"
+    printf "  %-20s %s\n" "Currently installed:" "${current_version:-unknown}"
+    printf "  %-20s %s\n" "Latest on PyPI:" "${latest_version:-unknown}"
+    if [[ -n "${summary}" ]]; then
+        printf "  %-20s %s\n" "Release info:" "${summary}"
+    fi
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        ok "Dry-run complete for --update. No package changes applied."
+        return 0
+    fi
+
+    if [[ -n "${current_version}" && -n "${latest_version}" && "${current_version}" == "${latest_version}" ]]; then
+        ok "openblockperf is already up to date (${current_version})."
+        return 0
+    fi
+
+    confirm_or_die "Proceed with package update now?"
+    if ! "${VENV_DIR}/bin/pip" install --quiet --upgrade "${PACKAGE_NAME}"; then
+        warn "Package update failed."
+        warn "Try manually with verbose output:"
+        warn "  ${VENV_DIR}/bin/pip install -v --upgrade ${PACKAGE_NAME}"
+        die "pip update failed."
+    fi
+    local updated_version
+    updated_version="$(get_current_installed_package_version || true)"
+    ok "Updated ${PACKAGE_NAME} to ${updated_version:-unknown}."
+}
+
 configure_ownership() {
     id "${SERVICE_USER}" &>/dev/null || die "User '${SERVICE_USER}' does not exist."
     getent group "${SERVICE_GROUP}" &>/dev/null || die "Group '${SERVICE_GROUP}' does not exist."
@@ -1099,6 +1247,11 @@ ${api_line}
 # Cardano network: mainnet | preprod | preview
 # -----------------------------------------------------------------------
 OPENBLOCKPERF_NETWORK=${NETWORK}
+
+# -----------------------------------------------------------------------
+# Client log level: DEBUG | INFO | WARNING | ERROR | EXCEPTION
+# -----------------------------------------------------------------------
+OPENBLOCKPERF_LOG_LEVEL=WARNING
 
 # -----------------------------------------------------------------------
 # Operator-defined node label (used to identify this node in aggregated data)
@@ -1325,6 +1478,7 @@ remove_installation() {
 # ---------------------------------------------------------------------------
 main() {
     trap 'on_error "${LINENO}" "${BASH_COMMAND}" "$?"' ERR
+    ensure_valid_working_directory
     parse_args "$@"
     if [[ "${MODE}" == "remove" && "${DRY_RUN}" == "true" ]]; then
         die "--dry-run is only available for install/reinstall."
@@ -1332,9 +1486,18 @@ main() {
     check_root
     check_linux
 
+    # Always check for newer installer before any intro/wizard output.
+    if [[ "${MODE}" != "remove" ]]; then
+        check_installer_update_online
+    fi
+
     # Show interactive overview before any package-install prompts.
     if [[ "${MODE}" != "remove" ]] && [[ "${ASSUME_YES}" != "true" ]]; then
-        print_intro_and_confirm
+        if [[ "${MODE}" == "update" ]]; then
+            print_update_intro_and_confirm
+        else
+            print_intro_and_confirm
+        fi
     fi
 
     if [[ "${MODE}" == "remove" ]]; then
@@ -1358,6 +1521,12 @@ main() {
         echo
         remove_installation
         exit 0
+    fi
+
+    if [[ "${MODE}" == "update" ]]; then
+        check_python
+        update_package_only_mode
+        return 0
     fi
 
     check_python
