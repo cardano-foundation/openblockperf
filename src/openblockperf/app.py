@@ -72,7 +72,7 @@ class Blockperf:
         # self._peers_lock = asyncio.Lock()
 
         # AsyncIO Events allow coroutines to wait for an event to happen.
-        # It holds an internal booleanj flag that can be set (set()), cleared (clear())
+        # It holds an internal boolean that can be set (set()), cleared (clear())
         # or checked (is_set()). See asyncio.Event docs.
         self.node_synced_event: asyncio.Event = asyncio.Event()  # Defaults to false/unset
         if not self.settings.sync_check_enabled:
@@ -202,11 +202,8 @@ class Blockperf:
             # Now switch to live log tailing, this should run forever
             self.console.print("Starting live log processing...")
             async for message in log_reader.read_messages():
-                # The generate will constantly generate messages. We only
+                # The above generator will constantly generate messages. We only
                 # want to process them though, when we know the node is synced.
-                # I wanted to avoid that log messages from the generate keep piling
-                # up and then once the node is synced all flush through at once.
-                # Thats why there is no `await self.node_synced_event.wait()` call!
                 if self.node_synced_event.is_set():
                     await self._process_message(message)
 
@@ -303,7 +300,7 @@ class Blockperf:
                 return
 
             if self.replaying:
-                rich.print("Wont send samples because of the replay")
+                logger.debug("Wont send samples because of the replay")
                 continue
             ready_groups = {}
             for k, group in self.block_sample_groups.items():
@@ -317,7 +314,7 @@ class Blockperf:
                 # Group is ok, grab and send the sample
                 sample = group.sample()
                 resp = await self.api.submit_block_sample(sample)
-                rich.print(f"[bold green]Sample {group.block_hash[:8]} published. {resp=}.[/]")
+                logger.debug("Sample published.", sample=sample, response=resp)
                 # Delete group
                 del self.block_sample_groups[k]
 
