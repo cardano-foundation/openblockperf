@@ -8,13 +8,9 @@ This document describes how to install, reinstall, remove, and validate the Open
 sudo ./blockperf-install.sh
 ```
 
-Recommended first run:
+In interactive mode, the installer asks whether you want **preview-only** mode first: it resolves settings and prints the plan but skips installing the package, writing systemd files, and starting the service. (OS package installs during preflight may still run if dependencies are missing.) Answer **No** to run a full install.
 
-```bash
-sudo ./blockperf-install.sh --dry-run
-```
-
-Then run without `--dry-run` to apply changes.
+Piped or non-interactive runs (for example `curl ... | sudo bash`) have no terminal for prompts — use **`--yes`** for a fully unattended install.
 
 ## Modes
 
@@ -25,8 +21,7 @@ Then run without `--dry-run` to apply changes.
 
 ## Common options
 
-- `--yes`: non-interactive mode, accepts prompts automatically.
-- `--dry-run`: resolve and display settings only, no system changes.
+- `--yes`: non-interactive mode, accepts prompts automatically (required for unattended installs when stdin is not a TTY).
 - `--version`: print installer script version and exit.
 - `--user-context <username>`: service user.
 - `--node-unit-name <unit>`: cardano-node systemd unit.
@@ -37,6 +32,8 @@ Then run without `--dry-run` to apply changes.
 - `--api-key <value>`: provide API key directly (less secure, visible in process list).
 
 The installer also performs an online installer-version check and can offer a self-update if a newer script is available.
+
+**Node config path:** the script derives `config.json` from the unit’s `ExecStart` and expands variables such as `$CONFIG` using the unit’s merged `Environment` and `EnvironmentFiles`. If the path is still wrong or missing, interactive mode asks for the absolute path; an empty answer exits the installer.
 
 ## API key flow
 
