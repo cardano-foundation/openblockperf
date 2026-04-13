@@ -26,6 +26,8 @@ def _settings(network: str | None = None, api_url: str | None = None, node_unit_
             overrides["network"] = network
         if api_url:
             overrides["api_url"] = api_url
+        if node_unit_name:
+            overrides["node_unit_name"] = node_unit_name
         settings = AppSettings(**overrides)
     except ValidationError as e:
         sys.exit(f"Error creating settings: {e!r}")

@@ -170,7 +170,8 @@ class Blockperf:
 
         # If enabled wait for node to be synced
         if self.settings.sync_check_enabled:
-            self.node_synced_event.wait()
+            await self.node_synced_event.wait()
+
         while True:
             delay = 10
             max_delay = 60
@@ -193,20 +194,21 @@ class Blockperf:
         then switches to live log tailing. This ensures no events are missed
         and the client starts with a complete picture of the current state.
         """
-        self.console.print("Starting event processor")
-
+        logger.info("Starting event processor")
         async with self.log_reader as log_reader:
             # ===== PHASE 1: BLOCKING REPLAY =====
             # Replay historical logs from last startup. The loop over
             # replay_from_startup() blocks as long as that function does
             # not call `return`. Such that, as long as it yields values
             # the loop will run.
+            # However i have disable that for now because we did not really
+            # needed it as the client now wants to wait until synced anyhow.
+            # So, ths may be removed in the future.
 
             enable_replay = False
-            self.console.print("[bold yellow]Log replaying disabled[/]")
             if enable_replay:
                 try:
-                    self.console.print("[bold blue]Searching old logs for node startup marker[/]")  # fmt: off
+                    logger.info("Searching old logs for node startup marker")
                     message_count = 0  # just counting for now
                     self.replaying = True
                     async for message in log_reader.replay_from_startup():
@@ -221,7 +223,7 @@ class Blockperf:
 
             # ===== PHASE 2: LIVE TAILING =====
             # Now switch to live log tailing, this should run forever
-            self.console.print("Starting live log processing...")
+            logger.info("Starting live log processing")
             async for message in log_reader.read_messages():
                 # The above generator will constantly generate messages. We only
                 # want to process them though, when we know the node is synced.

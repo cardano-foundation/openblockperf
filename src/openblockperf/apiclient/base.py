@@ -122,7 +122,7 @@ class BlockperfApiBase:
             #        headers=headers,
             #        **kwargs,
             #    )
-            logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", extra=e.response)
+            logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
             return None
         except httpx.TimeoutException as e:
             raise ApiError(f"API request timed out: {e}") from e
