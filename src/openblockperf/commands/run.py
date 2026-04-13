@@ -38,6 +38,15 @@ async def run_cmd(
         E.g.: http://localhost:8000/api/v0
         """,
     ),
+    node_unit_name: str = typer.Option(
+        None,
+        "--node-unit-name",
+        help="""Override unit name of the node this client tries to read logs from journald.
+
+        This is the name of the systemd unit that your cardano-node service runs as.
+        Defaults to cardano-node.
+        """,
+    ),
 ) -> None:
     """The run command.
 
@@ -52,7 +61,7 @@ async def run_cmd(
 
     """
     try:
-        settings = _settings(network, api_url)
+        settings = _settings(network, api_url, node_unit_name)
         console.print(f"[bold cyan]Network:[/] {settings.network.value}")
         console.print(f"[bold cyan]Hostname:[/] {settings.hostname}")
         console.print(f"[bold cyan]Node Unit:[/] {settings.node_unit_name}")

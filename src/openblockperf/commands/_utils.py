@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from openblockperf.config import AppSettings, Network
 
 
-def _settings(network: str | None, api_url: str | None) -> AppSettings:
+def _settings(network: str | None = None, api_url: str | None = None, node_unit_name: str | None = None) -> AppSettings:
     """Helper that creates the AppSettings instance.
 
     Returns:
