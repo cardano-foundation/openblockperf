@@ -11,10 +11,11 @@
 # All steps are configurable via environment variables (see below).
 #
 # Usage:
+#   ./blockperf-install.sh              # will prompt for sudo password if not root
 #   sudo ./blockperf-install.sh
-#   sudo ./blockperf-install.sh --update
+#   ./blockperf-install.sh --update
 #   sudo ./blockperf-install.sh --reinstall
-#   sudo ./blockperf-install.sh --remove
+#   ./blockperf-install.sh --remove
 #
 # On Debian/Ubuntu and CentOS/RHEL-family systems, missing dependencies (e.g. jq,
 # python3, python3-full / python3-pip) may be installed via the package manager
@@ -27,7 +28,6 @@
 #   sudo ./blockperf-install.sh --network preprod
 #   sudo ./blockperf-install.sh --api-key 'YOUR_KEY'   # or: sudo -E ./install.sh   with OPENBLOCKPERF_API_KEY set
 #   sudo ./blockperf-install.sh --api-key-file /root/openblockperf-api-key.txt
-#   sudo ./blockperf-install.sh --dry-run
 #   sudo PACKAGE_VERSION=0.0.5 ./blockperf-install.sh
 #
 # Configurable environment variables:
@@ -61,7 +61,7 @@ set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://openblockperf.cardano.org/docs#TODO"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.1.0"
+INSTALLER_VERSION="0.1.1"
 INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ CLI_NETWORK=""        # set by --network mainnet|preprod|preview
 CLI_NODE_NAME=""      # set by --node-name <name>
 CLI_API_KEY=""        # set by --api-key <value>
 CLI_API_KEY_FILE=""   # set by --api-key-file <path>
-DRY_RUN="false"       # true to print plan and resolved values only
+DRY_RUN="false"       # set interactively (preview-only); no --dry-run flag
 
 # Set by resolve_api_key (Step 6); written to ENV_FILE in write_env_file
 API_KEY_TO_INSTALL=""
@@ -166,6 +166,25 @@ on_error() {
     warn "You can safely re-run this installer after fixing the issue."
 }
 
+# Interactive only: offer preview-only mode (no venv/service writes). Non-interactive (--yes)
+# or no TTY skips this; DRY_RUN stays false.
+maybe_prompt_interactive_dry_run() {
+    DRY_RUN="false"
+    [[ "${MODE}" == "remove" ]] && return 0
+    [[ "${ASSUME_YES}" == "true" ]] && return 0
+    [[ -t 0 ]] || return 0
+    local ans=""
+    echo
+    read -r -p "Preview only (resolve settings and show the plan; skip installing and writing service files)? [y/N]: " ans
+    case "${ans}" in
+        y|Y|yes|YES)
+            DRY_RUN="true"
+            info "Preview-only mode: venv, env file, systemd unit, and service start will be skipped."
+            ;;
+        *) ;;
+    esac
+}
+
 print_intro_and_confirm() {
     echo
     echo -e "${BOLD}OpenBlockPerf installer overview${NC}"
@@ -177,11 +196,8 @@ print_intro_and_confirm() {
     echo "  5) Print summary and next steps"
     echo
     if [[ "${DRY_RUN}" == "true" ]]; then
-        warn "Dry-run mode: install/write/start steps are skipped."
+        warn "Preview-only mode: install/write/start steps will be skipped."
         warn "Preflight dependency installs may still be required and are real operations."
-        info "You are currently in dry-run mode."
-    else
-        info "Tip: run with --dry-run first to inspect planned settings."
     fi
     confirm_or_die "Continue?"
 }
@@ -197,7 +213,7 @@ print_update_intro_and_confirm() {
     info "Only the Python package in ${VENV_DIR} is updated."
     info "No systemd unit, env file, install folder layout, or node config is modified."
     if [[ "${DRY_RUN}" == "true" ]]; then
-        info "You are currently in dry-run mode."
+        info "Preview-only mode: package upgrade will be skipped."
     fi
     confirm_or_die "Continue with update mode?"
 }
@@ -244,7 +260,7 @@ check_installer_update_online() {
                 fi
                 ok "Updated installer at ${script_path}"
                 info "Please restart the installer now:"
-                info "  sudo ${script_path}"
+                info "  ${script_path}"
                 exit 0
                 ;;
             *)
@@ -257,10 +273,13 @@ check_installer_update_online() {
 usage() {
     cat <<EOF
 Usage:
-  sudo $0 [--install|--reinstall|--update|--remove] [--yes] [--purge] [--dry-run]
+  $0 [--install|--reinstall|--update|--remove] [--yes] [--purge]
           [--user-context <username>] [--node-unit-name <unit>] [--node-config <path>]
           [--network mainnet|preprod|preview] [--node-name <name>]
           [--api-key <value>|--api-key-file <path>] [--version]
+
+  Root privileges are required; if you are not root, the script re-invokes itself via sudo
+  (you may be prompted for your password). --help and --version work without sudo.
 
 Modes:
   --install      Install if target paths are empty (default)
@@ -291,7 +310,6 @@ Options:
                  exporting OPENBLOCKPERF_API_KEY=... (visible in process list — prefer env file).
   --api-key-file <path>
                  Read OPENBLOCKPERF_API_KEY from a file (recommended over --api-key).
-  --dry-run      Resolve configuration and print plan without changing the system.
   --version      Print installer script version and exit.
   --purge        With --remove, also delete ${ENV_FILE}
   -h, --help     Show this help
@@ -341,10 +359,6 @@ parse_args() {
                 [[ $# -ge 2 ]] || die "--api-key-file requires a readable file path"
                 CLI_API_KEY_FILE="$2"
                 shift 2
-                ;;
-            --dry-run)
-                DRY_RUN="true"
-                shift
                 ;;
             --version)
                 echo "blockperf-install.sh version ${INSTALLER_VERSION}"
@@ -469,7 +483,10 @@ resolve_node_name() {
 
     if [[ "${ASSUME_YES}" != "true" ]] && [[ -t 0 ]] && [[ -z "${CLI_NODE_NAME}" ]]; then
         local in_name=""
-        read -r -p "This node name [${NODE_NAME}] (used in aggregated data): " in_name
+        echo
+        echo "You can contribute blockperf data from multiple relay nodes and assign them individual"
+        echo "names for your internal use only. These names will not be shared publicly."
+        read -r -p "This node name [${NODE_NAME}]: " in_name
         if [[ -n "${in_name}" ]]; then
             NODE_NAME="${in_name}"
         fi
@@ -597,6 +614,69 @@ resolve_cardano_node_unit() {
 
 # Step 4 — Node config.json path (TraceOptions backend validation is skipped for now)
 
+# Merge systemd Environment= and EnvironmentFile= entries so we can expand $VAR in paths.
+gather_systemd_unit_environment_blob() {
+    local unit="$1"
+    local ev ef f line k v blob
+    ev="$(systemctl show "${unit}" -p Environment --value 2>/dev/null | tr '\n' ' ')"
+    blob="${ev}"
+    ef="$(systemctl show "${unit}" -p EnvironmentFiles --value 2>/dev/null || true)"
+    for f in ${ef}; do
+        [[ -r "$f" ]] || continue
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+            line="${line#"${line%%[![:space:]]*}"}"
+            [[ -z "${line}" ]] && continue
+            if [[ "${line}" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+                k="${BASH_REMATCH[1]}"
+                v="${BASH_REMATCH[2]}"
+                v="${v#\"}"
+                v="${v%\"}"
+                v="${v#\'}"
+                v="${v%\'}"
+                blob+=" ${k}=${v}"
+            fi
+        done < "${f}"
+    done
+    printf '%s' "${blob}"
+}
+
+lookup_env_var_in_blob() {
+    local blob="$1"
+    local name="$2"
+    [[ -n "${blob}" && -n "${name}" ]] || return 1
+    if [[ "${blob}" =~ (^|[[:space:]])${name}=([^[:space:]]+) ]]; then
+        printf '%s' "${BASH_REMATCH[2]}"
+        return 0
+    fi
+    return 1
+}
+
+# Expand ${VAR} and $VAR using KEY=value pairs from gather_systemd_unit_environment_blob.
+expand_vars_in_path_string() {
+    local path="$1"
+    local blob="$2"
+    local i=0 max=48 varname vv
+    while (( i < max )); do
+        ((i++)) || true
+        [[ "${path}" == *'$'* ]] || break
+        if [[ "${path}" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} ]]; then
+            varname="${BASH_REMATCH[1]}"
+            vv="$(lookup_env_var_in_blob "${blob}" "${varname}")" || break
+            path="${path//\$\{${varname}\}/${vv}}"
+            continue
+        fi
+        if [[ "${path}" =~ \$([A-Za-z_][A-Za-z0-9_]*) ]]; then
+            varname="${BASH_REMATCH[1]}"
+            vv="$(lookup_env_var_in_blob "${blob}" "${varname}")" || break
+            path="${path//\$${varname}/${vv}}"
+            continue
+        fi
+        break
+    done
+    printf '%s' "${path}"
+}
+
 extract_config_from_execstart_string() {
     local s="$1"
     [[ -n "${s}" ]] || return 1
@@ -661,17 +741,17 @@ make_absolute_path() {
 
 extract_config_path_from_systemd_unit() {
     local unit="$1"
-    local ex envs wd path cat_line
+    local env_blob ex wd path cat_line
+    env_blob="$(gather_systemd_unit_environment_blob "${unit}")"
     ex="$(systemctl show "${unit}" -p ExecStart --value 2>/dev/null || true)"
-    envs="$(systemctl show "${unit}" -p Environment --value 2>/dev/null || true)"
     wd="$(systemctl show "${unit}" -p WorkingDirectory --value 2>/dev/null || true)"
     path=""
     path="$(extract_config_from_execstart_string "${ex}")" || path=""
     if [[ -z "${path}" ]]; then
         path="$(extract_cntools_config_path_from_execstart_string "${ex}")" || path=""
     fi
-    if [[ -z "${path}" && -n "${envs}" ]]; then
-        path="$(extract_config_from_env_string "${envs}")" || path=""
+    if [[ -z "${path}" && -n "${env_blob}" ]]; then
+        path="$(extract_config_from_env_string "${env_blob}")" || path=""
     fi
     if [[ -z "${path}" ]]; then
         cat_line="$(systemctl cat "${unit}" 2>/dev/null | grep -m1 '^ExecStart=' | sed 's/^ExecStart=//' || true)"
@@ -681,10 +761,29 @@ extract_config_path_from_systemd_unit() {
         path="$(extract_cntools_config_path_from_execstart_string "${cat_line}")" || path=""
     fi
     [[ -n "${path}" ]] || return 1
+    path="$(expand_vars_in_path_string "${path}" "${env_blob}")"
     if [[ "${path}" != /* ]]; then
         path="$(make_absolute_path "${path}" "${wd}")" || return 1
+        path="$(expand_vars_in_path_string "${path}" "${env_blob}")"
     fi
     printf '%s' "${path}"
+}
+
+node_config_file_is_acceptable() {
+    local f="$1"
+    [[ -n "${f}" ]] || return 1
+    [[ -f "${f}" ]] || return 1
+    [[ -r "${f}" ]] || return 1
+    jq -e '.' "${f}" &>/dev/null || return 1
+    jq -e 'type == "object"' "${f}" &>/dev/null || return 1
+    return 0
+}
+
+warn_if_unusual_cardano_node_config() {
+    local f="$1"
+    if ! jq -e 'has("ShelleyGenesisFile") or has("ByronGenesisFile") or has("TraceOptions")' "${f}" &>/dev/null; then
+        warn "Config JSON parses but lacks typical cardano-node keys (e.g. ShelleyGenesisFile, TraceOptions); continuing."
+    fi
 }
 
 resolve_node_config_path() {
@@ -702,19 +801,31 @@ resolve_node_config_path() {
         fi
     fi
 
-    if [[ -z "${NODE_CONFIG_PATH}" ]]; then
-        if [[ "${ASSUME_YES}" == "true" ]]; then
-            die "Could not determine cardano-node config.json. Set NODE_CONFIG_PATH= or --node-config."
+    while true; do
+        if node_config_file_is_acceptable "${NODE_CONFIG_PATH}"; then
+            break
         fi
-        [[ -t 0 ]] || die "Could not determine cardano-node config.json. Set NODE_CONFIG_PATH= or --node-config (or run interactively)."
-        read -r -p "Absolute path to cardano-node config.json: " NODE_CONFIG_PATH
+
+        if [[ "${ASSUME_YES}" == "true" ]] || [[ ! -t 0 ]]; then
+            if [[ -z "${NODE_CONFIG_PATH}" ]]; then
+                die "Could not determine cardano-node config.json. Set NODE_CONFIG_PATH= or --node-config."
+            fi
+            die "Node config is missing or not usable: ${NODE_CONFIG_PATH}. Set NODE_CONFIG_PATH= or --node-config to a valid JSON file."
+        fi
+
+        if [[ -n "${NODE_CONFIG_PATH}" ]]; then
+            warn "Node config is missing, unreadable, or not valid JSON: ${NODE_CONFIG_PATH}"
+        else
+            warn "Could not determine cardano-node config.json from ${NODE_UNIT_NAME} (e.g. unexpanded variables in ExecStart)."
+        fi
+        echo
+        warn "Enter the absolute path to your cardano-node config.json. Leave empty to exit."
+        read -r -p "Path: " NODE_CONFIG_PATH
         origin="prompt"
-        [[ -n "${NODE_CONFIG_PATH}" ]] || die "No path given."
-    fi
+        [[ -n "${NODE_CONFIG_PATH}" ]] || die "No config path given; exiting."
+    done
 
-    [[ -f "${NODE_CONFIG_PATH}" ]] || die "Node config file not found: ${NODE_CONFIG_PATH}"
-
-    jq -e '.' "${NODE_CONFIG_PATH}" &>/dev/null || die "Node config is not valid JSON: ${NODE_CONFIG_PATH}"
+    warn_if_unusual_cardano_node_config "${NODE_CONFIG_PATH}"
 
     case "${origin}" in
         explicit) info "Node config: ${NODE_CONFIG_PATH} (explicit)" ;;
@@ -846,8 +957,21 @@ resolve_api_key() {
 # ---------------------------------------------------------------------------
 # Preflight checks
 # ---------------------------------------------------------------------------
-check_root() {
-    [[ $EUID -eq 0 ]] || die "This script must be run as root. Try: sudo $0"
+# If not root, re-exec via sudo so the rest of the script runs with elevated privileges.
+# Call only after parse_args so --help / --version work without sudo.
+ensure_root_or_reexec_sudo() {
+    [[ $EUID -eq 0 ]] && return 0
+    command -v sudo &>/dev/null || die "This installer must run as root. Install the 'sudo' package or run: sudo $0"
+    local script_path=""
+    if command -v realpath &>/dev/null; then
+        script_path="$(realpath "$0" 2>/dev/null || true)"
+    fi
+    if [[ -z "${script_path}" || ! -f "${script_path}" ]]; then
+        script_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    fi
+    [[ -f "${script_path}" ]] || die "Cannot resolve this script's path (tried '${script_path}'). Run: sudo bash /full/path/to/blockperf-install.sh"
+    info "This installer requires root privileges; you may be prompted for your password."
+    exec sudo -E "${script_path}" "$@"
 }
 
 check_linux() {
@@ -904,7 +1028,7 @@ ensure_ensurepip_available() {
     echo
     warn "'${PYTHON}' cannot run ensurepip (needed for pip in the venv)."
     if [[ "${DRY_RUN}" == "true" ]]; then
-        warn "Dry-run note: package installation in preflight is a real operation."
+        warn "Preview-only note: package installation in preflight is a real operation."
     fi
     if [[ -n "${pkg_deb}" ]]; then
         warn "Will install package: ${pkg_deb}"
@@ -990,7 +1114,7 @@ ensure_dependencies_step1() {
         echo
         warn "The following OS packages will be installed to satisfy missing commands:"
         if [[ "${DRY_RUN}" == "true" ]]; then
-            warn "Dry-run note: this preflight installation is real."
+            warn "Preview-only note: this preflight installation is real."
         fi
         if [[ ${#pkgs_deb[@]} -gt 0 ]]; then
             warn "  (Debian/Ubuntu) ${pkgs_deb[*]}"
@@ -1160,7 +1284,7 @@ update_package_only_mode() {
     echo
 
     if [[ "${DRY_RUN}" == "true" ]]; then
-        ok "Dry-run complete for --update. No package changes applied."
+        ok "Preview-only run complete for --update. No package changes applied."
         return 0
     fi
 
@@ -1480,15 +1604,16 @@ main() {
     trap 'on_error "${LINENO}" "${BASH_COMMAND}" "$?"' ERR
     ensure_valid_working_directory
     parse_args "$@"
-    if [[ "${MODE}" == "remove" && "${DRY_RUN}" == "true" ]]; then
-        die "--dry-run is only available for install/reinstall."
-    fi
-    check_root
+    ensure_root_or_reexec_sudo "$@"
     check_linux
 
     # Always check for newer installer before any intro/wizard output.
     if [[ "${MODE}" != "remove" ]]; then
         check_installer_update_online
+    fi
+
+    if [[ "${MODE}" != "remove" ]] && [[ "${ASSUME_YES}" != "true" ]]; then
+        maybe_prompt_interactive_dry_run
     fi
 
     # Show interactive overview before any package-install prompts.
@@ -1561,8 +1686,8 @@ main() {
     echo
 
     if [[ "${DRY_RUN}" == "true" ]]; then
-        ok "Dry-run complete. No files changed."
-        echo "Re-run without --dry-run to apply."
+        ok "Preview-only run complete. No install files changed."
+        echo "Run the installer again and answer No to preview-only to apply changes."
         return 0
     fi
 
