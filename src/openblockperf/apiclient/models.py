@@ -48,3 +48,8 @@ class SubmitSignedChallengeRequest(BaseModel):
 
 class SubmitSignedChallengeResponse(BaseModel):
     apikey: str
+
+
+class ClientInfoRequest(BaseModel):
+    hostname: str
+    node_version: str

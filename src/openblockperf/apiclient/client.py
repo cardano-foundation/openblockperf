@@ -9,6 +9,7 @@ from .base import BlockperfApiBase
 from .models import (
     BlockSampleRequest,
     BlockSampleResponse,
+    ClientInfoRequest,
     PeerEventRequest,
     RegistrationChallengeRequest,
     RegistrationChallengeResponse,
@@ -73,6 +74,10 @@ class BlockperfApiClient:
         resp = await self._api.post("/submit/peerevent", per)
         rich.print(f"Response: {resp}")
         print()
+
+    async def send_clientinfo(self, hostname: str, node_version: str):
+        info_request = ClientInfoRequest(hostname=hostname, node_version=node_version)
+        _ = await self._api.post("/submit/clientinfo", info_request)
 
     async def test_api_key(self):
         resp = await self._api.get("/auth/private")

@@ -5,9 +5,9 @@ import psutil
 import rich
 from rich.console import Console
 
-# from rich.console import Console
 from openblockperf.apiclient import BlockperfApiClient
 from openblockperf.blocksamplegroup import BlockSampleGroup
+from openblockperf.config import AppSettings
 from openblockperf.ekg import EkgClient, EkgError
 from openblockperf.errors import (
     ApiConnectionError,
@@ -21,8 +21,6 @@ from openblockperf.handler import EventHandler
 from openblockperf.logging import logger
 from openblockperf.logreader import NodeLogReader, create_log_reader
 from openblockperf.models.peer import Peer, PeerState
-
-# console = Console()
 
 
 class Blockperf:
@@ -58,8 +56,10 @@ class Blockperf:
     block_sample_groups: dict[str, BlockSampleGroup]  # Groups of block samples
     peers: dict[tuple, Peer]  # The nodes peer list (actually a dictionary)
     replaying: bool
+    node_synced_event: asyncio.Event
+    clientinfo_sent: bool  # Use asyncio.Event if another task is waiting for this
 
-    def __init__(self, console: Console, settings):
+    def __init__(self, console: Console, settings: AppSettings):
         # Keep this simple! Do any complex init in start()
         self.console = console
         self.settings = settings
@@ -67,14 +67,13 @@ class Blockperf:
         self.tasks: dict[str, asyncio.Task] = {}
         self.since_hours = 0
         self.block_sample_groups = {}
-        # self._block_sample_groups_lock = asyncio.Lock()
         self.peers = {}
-        # self._peers_lock = asyncio.Lock()
+        self.clientinfo_sent = False
 
         # AsyncIO Events allow coroutines to wait for an event to happen.
         # It holds an internal boolean that can be set (set()), cleared (clear())
         # or checked (is_set()). See asyncio.Event docs.
-        self.node_synced_event: asyncio.Event = asyncio.Event()  # Defaults to false/unset
+        self.node_synced_event = asyncio.Event()  # Defaults to false/unset
         if not self.settings.sync_check_enabled:
             # If disabled always, assume the node is synced
             self.node_synced_event.set()
@@ -99,12 +98,13 @@ class Blockperf:
 
         try:
             async with asyncio.TaskGroup() as tg:
+                self.create_task(self.send_clientinfo_task, tg)
                 # Create all long running tasks that run in this app
                 self.create_task(self.process_events_task, tg)
                 # self.create_task(self.testapi_task, tg)
                 self.create_task(self.send_block_samples_task, tg)
                 self.create_task(self.print_peer_statistics_task, tg)
-                self.create_task(self.monitor_sync_state_task, tg)  # ← add this
+                self.create_task(self.monitor_sync_state_task, tg)
 
         except* asyncio.CancelledError as _eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
@@ -164,6 +164,27 @@ class Blockperf:
     def _tasks_status(self) -> dict[str, str]:
         """Get status of all running tasks for debugging."""
         return {name: "running" if not task.done() else "finished" for name, task in self.tasks.items()}
+
+    async def send_clientinfo_task(self):
+        """Send the clients info payload to the server once if the node is synced."""
+
+        # If enabled wait for node to be synced
+        if self.settings.sync_check_enabled:
+            self.node_synced_event.wait()
+        while True:
+            delay = 10
+            max_delay = 60
+            try:
+                node_version = await self.ekg.get_node_version()
+                await self.api.send_clientinfo(self.settings.hostname, node_version)
+                logger.info("Clientinfo sent", hostname=self.settings.hostname, node_version=node_version)
+            except EkgError as e:
+                logger.error(f"Error sending clientinfo, retrying in {delay}s: {e!r}")
+                await asyncio.sleep(delay)
+                delay = min(delay + 10, max_delay)
+            else:
+                self.clientinfo_sent = True
+                break
 
     async def process_events_task(self):
         """Process events from log reader with startup replay capability.

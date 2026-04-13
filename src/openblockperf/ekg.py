@@ -177,6 +177,17 @@ class EkgClient:
 
         return result
 
+    async def get_node_version(self) -> str:
+        """Retrieve the nodes version from EKG and return as simple string."""
+        version = await self.get_samples(
+            [
+                "cardano_node_metrics_cardano_version_major_int",
+                "cardano_node_metrics_cardano_version_minor_int",
+                "cardano_node_metrics_cardano_version_patch_int",
+            ]
+        )
+        return f"{version.get('cardano_node_metrics_cardano_version_major_int').value}.{version.get('cardano_node_metrics_cardano_version_minor_int').value}.{version.get('cardano_node_metrics_cardano_version_patch_int').value}"
+
 
 class EkgError(Exception):
     """Raised when the Prometheus endpoint cannot be reached or returns an error."""
