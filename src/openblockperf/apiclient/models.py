@@ -53,3 +53,4 @@ class SubmitSignedChallengeResponse(BaseModel):
 class ClientInfoRequest(BaseModel):
     hostname: str
     node_version: str
+    client_version: str

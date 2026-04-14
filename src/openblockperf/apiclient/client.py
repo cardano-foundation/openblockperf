@@ -1,6 +1,8 @@
 import rich
 
+from openblockperf import __version__
 from openblockperf.config import AppSettings
+from openblockperf.logging import logger
 from openblockperf.models.events import PeerEvent
 from openblockperf.models.peer import Peer
 from openblockperf.models.samples import BlockSample
@@ -25,8 +27,9 @@ class BlockperfApiClient:
         )
 
     async def submit_block_sample(self, sample: BlockSample) -> BlockSampleResponse:
-        request = BlockSampleRequest(**sample.model_dump())
-        return await self._api.post("/submit/blocksample", request, BlockSampleResponse)
+        bsr = BlockSampleRequest(**sample.model_dump())
+        logger.debug("Sending BlockSample", request=bsr)
+        return await self._api.post("/submit/blocksample", bsr, BlockSampleResponse)
 
     async def post_status_change(self):
         return await self._api.post("/submit/peerstatuschange")
@@ -36,9 +39,9 @@ class BlockperfApiClient:
     ) -> str:
         """ """
 
-        request = RegistrationChallengeRequest(pool_id_bech32=pool_id_bech32)
-        response = await self._api.post("/registration/challenge", request, RegistrationChallengeResponse)
-        rich.print(response)
+        rcr = RegistrationChallengeRequest(pool_id_bech32=pool_id_bech32)
+        logger.debug("Sending registration request", request=rcr)
+        response = await self._api.post("/registration/challenge", rcr, RegistrationChallengeResponse)
         return response.challenge
 
     async def submit_signed_challenge(
@@ -47,17 +50,15 @@ class BlockperfApiClient:
         pool_id_bech32: str | None = None,
     ):
         """ """
-        print("Sending signed challenge back")
-        request = SubmitSignedChallengeRequest(signature_hex=signature_hex, pool_id_bech32=pool_id_bech32)
-        rich.print(request)
-        return await self._api.post("/registration/submit", request, SubmitSignedChallengeResponse)
+        sscr = SubmitSignedChallengeRequest(signature_hex=signature_hex, pool_id_bech32=pool_id_bech32)
+        logger.debug("Sending signed challenge", request=sscr)
+        return await self._api.post("/registration/submit", sscr, SubmitSignedChallengeResponse)
 
     async def submit_peer_event(self, peer: Peer, event: PeerEvent):
         """Creates the request to submit a peer event.
 
         Needs to create the 'PeerEventRequest' form the backend.
         """
-
         per = PeerEventRequest(
             at=event.at,
             direction=event.direction,
@@ -69,15 +70,18 @@ class BlockperfApiClient:
             last_seen=event.at.isoformat(),
             last_state=event.state,
         )
-
-        rich.print("---\nRequest:", per.model_dump(mode="json", exclude_none=True))
-        resp = await self._api.post("/submit/peerevent", per)
-        rich.print(f"Response: {resp}")
-        print()
+        logger.debug("Sending PeerEvent", request=per)
+        await self._api.post("/submit/peerevent", per)
 
     async def send_clientinfo(self, hostname: str, node_version: str):
-        info_request = ClientInfoRequest(hostname=hostname, node_version=node_version)
-        _ = await self._api.post("/submit/clientinfo", info_request)
+        info_request = ClientInfoRequest(hostname=hostname, node_version=node_version, client_version=str(__version__))
+        logger.debug(
+            "Sending Clientinfo",
+            hostname=info_request.hostname,
+            node_version=info_request.node_version,
+            client_version=info_request.client_version,
+        )
+        await self._api.post("/submit/clientinfo", info_request)
 
     async def test_api_key(self):
         resp = await self._api.get("/auth/private")

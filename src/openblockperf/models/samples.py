@@ -4,7 +4,6 @@ from .peer import Peer
 
 
 class BlockSample(BaseModel):
-    host: str = Field(..., description="Hostname of client")
     block_hash: str = Field(..., description="Block hash")
     block_number: int = Field(..., description="Block number")
     block_size: int = Field(..., description="Block size")
@@ -22,7 +21,9 @@ class BlockSample(BaseModel):
     local_addr: str = Field(..., description="Address of node")
     local_port: int = Field(..., description="Port of node")
     magic: int = Field(..., description="network magic")
-    client_version: str = Field(..., description="client version")
+
+    def __repr__(self):
+        return f"BlockSample(hash='{self.block_hash[:10]}', header_d={self.header_delta}, request_d={self.block_request_delta}, resp_d={self.block_response_delta}, header_from={self.header_remote_addr}:{self.header_remote_port}, block_from={self.block_remote_addr}:{self.block_remote_port}))"
 
 
 class PeerSample(BaseModel):

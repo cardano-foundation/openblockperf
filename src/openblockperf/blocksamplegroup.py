@@ -3,8 +3,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import singledispatchmethod
 
-from openblockperf import __version__
-from openblockperf.clientid import get_clientid
 from openblockperf.config import AppSettings
 from openblockperf.errors import EventError
 from openblockperf.logging import logger
@@ -228,7 +226,7 @@ class BlockSampleGroup:
         """
         return self.block_header and self.block_requested and self.block_completed and self.block_adopted
 
-    def is_sane(self) -> bool:
+    def is_ok(self) -> bool:
         """Checks all values are within acceptable ranges.
 
         We did see wild values of these pop up in the past for all kinds of
@@ -252,11 +250,8 @@ class BlockSampleGroup:
         )
 
     # fmt: off
-    def sample(self):
-        # TODO: This should not live here. Either in the BlockSample model validation
-        # Or in the block listener....
+    def get_sample(self):
         return BlockSample(
-            host = self.settings.hostname,
             block_hash = self.block_hash,
             block_number = self.block_number,
             block_size = self.block_size,
@@ -273,8 +268,7 @@ class BlockSampleGroup:
             block_adopt_delta = int(self.block_adopt_delta.total_seconds() * 1000),
             local_addr = self.settings.local_addr,
             local_port = int(self.settings.local_port),
-            magic = self.settings.network_config.magic,
-            client_version = str(__version__),
+            magic = self.settings.network_config.magic
         )
 
     # fmt: on

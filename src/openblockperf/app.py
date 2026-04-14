@@ -178,7 +178,6 @@ class Blockperf:
             try:
                 node_version = await self.ekg.get_node_version()
                 await self.api.send_clientinfo(self.settings.hostname, node_version)
-                logger.info("Clientinfo sent", hostname=self.settings.hostname, node_version=node_version)
             except EkgError as e:
                 logger.error(f"Error sending clientinfo, retrying in {delay}s: {e!r}")
                 await asyncio.sleep(delay)
@@ -310,9 +309,9 @@ class Blockperf:
             self.console.print(f"Found {updated} peers in logs")
 
     async def send_block_samples_task(self):
-        """Checks if block samples are ready and if so sends them to the api.
+        """Send the block samples to the server.
 
-        the block samples to the server.
+        Checks if block samples are ready and if so sends them to the api.
         """
 
         while True:
@@ -331,11 +330,9 @@ class Blockperf:
                     ready_groups[k] = group
 
             for k, group in ready_groups.items():
-                # If the group is not ok, dont send it
-                if not group.is_sane():
+                if not group.is_ok():
                     continue
-                # Group is ok, grab and send the sample
-                sample = group.sample()
+                sample = group.get_sample()
                 resp = await self.api.submit_block_sample(sample)
                 logger.debug("Sample published.", sample=sample, response=resp)
                 # Delete group
