@@ -137,7 +137,7 @@ OpenBlockperf needs to know:
 - the path to the Cardano node `config.json`
 - the Cardano node systemd unit name whose journald logs should be read
 
-See `docs/blockperf-install.md` for all installer modes and options.
+See [Installer Guide](docs/blockperf-install.md) for all installer modes and options.
 
 
 ## Usage
