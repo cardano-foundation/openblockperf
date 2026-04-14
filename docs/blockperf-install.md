@@ -47,8 +47,8 @@ If no key is provided, register after install:
 <INSTALL_DIR>/venv/bin/blockperf register
 ```
 
-Calidus-key documentation placeholder:
-- https://openblockperf.cardano.org/docs#TODO
+Calidus-key information:
+- https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/27
 
 ## Env file behavior
 

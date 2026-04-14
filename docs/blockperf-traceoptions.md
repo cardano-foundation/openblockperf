@@ -16,7 +16,7 @@ Please note that the following is absolutely necessary
   - SwitchedToAFork
 - Net.ConnectionManager.Remote
 
-The remaining traceOptions are optimized for a relay node. 
+This traceOptions are optimized for a relay node. 
 
 ```json
   "TraceOptions": {
