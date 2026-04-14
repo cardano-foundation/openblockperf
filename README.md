@@ -44,33 +44,33 @@ OpenBlockPerf installer overview
 
 Continue? [y/N]: y
 
-[INFO]  'python3' cannot run ensurepip (needed for pip in the venv).
 [INFO]  Will install package: python3-full
 Proceed with installation? [y/N]: y
 [INFO]  Running: apt-get update && apt-get install -y python3-full
 ...
 [INFO]  Using Python 3.12 (python3)
-Service user [xyz] (Enter to keep):
-Service group [xyz] (Enter to keep):
-[INFO]  Service identity: xyz:xyz
+Service user [user1] (Enter to keep):
+Service group [user1] (Enter to keep):
+[INFO]  Service identity: user1:user1
 
 You can contribute blockperf data from multiple relay nodes and assign them individual
 names for your internal use only. These names will not be shared publicly.
-This node name [ab-xy-01]:
-[INFO]  Node name: ab-xy-01
+This node name [relay-madrid]:
+[INFO]  Node name: relay-madrid
 [INFO]  Cardano node unit: cnode.service (auto-detected)
 [INFO]  Node config: /opt/cardano/cnode/files/config.json (from cnode.service ExecStart/Environment)
 [ OK ]  Node config JSON OK (/opt/cardano/cnode/files/config.json).
 [INFO]  Network: mainnet (from Shelley genesis networkMagic)
 ...
+
 OpenBlockPerf Installer (install)
   Version:       0.1.1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Install dir:   /opt/cardano/openblockperf
   Python:        python3
   Package:       openblockperf
-  Service user:  xyz:xyz
-  Node name:     ab-xy-01
+  Service user:  user1:user1
+  Node name:     relay-madrid
   Node unit:     cnode.service
   Node config:   /opt/cardano/cnode/files/config.json
   Network:       mainnet
@@ -79,7 +79,19 @@ OpenBlockPerf Installer (install)
   Env file:      /etc/default/openblockperf
   Command:       /usr/local/bin/blockperf
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-...
+
+[ OK ]  Creating installation directory: /opt/cardano/openblockperf
+[ OK ]  Creating virtual environment at /opt/cardano/openblockperf/venv ...
+[ OK ]  Installing openblockperf from PyPI ...
+[ OK ]  Ownership of /opt/cardano/openblockperf set to user1:user1.
+[ OK ]  Writing environment file: /etc/default/openblockperf
+[ OK ]  Writing systemd unit: /etc/systemd/system/openblockperf.service
+[ OK ]  Writing wrapper command: /usr/local/bin/blockperf
+[ OK ]  Reloading systemd daemon ...
+[ OK ]  Enabling openblockperf.service ...
+[ OK ]  Service enabled. To start use 'systemctl start openblockperf.service'.
+
+
 Installation complete.
 
 Summary:
