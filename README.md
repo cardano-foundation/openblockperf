@@ -27,13 +27,14 @@ The installer targets Linux environments typically used for Cardano nodes
 
 Install OpenBlockperf with the installer script. 
 
-```shell
+```bash
 curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh | sudo bash
 ```
 
 By default this starts an interactive command line wizard that guides you step 
 by step through the installation and configuration:
-```
+
+```console
 OpenBlockPerf installer overview
   Version: 0.1.1
   1) Check/install prerequisites (Debian/Ubuntu and RHEL-family)
@@ -112,7 +113,8 @@ Next steps (API key not set in this run):
 ```
 
 Once installed you should have a 'blockperf' executable installed.
-```
+
+```console
 $ blockperf version
 Installed version: 0.0.25
 Python version: 3.12.3 
