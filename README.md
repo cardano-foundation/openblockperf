@@ -1,17 +1,13 @@
-<!--<p align="center"></p> -->
 
-<p align="center"><strong>OpenBlockperf</strong> <em>- A cli tool to capture and share network metrics from a cardano relay node.</em></p>
 
-<p align="center">
-<a href="https://pypi.org/project/openblockperf/">
-    <img src="https://badge.fury.io/py/openblockperf.svg" alt="Package version">
-</a>
-</p>
+**OpenBlockperf** *- A cli tool to capture and share network metrics from a cardano relay node.*
+
+
 
 The OpenBlockperf Client is a cli tool that collects various data points from
 a local Cardano relay node, run by a stake pool operator. If you are setting up or
 operating a stake pool, start with this guideline:
-https://developers.cardano.org/docs/operate-a-stake-pool/
+[https://developers.cardano.org/docs/operate-a-stake-pool/](https://developers.cardano.org/docs/operate-a-stake-pool/)
 
 openBlockperf is designed to run on relay nodes located between the stake pool 
 (producer) node and the global network. It can also run on producer nodes if 
@@ -23,13 +19,17 @@ global data flow between the relay nodes of different stake pools.
 ## Installation / Get started
 
 The installer targets Linux environments typically used for Cardano nodes
-(for example Ubuntu/Debian server setups with systemd).
+(for example Ubuntu/Debian server setups with systemd) and expects some specific 
+traceOptions enabled in the configuration (see [Trace Options Guide](docs/blockperf-traceoptions.md) )
 
 Install OpenBlockperf with the installer script. 
+See [Installer Guide](docs/blockperf-install.md) for all installer modes and options.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh | sudo bash
 ```
+
+### interactive
 
 By default this starts an interactive command line wizard that guides you step 
 by step through the installation and configuration:
@@ -121,7 +121,13 @@ Python version: 3.12.3
 Platform: Linux-6.8.0-100-generic-x86_64-with-glibc2.39
 ```
 
-Installer setup at a glance:
+### non-interactive
+
+You can also run the installer in non-interactive mode with command line
+options, or predefine settings via environment variables (useful for
+containerized/deployment automation workflows: see [Installer Guide](docs/blockperf-install.md)). 
+
+### install result
 
 - systemd unit: `openblockperf.service`
 - env file: `/etc/default/openblockperf`
@@ -129,18 +135,7 @@ Installer setup at a glance:
 - app install + venv: `/opt/cardano/openblockperf`
 - logs: `journalctl -fu openblockperf.service`
 
-You can also run the installer in non-interactive mode with command line
-options, or predefine settings via environment variables (useful for
-containerized/deployment automation workflows). During installation,
-OpenBlockperf needs to know:
-
-- the path to the Cardano node `config.json`
-- the Cardano node systemd unit name whose journald logs should be read
-
-See [Installer Guide](docs/blockperf-install.md) for all installer modes and options.
-
-
-## Usage
+## blockperf usage
 
 The installer configures and starts OpenBlockperf as a systemd service, which
 is the recommended way to run it continuously on node hosts.
@@ -155,15 +150,6 @@ Usage Examples:
 
   # Use preprod network
   blockperf run --network preprod
-
-  # Use preview network
-  blockperf run -n preview
-
-  # Override API URL for local development
-  blockperf run --api-url http://localhost:8000
-
-  # Combine network with custom API URL
-  blockperf run --network mainnet --api-url https://custom-api.example.com
 
   # Or use environment variable
   export OPENBLOCKPERF_NETWORK=preprod
