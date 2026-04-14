@@ -125,6 +125,60 @@ ok()    { echo -e "${GREEN}[ OK ]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 die()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
 
+# Prompt helper: keep interactive prompts working even when script stdin is piped
+# (e.g. curl ... | sudo bash) by reading from /dev/tty when available.
+PROMPT_FD=""
+
+init_prompt_channel() {
+    # If stdin is already interactive, normal reads are fine.
+    if [[ -t 0 ]]; then
+        return 0
+    fi
+    # If stdin is piped, keep a dedicated read/write fd to the controlling tty.
+    if exec {PROMPT_FD}<>/dev/tty 2>/dev/null; then
+        return 0
+    fi
+    PROMPT_FD=""
+}
+
+has_prompt_tty() {
+    [[ -t 0 ]] && return 0
+    [[ -n "${PROMPT_FD}" ]] && return 0
+    return 1
+}
+
+prompt_read() {
+    local __var="$1"
+    local __prompt="$2"
+    local __val=""
+    if [[ -t 0 ]]; then
+        read -r -p "${__prompt}" __val
+    elif [[ -n "${PROMPT_FD}" ]]; then
+        printf "%s" "${__prompt}" >&"${PROMPT_FD}"
+        IFS= read -r -u "${PROMPT_FD}" __val
+    else
+        return 1
+    fi
+    printf -v "${__var}" '%s' "${__val}"
+}
+
+prompt_read_secret() {
+    local __var="$1"
+    local __prompt="$2"
+    local __val=""
+    if [[ -t 0 ]]; then
+        read -r -s -p "${__prompt}" __val
+        echo
+    elif [[ -n "${PROMPT_FD}" ]]; then
+        printf "%s" "${__prompt}" >&"${PROMPT_FD}"
+        IFS= read -r -s -u "${PROMPT_FD}" __val
+        printf "\n" >&"${PROMPT_FD}"
+    else
+        return 1
+    fi
+    printf -v "${__var}" '%s' "${__val}"
+}
+
 cleanup_on_failure() {
     warn "Attempting limited rollback for artifacts created in this run..."
     if [[ "${CREATED_SERVICE_FILE}" == "true" && -f "${SERVICE_FILE}" ]]; then
@@ -172,10 +226,10 @@ maybe_prompt_interactive_dry_run() {
     DRY_RUN="false"
     [[ "${MODE}" == "remove" ]] && return 0
     [[ "${ASSUME_YES}" == "true" ]] && return 0
-    [[ -t 0 ]] || return 0
+    has_prompt_tty || return 0
     local ans=""
     echo
-    read -r -p "Preview only (resolve settings and show the plan; skip installing and writing service files)? [y/N]: " ans
+    prompt_read ans "Preview only (resolve settings and show the plan; skip installing and writing service files)? [y/N]: " || return 0
     case "${ans}" in
         y|Y|yes|YES)
             DRY_RUN="true"
@@ -236,12 +290,12 @@ check_installer_update_online() {
 
     if version_gt "${remote_version}" "${INSTALLER_VERSION}"; then
         info "A newer installer is available: local=${INSTALLER_VERSION}, available=${remote_version}"
-        if [[ "${ASSUME_YES}" == "true" || ! -t 0 ]]; then
+        if [[ "${ASSUME_YES}" == "true" ]] || ! has_prompt_tty; then
             info "Non-interactive mode: skipping self-update prompt."
             return 0
         fi
         local ans=""
-        read -r -p "Download the newer installer now and restart from it? [y/N]: " ans
+        prompt_read ans "Download the newer installer now and restart from it? [y/N]: " || return 0
         case "${ans}" in
             y|Y|yes|YES)
                 script_path="$(realpath "$0" 2>/dev/null || echo "$0")"
@@ -377,9 +431,9 @@ confirm_or_die() {
     if [[ "${ASSUME_YES}" == "true" ]]; then
         return 0
     fi
-    [[ -t 0 ]] || die "${prompt} (re-run with --yes to continue non-interactively)"
+    has_prompt_tty || die "${prompt} (re-run with --yes to continue non-interactively)"
     local answer
-    read -r -p "${prompt} [y/N]: " answer
+    prompt_read answer "${prompt} [y/N]: " || die "${prompt} (re-run with --yes to continue non-interactively)"
     case "${answer}" in
         y|Y|yes|YES) return 0 ;;
         *) die "Aborted by user." ;;
@@ -428,14 +482,14 @@ resolve_service_identity() {
         if [[ "${ASSUME_YES}" == "true" ]]; then
             die "Could not infer non-root service user. Set SERVICE_USER=..., use --user-context, or run interactively."
         fi
-        [[ -t 0 ]] || die "Could not infer non-root service user in non-interactive mode. Set SERVICE_USER=... or --user-context"
-        read -r -p "Service user (non-root) to own ${INSTALL_DIR}: " guessed_user
+        has_prompt_tty || die "Could not infer non-root service user in non-interactive mode. Set SERVICE_USER=... or --user-context"
+        prompt_read guessed_user "Service user (non-root) to own ${INSTALL_DIR}: " || die "Could not read service user input."
     else
         if [[ "${ASSUME_YES}" == "true" ]]; then
             : # accept guess without prompting
-        elif [[ -t 0 ]]; then
+        elif has_prompt_tty; then
             local input=""
-            read -r -p "Service user [${guessed_user}] (Enter to keep): " input
+            prompt_read input "Service user [${guessed_user}] (Enter to keep): " || true
             if [[ -n "${input}" ]]; then
                 guessed_user="${input}"
             fi
@@ -455,9 +509,9 @@ resolve_service_identity() {
     [[ -n "${SERVICE_GROUP}" ]] || die "Could not resolve group for '${SERVICE_USER}'. Set SERVICE_GROUP=..."
     getent group "${SERVICE_GROUP}" &>/dev/null || die "Group '${SERVICE_GROUP}' does not exist."
 
-    if [[ -t 0 ]] && [[ "${ASSUME_YES}" != "true" ]]; then
+    if has_prompt_tty && [[ "${ASSUME_YES}" != "true" ]]; then
         local ginput=""
-        read -r -p "Service group [${SERVICE_GROUP}] (Enter to keep): " ginput
+        prompt_read ginput "Service group [${SERVICE_GROUP}] (Enter to keep): " || true
         if [[ -n "${ginput}" ]]; then
             SERVICE_GROUP="${ginput}"
             getent group "${SERVICE_GROUP}" &>/dev/null || die "Group '${SERVICE_GROUP}' does not exist."
@@ -481,12 +535,12 @@ resolve_node_name() {
     fi
     [[ -n "${NODE_NAME}" ]] || NODE_NAME="node-unknown"
 
-    if [[ "${ASSUME_YES}" != "true" ]] && [[ -t 0 ]] && [[ -z "${CLI_NODE_NAME}" ]]; then
+    if [[ "${ASSUME_YES}" != "true" ]] && has_prompt_tty && [[ -z "${CLI_NODE_NAME}" ]]; then
         local in_name=""
         echo
         echo "You can contribute blockperf data from multiple relay nodes and assign them individual"
         echo "names for your internal use only. These names will not be shared publicly."
-        read -r -p "This node name [${NODE_NAME}]: " in_name
+        prompt_read in_name "This node name [${NODE_NAME}]: " || true
         if [[ -n "${in_name}" ]]; then
             NODE_NAME="${in_name}"
         fi
@@ -580,14 +634,14 @@ resolve_cardano_node_unit() {
         if [[ "${ASSUME_YES}" == "true" ]]; then
             die "Multiple Cardano node units found (${n}). Set NODE_UNIT_NAME= or --node-unit-name to choose one: $(printf '%s ' "${candidates[@]}")"
         fi
-        [[ -t 0 ]] || die "Multiple Cardano node units found. Set NODE_UNIT_NAME= or --node-unit-name (TTY required to choose interactively)."
+        has_prompt_tty || die "Multiple Cardano node units found. Set NODE_UNIT_NAME= or --node-unit-name (TTY required to choose interactively)."
         echo
         warn "Multiple systemd units matching cardano/cnode were found:"
         local i sel
         for i in "${!candidates[@]}"; do
             echo "  $((i + 1))) ${candidates[$i]}"
         done
-        read -r -p "Select 1-${n}, or type a full unit name (e.g. cardano-node.service): " sel
+        prompt_read sel "Select 1-${n}, or type a full unit name (e.g. cardano-node.service): " || die "No unit selected."
         if [[ "${sel}" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= n )); then
             NODE_UNIT_NAME="${candidates[$((sel - 1))]}"
         else
@@ -603,9 +657,9 @@ resolve_cardano_node_unit() {
     if [[ "${ASSUME_YES}" == "true" ]]; then
         die "No Cardano node systemd unit found (cardano/cnode). Install the node unit or set NODE_UNIT_NAME= / --node-unit-name."
     fi
-    [[ -t 0 ]] || die "No Cardano node unit found. Set NODE_UNIT_NAME= or --node-unit-name (or run interactively)."
+    has_prompt_tty || die "No Cardano node unit found. Set NODE_UNIT_NAME= or --node-unit-name (or run interactively)."
     local manual=""
-    read -r -p "systemd unit name for cardano-node (e.g. cardano-node.service): " manual
+    prompt_read manual "systemd unit name for cardano-node (e.g. cardano-node.service): " || die "No unit name given."
     [[ -n "${manual}" ]] || die "No unit name given."
     NODE_UNIT_NAME="$(normalize_node_unit_name "${manual}")"
     validate_node_unit_or_die "${NODE_UNIT_NAME}"
@@ -806,7 +860,7 @@ resolve_node_config_path() {
             break
         fi
 
-        if [[ "${ASSUME_YES}" == "true" ]] || [[ ! -t 0 ]]; then
+        if [[ "${ASSUME_YES}" == "true" ]] || ! has_prompt_tty; then
             if [[ -z "${NODE_CONFIG_PATH}" ]]; then
                 die "Could not determine cardano-node config.json. Set NODE_CONFIG_PATH= or --node-config."
             fi
@@ -820,7 +874,7 @@ resolve_node_config_path() {
         fi
         echo
         warn "Enter the absolute path to your cardano-node config.json. Leave empty to exit."
-        read -r -p "Path: " NODE_CONFIG_PATH
+        prompt_read NODE_CONFIG_PATH "Path: " || die "No config path given; exiting."
         origin="prompt"
         [[ -n "${NODE_CONFIG_PATH}" ]] || die "No config path given; exiting."
     done
@@ -891,9 +945,9 @@ resolve_network() {
         return 0
     fi
 
-    if [[ -t 0 ]]; then
+    if has_prompt_tty; then
         local ans=""
-        read -r -p "Cardano network [mainnet|preprod|preview] [mainnet]: " ans
+        prompt_read ans "Cardano network [mainnet|preprod|preview] [mainnet]: " || true
         NETWORK="${ans:-mainnet}"
     else
         NETWORK="mainnet"
@@ -932,17 +986,16 @@ resolve_api_key() {
         return 0
     fi
 
-    if [[ ! -t 0 ]]; then
+    if ! has_prompt_tty; then
         warn "No API key (non-interactive, no TTY). Set OPENBLOCKPERF_API_KEY or use --api-key."
         return 0
     fi
 
     local ans=""
-    read -r -p "Do you already have a Blockperf API key? [y/N]: " ans
+    prompt_read ans "Do you already have a Blockperf API key? [y/N]: " || return 0
     case "${ans}" in
         y|Y|yes|YES)
-            read -r -s -p "Enter OPENBLOCKPERF_API_KEY value (input hidden): " API_KEY_TO_INSTALL
-            echo
+            prompt_read_secret API_KEY_TO_INSTALL "Enter OPENBLOCKPERF_API_KEY value (input hidden): " || true
             ;;
         *)
             echo
@@ -1026,16 +1079,16 @@ ensure_ensurepip_available() {
             ;;
     esac
     echo
-    warn "'${PYTHON}' cannot run ensurepip (needed for pip in the venv)."
+    info "'${PYTHON}' cannot run ensurepip (needed for pip in the venv)."
     if [[ "${DRY_RUN}" == "true" ]]; then
         warn "Preview-only note: package installation in preflight is a real operation."
     fi
     if [[ -n "${pkg_deb}" ]]; then
-        warn "Will install package: ${pkg_deb}"
+        info "Will install package: ${pkg_deb}"
         confirm_or_die "Proceed with installation?"
         run_apt_install "${pkg_deb}"
     else
-        warn "Will install package: ${pkg_rpm}"
+        info "Will install package: ${pkg_rpm}"
         confirm_or_die "Proceed with installation?"
         run_rhel_install "${pkg_rpm}"
     fi
@@ -1316,9 +1369,9 @@ write_env_file() {
     ENV_FILE_RESULT="new"
 
     if [[ -f "${ENV_FILE}" ]]; then
-        if [[ -t 0 ]] && [[ "${ASSUME_YES}" != "true" ]]; then
+        if has_prompt_tty && [[ "${ASSUME_YES}" != "true" ]]; then
             local choice=""
-            read -r -p "Environment file ${ENV_FILE} already exists. Replace with a new file from this run, or keep the existing file? [R/k] (default R): " choice
+            prompt_read choice "Environment file ${ENV_FILE} already exists. Replace with a new file from this run, or keep the existing file? [R/k] (default R): " || choice=""
             case "${choice:-R}" in
                 k|K|keep|KEEP)
                     warn "Keeping existing environment file: ${ENV_FILE}"
@@ -1442,9 +1495,9 @@ maybe_start_service_after_install() {
         fi
         return 0
     fi
-    [[ -t 0 ]] || return 0
+    has_prompt_tty || return 0
     local st=""
-    read -r -p "Start ${UNIT_NAME} now (API key is configured)? [y/N]: " st
+    prompt_read st "Start ${UNIT_NAME} now (API key is configured)? [y/N]: " || return 0
     case "${st}" in
         y|Y|yes|YES)
             local start_out=""
@@ -1602,6 +1655,7 @@ remove_installation() {
 # ---------------------------------------------------------------------------
 main() {
     trap 'on_error "${LINENO}" "${BASH_COMMAND}" "$?"' ERR
+    init_prompt_channel
     ensure_valid_working_directory
     parse_args "$@"
     ensure_root_or_reexec_sudo "$@"
@@ -1610,10 +1664,6 @@ main() {
     # Always check for newer installer before any intro/wizard output.
     if [[ "${MODE}" != "remove" ]]; then
         check_installer_update_online
-    fi
-
-    if [[ "${MODE}" != "remove" ]] && [[ "${ASSUME_YES}" != "true" ]]; then
-        maybe_prompt_interactive_dry_run
     fi
 
     # Show interactive overview before any package-install prompts.
