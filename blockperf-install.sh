@@ -242,7 +242,7 @@ maybe_prompt_interactive_dry_run() {
 print_intro_and_confirm() {
     echo
     echo -e "${BOLD}OpenBlockPerf installer overview${NC}"
-    echo "  Version: ${INSTALLER_VERSION}"
+    echo "  Installer Version: ${INSTALLER_VERSION}"
     echo "  1) Check/install prerequisites (Debian/Ubuntu and RHEL-family)"
     echo "  2) Resolve service user/group, node name, and cardano-node unit/config"
     echo "  3) Resolve network and API-key strategy"
