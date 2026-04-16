@@ -1274,7 +1274,7 @@ wheels = [
 
 [[package]]
 name = "openblockperf"
-version = "0.0.27"
+version = "0.0.28"
 source = { editable = "." }
 dependencies = [
     { name = "cbor2" },
