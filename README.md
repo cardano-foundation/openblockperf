@@ -1,6 +1,6 @@
 
 
-**OpenBlockperf** *- A cli tool to capture and share network metrics from a cardano relay node.*
+**OpenBlockperf** *- A cli tool and systemd service to capture and share network metrics from a cardano relay node.*
 
 
 
@@ -11,22 +11,27 @@ operating a stake pool, start with this guideline:
 
 openBlockperf is designed to run on relay nodes located between the stake pool 
 (producer) node and the global network. It can also run on producer nodes if 
-desired, albeit it is not recommended. OpenBlockPerf watches and monitors the 
-global data flow between the relay nodes of different stake pools.
+desired, albeit it is not recommended. In normal operation, OpenBlockperf runs
+as a systemd service. OpenBlockPerf watches and monitors the global data flow
+between the relay nodes of different stake pools.
 
 ---
 
 ## Installation / Get started
 
 The installer targets Linux environments typically used for Cardano nodes
-(for example Ubuntu/Debian server setups with systemd) and expects some specific 
+(for example Ubuntu/Debian server setups with systemd) and requires some specific 
 traceOptions enabled in the configuration (see [Trace Options Guide](docs/blockperf-traceoptions.md) )
 
-Install OpenBlockperf with the installer script. 
-See [Installer Guide](docs/blockperf-install.md) for all installer modes and options.
+Install OpenBlockperf with the installer script below, or alternatively
+- See [Installer Guide](docs/blockperf-install.md) for all installer modes and options.
+- See [Manual Installation Guide](docs/blockperf-install-manual.md) for step-by-step manual setup.
+- See [OpenBlockPerf Client Overview](docs/blockperf-client.md) for a high-level explanation of what the client does and why the shared telemetry matters.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh -o blockperf-install.sh
+chmod +x blockperf-install.sh
+sudo ./blockperf-install.sh
 ```
 
 ### interactive
@@ -134,6 +139,15 @@ containerized/deployment automation workflows: see [Installer Guide](docs/blockp
 - CLI wrapper: `/usr/local/bin/blockperf`
 - app install + venv: `/opt/cardano/openblockperf`
 - logs: `journalctl -fu openblockperf.service`
+
+### Updates
+
+Use update mode to check for both installer and OpenBlockperf client updates and
+install them if confirmed.
+
+```bash
+sudo ./blockperf-install.sh --update
+```
 
 ## blockperf usage
 
