@@ -25,6 +25,7 @@ traceOptions enabled in the configuration (see [Trace Options Guide](docs/blockp
 
 Install OpenBlockperf with the installer script. 
 See [Installer Guide](docs/blockperf-install.md) for all installer modes and options.
+See [Manual Installation Guide](docs/blockperf-install-manual.md) for step-by-step manual setup.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh -o blockperf-install.sh
