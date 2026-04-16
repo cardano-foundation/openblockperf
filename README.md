@@ -23,9 +23,9 @@ The installer targets Linux environments typically used for Cardano nodes
 (for example Ubuntu/Debian server setups with systemd) and requires some specific 
 traceOptions enabled in the configuration (see [Trace Options Guide](docs/blockperf-traceoptions.md) )
 
-Install OpenBlockperf with the installer script. 
-See [Installer Guide](docs/blockperf-install.md) for all installer modes and options.
-See [Manual Installation Guide](docs/blockperf-install-manual.md) for step-by-step manual setup.
+Install OpenBlockperf with the installer script below, or alternatively
+- See [Installer Guide](docs/blockperf-install.md) for all installer modes and options.
+- See [Manual Installation Guide](docs/blockperf-install-manual.md) for step-by-step manual setup.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh -o blockperf-install.sh
