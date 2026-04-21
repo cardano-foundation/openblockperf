@@ -50,62 +50,78 @@ OpenBlockPerf installer overview
 
 Continue? [y/N]: y
 
-[INFO]  Will install package: python3-full
-Proceed with installation? [y/N]: y
-[INFO]  Running: apt-get update && apt-get install -y python3-full
-...
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Step 1/5  Check/install prerequisites...
+
+[INFO]  Verifying: Python (python3), jq, curl, systemd, core utilities, ensurepip...
+[INFO]    Status: satisfied — no extra OS packages needed.
+[ OK ]  All prerequisites are ready.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Step 2/5  Configure service user, node name, cardano-node unit and config...
+
 [INFO]  Using Python 3.12 (python3)
+[INFO]  determining openblockperf service identity (user and group)
 Service user [user1] (Enter to keep):
 Service group [user1] (Enter to keep):
 [INFO]  Service identity: user1:user1
 
 You can contribute blockperf data from multiple relay nodes and assign them individual
 names for your internal use only. These names will not be shared publicly.
-This node name [relay-madrid]:
-[INFO]  Node name: relay-madrid
-[INFO]  Cardano node unit: cnode.service (auto-detected)
+This systems name [relay-seoul]:
+[INFO]  Node name: relay-seoul
+
+[INFO]  Cardano node unit: cnode.service
 [INFO]  Node config: /opt/cardano/cnode/files/config.json (from cnode.service ExecStart/Environment)
 [ OK ]  Node config JSON OK (/opt/cardano/cnode/files/config.json).
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Step 3/5  Configure network and API key...
+
 [INFO]  Network: mainnet (from Shelley genesis networkMagic)
-...
+Do you already have a Blockperf API key? [y/N]: y
+Enter OPENBLOCKPERF_API_KEY value (input hidden):
 
 OpenBlockPerf Installer (install)
-  Version:       0.1.1
+  Version:       0.1.2
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Install dir:   /opt/cardano/openblockperf
   Python:        python3
   Package:       openblockperf
   Service user:  user1:user1
-  Node name:     relay-madrid
+  Node name:     relay-seoul
   Node unit:     cnode.service
   Node config:   /opt/cardano/cnode/files/config.json
   Network:       mainnet
-  API key:       not set
+  API key:       set
   Service file:  /etc/systemd/system/openblockperf.service
   Env file:      /etc/default/openblockperf
   Command:       /usr/local/bin/blockperf
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Step 4/5  Install virtualenv, package, env file, systemd unit, and wrapper...
+
 [ OK ]  Creating installation directory: /opt/cardano/openblockperf
+[INFO]  Changing ownership of /opt/cardano/openblockperf to mtn:mtn before venv/pip (pip runs as this user).
 [ OK ]  Creating virtual environment at /opt/cardano/openblockperf/venv ...
 [ OK ]  Installing openblockperf from PyPI ...
-[ OK ]  Ownership of /opt/cardano/openblockperf set to user1:user1.
+[ OK ]  Ownership of /opt/cardano/openblockperf set to mtn:mtn.
+Environment file /etc/default/openblockperf already exists. Replace with a new file from this run, or keep the existing file? [R/k] (default R):
+[ OK ]  Replacing existing environment file: /etc/default/openblockperf
 [ OK ]  Writing environment file: /etc/default/openblockperf
+
 [ OK ]  Writing systemd unit: /etc/systemd/system/openblockperf.service
 [ OK ]  Writing wrapper command: /usr/local/bin/blockperf
 [ OK ]  Reloading systemd daemon ...
 [ OK ]  Enabling openblockperf.service ...
+Created symlink /etc/systemd/system/multi-user.target.wants/openblockperf.service → /etc/systemd/system/openblockperf.service.
 [ OK ]  Service enabled. To start use 'systemctl start openblockperf.service'.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Step 5/5  Optional service start and installation summary...
 
+Start openblockperf.service now (API key is configured)? [y/N]: y
+[ OK ]  Started openblockperf.service.
 
 Installation complete.
-
-Summary:
-  • Virtual env:     /opt/cardano/openblockperf/venv
-  • CLI wrapper:     /usr/local/bin/blockperf
-  • Environment:     /etc/default/openblockperf
-  • Env file action: created new
-  • systemd unit:    /etc/systemd/system/openblockperf.service (enabled)
 
 Next steps (API key not set in this run):
   1. Register and obtain an API key:
@@ -131,6 +147,10 @@ Platform: Linux-6.8.0-100-generic-x86_64-with-glibc2.39
 You can also run the installer in non-interactive mode with command line
 options, or predefine settings via environment variables (useful for
 containerized/deployment automation workflows: see [Installer Guide](docs/blockperf-install.md)). 
+
+When no explicit API key is provided, non-interactive `--yes` now defaults to
+`--api-key-mode relay` and attempts automatic public-IP registration.
+You can force legacy behavior with `--api-key-mode calidus`.
 
 ### install result
 
@@ -209,6 +229,17 @@ Calidus key. The provided API key is assigned to this Calidus Keys Stakepool(s).
 ```bash
 blockperf register --pool-id [your pools bech32 id] --calidus-skey [path to your calidus skey file]
 ```
+
+For public relay IP-bound registration (IPv4/IPv6 probes as available), use:
+
+```bash
+blockperf register --relay-ip
+```
+
+Relay-IP registration is intended for operators without stake-pool credentials
+who want to participate with a single relay node.
+For SPO-level participation across a whole pool infrastructure (multiple relays
+reported as one entity), use a Calidus-registered API key.
 
 You only need to run the register command and provide your Calidus skey once 
 on one of your relay nodes to obtain the API key for your stake pool. 

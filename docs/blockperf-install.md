@@ -30,6 +30,9 @@ Piped or non-interactive runs (for example `curl ... | sudo bash`) have no termi
 - `--network mainnet|preprod|preview`: network override.
 - `--api-key-file <path>`: read API key from file (recommended).
 - `--api-key <value>`: provide API key directly (less secure, visible in process list).
+- `--api-key-mode <calidus|relay>`: fallback mode when no explicit key is provided.
+  - default without `--yes`: `calidus`
+  - default with `--yes`: `relay`
 
 The installer also performs an online installer-version check and can offer a self-update if a newer script is available.
 
@@ -40,12 +43,21 @@ The installer also performs an online installer-version check and can offer a se
 - Preferred: `--api-key-file /path/to/keyfile`
 - Alternative: export `OPENBLOCKPERF_API_KEY` and run with `sudo -E`
 - Interactive mode can prompt for the key with hidden input.
+- `--api-key-mode relay` triggers public-IP based auto-registration after package install.
 
 If no key is provided, register after install:
 
 ```bash
 <INSTALL_DIR>/venv/bin/blockperf register
 ```
+
+Relay/IP registration (for unattended relays):
+
+```bash
+<INSTALL_DIR>/venv/bin/blockperf register --relay-ip
+```
+
+In relay mode, the client probes IPv4 and IPv6 separately (as available), then submits short-lived cookies to obtain one API key bound to the validated public IP(s).
 
 Calidus-key information:
 - https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/27

@@ -1,4 +1,5 @@
 import rich
+import httpx
 
 from openblockperf import __version__
 from openblockperf.config import AppSettings
@@ -15,6 +16,10 @@ from .models import (
     PeerEventRequest,
     RegistrationChallengeRequest,
     RegistrationChallengeResponse,
+    RelayIpProbeRequest,
+    RelayIpProbeResponse,
+    RelayIpSubmitRequest,
+    RelayIpSubmitResponse,
     SubmitSignedChallengeRequest,
     SubmitSignedChallengeResponse,
 )
@@ -43,6 +48,30 @@ class BlockperfApiClient:
         logger.debug("Sending registration request", request=rcr)
         response = await self._api.post("/registration/challenge", rcr, RegistrationChallengeResponse)
         return response.challenge
+
+    async def request_relay_ip_probe(self, family: str) -> RelayIpProbeResponse:
+        if family not in ("v4", "v6"):
+            raise ValueError("family must be 'v4' or 'v6'")
+        local_address = "0.0.0.0" if family == "v4" else "::"
+        probe_api = BlockperfApiBase(
+            full_api_url=self._api.full_api_url,
+            client_id=self._api.clientid,
+            api_key=self._api.api_key,
+            transport=httpx.AsyncHTTPTransport(local_address=local_address),
+        )
+        request = RelayIpProbeRequest(family=family)
+        try:
+            return await probe_api.post("/registration/relayip/probe", request, RelayIpProbeResponse)
+        finally:
+            await probe_api.close()
+
+    async def submit_relay_ip_registration(
+        self,
+        cookie_v4: str | None = None,
+        cookie_v6: str | None = None,
+    ) -> RelayIpSubmitResponse:
+        request = RelayIpSubmitRequest(cookie_v4=cookie_v4, cookie_v6=cookie_v6)
+        return await self._api.post("/registration/relayip/submit", request, RelayIpSubmitResponse)
 
     async def submit_signed_challenge(
         self,

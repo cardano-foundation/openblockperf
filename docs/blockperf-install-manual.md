@@ -150,6 +150,14 @@ Register with your Calidus key to obtain an API key, then place it in the env fi
 ${INSTALL_DIR}/venv/bin/blockperf register
 ```
 
+Alternative (public relay IP based):
+
+```bash
+${INSTALL_DIR}/venv/bin/blockperf register --relay-ip
+```
+
+Relay-IP registration probes IPv4/IPv6 separately (when available) and requests one API key bound to the validated public IP(s).
+
 After receiving your API key, set it in `/etc/default/openblockperf`:
 
 ```bash

@@ -17,16 +17,16 @@
 #   sudo ./blockperf-install.sh --reinstall
 #   ./blockperf-install.sh --remove
 #
-# On Debian/Ubuntu and CentOS/RHEL-family systems, missing dependencies (e.g. jq,
-# python3, python3-full / python3-pip) may be installed via the package manager
-# after confirmation, or non-interactively with --yes.
+# On Debian/Ubuntu and CentOS/RHEL-family systems, missing prerequisites (jq, curl,
+# systemd tools, Python with ensurepip via python3-full / python3-pip, etc.) may be
+# installed in one package-manager step after confirmation, or non-interactively with --yes.
 #   sudo NETWORK=preprod ./install.sh
 #   sudo INSTALL_DIR=/srv/openblockperf SERVICE_USER=ada ./install.sh
 #   sudo ./blockperf-install.sh --user-context ada
 #   sudo ./blockperf-install.sh --node-unit-name cardano-node.service
 #   sudo ./blockperf-install.sh --node-config /path/to/config.json
 #   sudo ./blockperf-install.sh --network preprod
-#   sudo ./blockperf-install.sh --api-key 'YOUR_KEY'   # or: sudo -E ./install.sh   with OPENBLOCKPERF_API_KEY set
+#   sudo ./blockperf-install.sh --api-key 'YOUR_KEY'   # or: sudo -E ./blockperf-install.sh   with OPENBLOCKPERF_API_KEY set
 #   sudo ./blockperf-install.sh --api-key-file /root/openblockperf-api-key.txt
 #   sudo PACKAGE_VERSION=0.0.5 ./blockperf-install.sh
 #
@@ -59,9 +59,9 @@
 
 set -euo pipefail
 
-OBP_DOC_REGISTER_URL="https://openblockperf.cardano.org/docs#TODO"
+OBP_DOC_REGISTER_URL="https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/26"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.1.1"
+INSTALLER_VERSION="0.1.3"
 INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
@@ -90,10 +90,12 @@ CLI_NETWORK=""        # set by --network mainnet|preprod|preview
 CLI_NODE_NAME=""      # set by --node-name <name>
 CLI_API_KEY=""        # set by --api-key <value>
 CLI_API_KEY_FILE=""   # set by --api-key-file <path>
+CLI_API_KEY_MODE=""   # set by --api-key-mode <calidus|relay>
 DRY_RUN="false"       # set interactively (preview-only); no --dry-run flag
 
 # Set by resolve_api_key (Step 6); written to ENV_FILE in write_env_file
 API_KEY_TO_INSTALL=""
+API_KEY_MODE_EFFECTIVE=""
 
 # Set by write_env_file: new | kept | replaced | replaced-after-backup
 ENV_FILE_RESULT=""
@@ -124,6 +126,19 @@ info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[ OK ]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 die()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
+
+installer_step_separator() {
+    echo -e "${BOLD}~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~${NC}"
+}
+
+# Usage: installer_step_banner STEP TOTAL "Subtitle..."
+installer_step_banner() {
+    local step="$1" total="$2"
+    shift 2
+    installer_step_separator
+    echo -e "${BOLD}Step ${step}/${total}${NC}  $*"
+    echo
+}
 
 # Prompt helper: keep interactive prompts working even when script stdin is piped
 # (e.g. curl ... | sudo bash) by reading from /dev/tty when available.
@@ -244,10 +259,10 @@ print_intro_and_confirm() {
     echo -e "${BOLD}OpenBlockPerf installer overview${NC}"
     echo "  Installer Version: ${INSTALLER_VERSION}"
     echo "  1) Check/install prerequisites (Debian/Ubuntu and RHEL-family)"
-    echo "  2) Resolve service user/group, node name, and cardano-node unit/config"
-    echo "  3) Resolve network and API-key strategy"
-    echo "  4) Install venv/package, write env+unit+wrapper, enable service"
-    echo "  5) Print summary and next steps"
+    echo "  2) Configure service user, node name, cardano-node unit and config"
+    echo "  3) Configure network and API key"
+    echo "  4) Install virtualenv, package, env file, systemd unit, and wrapper"
+    echo "  5) Optionally start the service and print next steps"
     echo
     if [[ "${DRY_RUN}" == "true" ]]; then
         warn "Preview-only mode: install/write/start steps will be skipped."
@@ -260,9 +275,9 @@ print_update_intro_and_confirm() {
     echo
     echo -e "${BOLD}OpenBlockPerf package update overview${NC}"
     echo "  Version: ${INSTALLER_VERSION}"
-    echo "  1) Check existing virtual environment and package versions"
-    echo "  2) Show installed/latest openblockperf version"
-    echo "  3) Optionally run: pip install --upgrade openblockperf"
+    echo "  1) Check prerequisites on the host"
+    echo "  2) Verify Python and compare installed vs latest PyPI version"
+    echo "  3) Optionally upgrade openblockperf in the existing virtualenv"
     echo
     info "Only the Python package in ${VENV_DIR} is updated."
     info "No systemd unit, env file, install folder layout, or node config is modified."
@@ -330,7 +345,7 @@ Usage:
   $0 [--install|--reinstall|--update|--remove] [--yes] [--purge]
           [--user-context <username>] [--node-unit-name <unit>] [--node-config <path>]
           [--network mainnet|preprod|preview] [--node-name <name>]
-          [--api-key <value>|--api-key-file <path>] [--version]
+          [--api-key <value>|--api-key-file <path>] [--api-key-mode <calidus|relay>] [--version]
 
   Root privileges are required; if you are not root, the script re-invokes itself via sudo
   (you may be prompted for your password). --help and --version work without sudo.
@@ -364,6 +379,9 @@ Options:
                  exporting OPENBLOCKPERF_API_KEY=... (visible in process list — prefer env file).
   --api-key-file <path>
                  Read OPENBLOCKPERF_API_KEY from a file (recommended over --api-key).
+  --api-key-mode <calidus|relay>
+                 API key fallback strategy when no key is provided explicitly.
+                 Default: --yes => relay, otherwise calidus.
   --version      Print installer script version and exit.
   --purge        With --remove, also delete ${ENV_FILE}
   -h, --help     Show this help
@@ -414,6 +432,11 @@ parse_args() {
                 CLI_API_KEY_FILE="$2"
                 shift 2
                 ;;
+            --api-key-mode)
+                [[ $# -ge 2 ]] || die "--api-key-mode requires 'calidus' or 'relay'"
+                CLI_API_KEY_MODE="$2"
+                shift 2
+                ;;
             --version)
                 echo "blockperf-install.sh version ${INSTALLER_VERSION}"
                 exit 0
@@ -447,8 +470,9 @@ ensure_valid_working_directory() {
     fi
 }
 
-# Step 2 — Service user and group 
+# Step 2 — Service user and group
 resolve_service_identity() {
+    info "determining openblockperf service identity (user and group)"
     # Explicit SERVICE_USER from environment or --user-context: no interactive prompts.
     if [[ -n "${CLI_USER_CONTEXT}" ]]; then
         SERVICE_USER="${CLI_USER_CONTEXT}"
@@ -540,7 +564,7 @@ resolve_node_name() {
         echo
         echo "You can contribute blockperf data from multiple relay nodes and assign them individual"
         echo "names for your internal use only. These names will not be shared publicly."
-        prompt_read in_name "This node name [${NODE_NAME}]: " || true
+        prompt_read in_name "This systems name [${NODE_NAME}]: " || true
         if [[ -n "${in_name}" ]]; then
             NODE_NAME="${in_name}"
         fi
@@ -604,6 +628,91 @@ collect_cardano_node_unit_candidates() {
     printf '%s\n' "${!seen[@]}" | LC_ALL=C sort -u
 }
 
+score_cardano_node_unit_candidate() {
+    local unit="$1"
+    local name_l desc ex hay config score reason active_state
+    name_l="${unit,,}"
+    desc="$(systemctl show "${unit}" -p Description --value 2>/dev/null || true)"
+    ex="$(systemctl show "${unit}" -p ExecStart --value 2>/dev/null || true)"
+    hay="${name_l} ${desc,,} ${ex,,}"
+    score=0
+    reason="name match"
+
+    case "${hay}" in
+        *exporter*|*monitor*|*metrics*|*prometheus*|*grafana*|*telegraf*|*prtg*)
+            score=$((score - 120))
+            reason="monitor/exporter-like service"
+            ;;
+    esac
+
+    if [[ "${ex,,}" == *"cardano-node"* ]]; then
+        score=$((score + 120))
+        reason+=", ExecStart has cardano-node"
+    fi
+    if [[ "${ex,,}" == *"/scripts/cnode.sh"* || "${ex,,}" == *" cnode.sh"* ]]; then
+        score=$((score + 110))
+        reason+=", ExecStart has cnode.sh"
+    fi
+    case "${name_l}" in
+        cardano-node.service|cnode.service)
+            score=$((score + 80))
+            reason+=", canonical unit name"
+            ;;
+        *cardano-node*|*cnode*)
+            score=$((score + 40))
+            reason+=", node-like unit name"
+            ;;
+    esac
+
+    config="$(extract_config_path_from_systemd_unit "${unit}" 2>/dev/null || true)"
+    if [[ -n "${config}" ]]; then
+        if node_config_file_is_acceptable "${config}"; then
+            score=$((score + 60))
+            reason+=", valid config path"
+        else
+            score=$((score + 20))
+            reason+=", config path candidate"
+        fi
+    fi
+
+    active_state="$(systemctl is-active "${unit}" 2>/dev/null || true)"
+    if [[ "${active_state}" == "active" ]]; then
+        score=$((score + 10))
+        reason+=", active"
+    fi
+
+    printf '%s|%s' "${score}" "${reason}"
+}
+
+pick_best_cardano_node_unit_candidate() {
+    local unit score_line score reason
+    local best_unit="" best_score=-999999 second_best=-999999
+    local report=""
+    for unit in "$@"; do
+        score_line="$(score_cardano_node_unit_candidate "${unit}")"
+        score="${score_line%%|*}"
+        reason="${score_line#*|}"
+        report+=$'\n'"  - ${unit} (score ${score}; ${reason})"
+        if (( score > best_score )); then
+            second_best="${best_score}"
+            best_score="${score}"
+            best_unit="${unit}"
+        elif (( score > second_best )); then
+            second_best="${score}"
+        fi
+    done
+
+    NODE_UNIT_CANDIDATE_REPORT="${report#$'\n'}"
+    NODE_UNIT_CANDIDATE_PICK="${best_unit}"
+    NODE_UNIT_CANDIDATE_SCORE="${best_score}"
+
+    [[ -n "${best_unit}" ]] || return 1
+    # Require confidence margin so --yes does not choose unexpectedly.
+    (( best_score >= 80 )) || return 1
+    (( best_score > second_best )) || return 1
+    return 0
+}
+
 resolve_cardano_node_unit() {
     if [[ -n "${CLI_NODE_UNIT_NAME}" ]]; then
         NODE_UNIT_NAME="$(normalize_node_unit_name "${CLI_NODE_UNIT_NAME}")"
@@ -631,17 +740,47 @@ resolve_cardano_node_unit() {
     fi
 
     if [[ "${n}" -gt 1 ]]; then
+        NODE_UNIT_CANDIDATE_REPORT=""
+        NODE_UNIT_CANDIDATE_PICK=""
+        NODE_UNIT_CANDIDATE_SCORE=""
+        local auto_pick_ok=false
+        if pick_best_cardano_node_unit_candidate "${candidates[@]}"; then
+            auto_pick_ok=true
+        fi
+
         if [[ "${ASSUME_YES}" == "true" ]]; then
-            die "Multiple Cardano node units found (${n}). Set NODE_UNIT_NAME= or --node-unit-name to choose one: $(printf '%s ' "${candidates[@]}")"
+            if [[ "${auto_pick_ok}" == true ]]; then
+                NODE_UNIT_NAME="${NODE_UNIT_CANDIDATE_PICK}"
+                validate_node_unit_or_die "${NODE_UNIT_NAME}"
+                info "Cardano node unit: ${NODE_UNIT_NAME} (auto-selected from ${n} candidates; score ${NODE_UNIT_CANDIDATE_SCORE})"
+                return 0
+            fi
+            die "Multiple Cardano node units found (${n}) and no confident auto-pick for --yes mode.
+Candidates:
+${NODE_UNIT_CANDIDATE_REPORT}
+Set NODE_UNIT_NAME= or --node-unit-name to choose one."
         fi
         has_prompt_tty || die "Multiple Cardano node units found. Set NODE_UNIT_NAME= or --node-unit-name (TTY required to choose interactively)."
         echo
         warn "Multiple systemd units matching cardano/cnode were found:"
+        if [[ "${auto_pick_ok}" == true ]]; then
+            info "Recommended: ${NODE_UNIT_CANDIDATE_PICK} (score ${NODE_UNIT_CANDIDATE_SCORE})"
+        fi
         local i sel
         for i in "${!candidates[@]}"; do
             echo "  $((i + 1))) ${candidates[$i]}"
         done
-        prompt_read sel "Select 1-${n}, or type a full unit name (e.g. cardano-node.service): " || die "No unit selected."
+        if [[ "${auto_pick_ok}" == true ]]; then
+            prompt_read sel "Select 1-${n}, or type a full unit name [${NODE_UNIT_CANDIDATE_PICK}]: " || die "No unit selected."
+            if [[ -z "${sel}" ]]; then
+                NODE_UNIT_NAME="${NODE_UNIT_CANDIDATE_PICK}"
+                validate_node_unit_or_die "${NODE_UNIT_NAME}"
+                info "Cardano node unit: ${NODE_UNIT_NAME}"
+                return 0
+            fi
+        else
+            prompt_read sel "Select 1-${n}, or type a full unit name (e.g. cardano-node.service): " || die "No unit selected."
+        fi
         if [[ "${sel}" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= n )); then
             NODE_UNIT_NAME="${candidates[$((sel - 1))]}"
         else
@@ -957,11 +1096,25 @@ resolve_network() {
     check_network_value
 }
 
-# Step 6 — openBlockperf API key 
+# Step 6 — openBlockperf API key
 resolve_api_key() {
     API_KEY_TO_INSTALL=""
+    API_KEY_MODE_EFFECTIVE=""
     if [[ -n "${CLI_API_KEY}" && -n "${CLI_API_KEY_FILE}" ]]; then
         die "Use only one of --api-key or --api-key-file."
+    fi
+    if [[ -n "${CLI_API_KEY_MODE}" ]]; then
+        case "${CLI_API_KEY_MODE}" in
+            calidus|relay) ;;
+            *) die "Invalid --api-key-mode '${CLI_API_KEY_MODE}'. Use 'calidus' or 'relay'." ;;
+        esac
+    fi
+    if [[ -n "${CLI_API_KEY_MODE}" ]]; then
+        API_KEY_MODE_EFFECTIVE="${CLI_API_KEY_MODE}"
+    elif [[ "${ASSUME_YES}" == "true" ]]; then
+        API_KEY_MODE_EFFECTIVE="relay"
+    else
+        API_KEY_MODE_EFFECTIVE="calidus"
     fi
     if [[ -n "${CLI_API_KEY_FILE}" ]]; then
         [[ -r "${CLI_API_KEY_FILE}" ]] || die "API key file is not readable: ${CLI_API_KEY_FILE}"
@@ -978,6 +1131,11 @@ resolve_api_key() {
     if [[ -n "${OPENBLOCKPERF_API_KEY:-}" ]]; then
         API_KEY_TO_INSTALL="${OPENBLOCKPERF_API_KEY}"
         info "API key: from OPENBLOCKPERF_API_KEY environment"
+        return 0
+    fi
+
+    if [[ "${API_KEY_MODE_EFFECTIVE}" == "relay" ]]; then
+        info "API key mode: relay (will auto-register after package install)."
         return 0
     fi
 
@@ -1005,6 +1163,61 @@ resolve_api_key() {
             info "Then set OPENBLOCKPERF_API_KEY in ${ENV_FILE} and start the service."
             ;;
     esac
+}
+
+maybe_register_relay_api_key() {
+    [[ "${API_KEY_MODE_EFFECTIVE}" == "relay" ]] || return 0
+    [[ -n "${API_KEY_TO_INSTALL}" ]] && return 0
+    [[ -x "${VENV_DIR}/bin/blockperf" ]] || die "Relay API key mode requested, but ${VENV_DIR}/bin/blockperf is not available."
+
+    info "Registering API key in relay mode (public IP based: IPv4/IPv6 probes as available)..."
+    local reg_out="" parsed_key="" relay_v4="" relay_v6=""
+    if ! reg_out="$(run_as_service_user "${VENV_DIR}/bin/blockperf" register --relay-ip 2>&1)"; then
+        warn "Relay API key registration failed."
+        warn "${reg_out}"
+        if [[ "${ASSUME_YES}" == "true" ]]; then
+            die "Relay API key auto-registration failed in --yes mode. Provide --api-key/--api-key-file or use --api-key-mode calidus."
+        fi
+        warn "Continuing without API key. You can register manually later with: ${VENV_DIR}/bin/blockperf register"
+        return 0
+    fi
+
+    parsed_key="$(printf '%s\n' "${reg_out}" | sed -nE 's/^API_KEY=([^[:space:]]+)$/\1/p' | tail -n1)"
+    if [[ -z "${parsed_key}" ]]; then
+        parsed_key="$(printf '%s\n' "${reg_out}" | sed -nE 's/^Your new Api key is[[:space:]]+(.+)$/\1/p' | tail -n1)"
+    fi
+    if [[ -z "${parsed_key}" ]]; then
+        warn "Relay API key registration succeeded, but no key could be parsed from output."
+        warn "${reg_out}"
+        if [[ "${ASSUME_YES}" == "true" ]]; then
+            die "Could not parse API key from relay registration output in --yes mode."
+        fi
+        return 0
+    fi
+
+    API_KEY_TO_INSTALL="${parsed_key}"
+    relay_v4="$(printf '%s\n' "${reg_out}" | sed -nE 's/^RELAY_IP_V4=(.+)$/\1/p' | tail -n1)"
+    relay_v6="$(printf '%s\n' "${reg_out}" | sed -nE 's/^RELAY_IP_V6=(.+)$/\1/p' | tail -n1)"
+    if [[ -n "${relay_v4}" || -n "${relay_v6}" ]]; then
+        local scoped=()
+        if [[ -n "${relay_v4}" ]]; then
+            if [[ "${relay_v4}" == "validated" ]]; then
+                scoped+=("IPv4 (validated, address not reported)")
+            else
+                scoped+=("IPv4 ${relay_v4}")
+            fi
+        fi
+        if [[ -n "${relay_v6}" ]]; then
+            if [[ "${relay_v6}" == "validated" ]]; then
+                scoped+=("IPv6 (validated, address not reported)")
+            else
+                scoped+=("IPv6 ${relay_v6}")
+            fi
+        fi
+        ok "Relay API key registered and captured (valid for: ${scoped[*]})."
+    else
+        ok "Relay API key registered and captured (valid for backend-validated relay IPs)."
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -1068,34 +1281,6 @@ run_rhel_install() {
     fi
 }
 
-ensure_ensurepip_available() {
-    "${PYTHON}" -m ensurepip --version &>/dev/null && return 0
-    local pkg_deb="" pkg_rpm=""
-    case "${DISTRO_FAMILY}" in
-        debian) pkg_deb="python3-full" ;;
-        rhel)   pkg_rpm="python3-pip" ;;
-        *)
-            die "'${PYTHON}' has no ensurepip module. On Debian/Ubuntu install python3-full; on RHEL install python3-pip. Then re-run."
-            ;;
-    esac
-    echo
-    info "'${PYTHON}' cannot run ensurepip (needed for pip in the venv)."
-    if [[ "${DRY_RUN}" == "true" ]]; then
-        warn "Preview-only note: package installation in preflight is a real operation."
-    fi
-    if [[ -n "${pkg_deb}" ]]; then
-        info "Will install package: ${pkg_deb}"
-        confirm_or_die "Proceed with installation?"
-        run_apt_install "${pkg_deb}"
-    else
-        info "Will install package: ${pkg_rpm}"
-        confirm_or_die "Proceed with installation?"
-        run_rhel_install "${pkg_rpm}"
-    fi
-    "${PYTHON}" -m ensurepip --version &>/dev/null \
-        || die "'${PYTHON}' still has no ensurepip after installing packages."
-}
-
 ensure_dependencies_step1() {
     detect_distro_family
     local -A deb_pkgs_
@@ -1105,8 +1290,13 @@ ensure_dependencies_step1() {
 
     if ! command -v "${PYTHON}" &>/dev/null; then
         case "${DISTRO_FAMILY}" in
-            debian) deb_pkgs_[python3]=1 ;;
-            rhel)   rpm_pkgs_[python3]=1 ;;
+            # python3-full includes ensurepip on Debian/Ubuntu (minimal python3 often does not).
+            debian) deb_pkgs_[python3-full]=1 ;;
+            # python3-pip satisfies ensurepip on typical RHEL-family installs.
+            rhel)
+                rpm_pkgs_[python3]=1
+                rpm_pkgs_[python3-pip]=1
+                ;;
             *)
                 die "Python interpreter '${PYTHON}' not found. Install Python 3.12+ (this script only auto-installs packages on Debian/Ubuntu and CentOS/RHEL-family)."
                 ;;
@@ -1160,22 +1350,37 @@ ensure_dependencies_step1() {
         esac
     fi
 
+    if command -v "${PYTHON}" &>/dev/null; then
+        if ! "${PYTHON}" -m ensurepip --version &>/dev/null; then
+            case "${DISTRO_FAMILY}" in
+                debian) deb_pkgs_[python3-full]=1 ;;
+                rhel)   rpm_pkgs_[python3-pip]=1 ;;
+                *)
+                    die "'${PYTHON}' has no ensurepip module. On Debian/Ubuntu install python3-full; on RHEL install python3-pip. Then re-run."
+                    ;;
+            esac
+        fi
+    fi
+
     local pkgs_deb=("${!deb_pkgs_[@]}")
     local pkgs_rpm=("${!rpm_pkgs_[@]}")
 
-    if [[ ${#pkgs_deb[@]} -gt 0 || ${#pkgs_rpm[@]} -gt 0 ]]; then
-        echo
-        warn "The following OS packages will be installed to satisfy missing commands:"
+    info "Verifying: Python (${PYTHON}), jq, curl, systemd, core utilities, ensurepip..."
+
+    if [[ ${#pkgs_deb[@]} -eq 0 && ${#pkgs_rpm[@]} -eq 0 ]]; then
+        info "  Status: satisfied — no extra OS packages needed."
+    else
+        warn "  Status: missing pieces — the installer will install OS packages (one step):"
         if [[ "${DRY_RUN}" == "true" ]]; then
-            warn "Preview-only note: this preflight installation is real."
+            warn "  Preview-only note: this preflight installation still runs for real."
         fi
         if [[ ${#pkgs_deb[@]} -gt 0 ]]; then
-            warn "  (Debian/Ubuntu) ${pkgs_deb[*]}"
+            warn "    Debian/Ubuntu: ${pkgs_deb[*]}"
         fi
         if [[ ${#pkgs_rpm[@]} -gt 0 ]]; then
-            warn "  (RHEL/CentOS-family) ${pkgs_rpm[*]}"
+            warn "    RHEL/CentOS-family: ${pkgs_rpm[*]}"
         fi
-        confirm_or_die "Proceed with installation?"
+        confirm_or_die "Proceed with installing these packages?"
         if [[ ${#pkgs_deb[@]} -gt 0 ]]; then
             run_apt_install "${pkgs_deb[@]}"
         fi
@@ -1188,8 +1393,10 @@ ensure_dependencies_step1() {
     command -v jq &>/dev/null || die "Command 'jq' not found after package install."
     command -v curl &>/dev/null || die "Command 'curl' not found after package install."
     command -v systemctl &>/dev/null || die "Command 'systemctl' not found after package install."
+    "${PYTHON}" -m ensurepip --version &>/dev/null \
+        || die "'${PYTHON}' still has no ensurepip after installing packages. On Debian/Ubuntu install python3-full; on RHEL install python3-pip."
 
-    ensure_ensurepip_available
+    ok "All prerequisites are ready."
 }
 
 check_remove_prerequisites() {
@@ -1279,21 +1486,21 @@ create_venv() {
         warn "Virtual environment already exists at ${VENV_DIR} — reusing it."
     else
         ok "Creating virtual environment at ${VENV_DIR} ..."
-        "${PYTHON}" -m venv "${VENV_DIR}"
+        run_as_service_user "${PYTHON}" -m venv "${VENV_DIR}"
     fi
     # Some distro Python builds create a venv without pip even when ensurepip is
     # available (e.g. when the venv was created by an older script without --upgrade-deps).
     # Bootstrap pip explicitly if it is missing, then upgrade it.
     if [[ ! -x "${VENV_DIR}/bin/pip" ]]; then
         info "pip not found in venv — bootstrapping via ensurepip ..."
-        "${VENV_DIR}/bin/python" -m ensurepip --upgrade
+        run_as_service_user "${VENV_DIR}/bin/python" -m ensurepip --upgrade
     fi
-    "${VENV_DIR}/bin/python" -m pip install --quiet --upgrade pip
+    run_as_service_user "${VENV_DIR}/bin/python" -m pip install --quiet --upgrade pip
 }
 
 install_package() {
     ok "Installing ${PACKAGE_SPEC} from PyPI ..."
-    if ! "${VENV_DIR}/bin/pip" install --quiet "${PACKAGE_SPEC}"; then
+    if ! run_as_service_user "${VENV_DIR}/bin/pip" install --quiet "${PACKAGE_SPEC}"; then
         warn "Package install failed for ${PACKAGE_SPEC}."
         warn "Try manually with verbose output:"
         warn "  ${VENV_DIR}/bin/pip install -v ${PACKAGE_SPEC}"
@@ -1304,12 +1511,12 @@ install_package() {
 
 get_current_installed_package_version() {
     [[ -x "${VENV_DIR}/bin/pip" ]] || return 1
-    "${VENV_DIR}/bin/pip" show "${PACKAGE_NAME}" 2>/dev/null | sed -nE 's/^Version: (.+)$/\1/p' | head -n1
+    run_as_service_user "${VENV_DIR}/bin/pip" show "${PACKAGE_NAME}" 2>/dev/null | sed -nE 's/^Version: (.+)$/\1/p' | head -n1
 }
 
 get_latest_pypi_package_version() {
     [[ -x "${VENV_DIR}/bin/pip" ]] || return 1
-    "${VENV_DIR}/bin/pip" index versions "${PACKAGE_NAME}" 2>/dev/null | sed -nE "s/^${PACKAGE_NAME} \\(([^)]+)\\).*/\1/p" | head -n1
+    run_as_service_user "${VENV_DIR}/bin/pip" index versions "${PACKAGE_NAME}" 2>/dev/null | sed -nE "s/^${PACKAGE_NAME} \\(([^)]+)\\).*/\1/p" | head -n1
 }
 
 get_pypi_summary_text() {
@@ -1318,6 +1525,16 @@ get_pypi_summary_text() {
 
 update_package_only_mode() {
     [[ -x "${VENV_DIR}/bin/pip" ]] || die "No venv found at ${VENV_DIR}. Install first before using --update."
+
+    # --update skips resolve_service_identity; infer owner of the venv for pip (same as install-time cache issue).
+    if [[ -z "${SERVICE_USER}" ]]; then
+        SERVICE_USER="$(stat -c '%U' "${VENV_DIR}" 2>/dev/null || true)"
+    fi
+    if [[ -z "${SERVICE_GROUP}" ]] && [[ -n "${SERVICE_USER}" ]]; then
+        SERVICE_GROUP="$(id -gn "${SERVICE_USER}" 2>/dev/null || true)"
+    fi
+    [[ -n "${SERVICE_USER}" && "${SERVICE_USER}" != "root" ]] \
+        || die "Could not determine a non-root user for pip (set SERVICE_USER= or fix ownership of ${VENV_DIR})."
 
     local current_version latest_version summary
     current_version="$(get_current_installed_package_version || true)"
@@ -1346,8 +1563,9 @@ update_package_only_mode() {
         return 0
     fi
 
+    installer_step_banner 3 3 "Upgrade openblockperf in the virtual environment..."
     confirm_or_die "Proceed with package update now?"
-    if ! "${VENV_DIR}/bin/pip" install --quiet --upgrade "${PACKAGE_NAME}"; then
+    if ! run_as_service_user "${VENV_DIR}/bin/pip" install --quiet --upgrade "${PACKAGE_NAME}"; then
         warn "Package update failed."
         warn "Try manually with verbose output:"
         warn "  ${VENV_DIR}/bin/pip install -v --upgrade ${PACKAGE_NAME}"
@@ -1358,9 +1576,35 @@ update_package_only_mode() {
     ok "Updated ${PACKAGE_NAME} to ${updated_version:-unknown}."
 }
 
-configure_ownership() {
+assert_install_service_accounts() {
     id "${SERVICE_USER}" &>/dev/null || die "User '${SERVICE_USER}' does not exist."
     getent group "${SERVICE_GROUP}" &>/dev/null || die "Group '${SERVICE_GROUP}' does not exist."
+}
+
+# Run a command as SERVICE_USER when the installer is root (e.g. sudo). Avoids pip using
+# $HOME from the invoking user while running as root (broken ~/.cache/pip permissions).
+run_as_service_user() {
+    if [[ "$(id -u)" -ne 0 ]]; then
+        "$@"
+        return
+    fi
+    if command -v runuser &>/dev/null; then
+        runuser -u "${SERVICE_USER}" -- "$@"
+    elif command -v sudo &>/dev/null; then
+        sudo -u "${SERVICE_USER}" -- "$@"
+    else
+        die "Cannot drop privileges to ${SERVICE_USER}: neither runuser nor sudo found."
+    fi
+}
+
+prepare_install_dir_for_service_user() {
+    assert_install_service_accounts
+    info "Changing ownership of ${INSTALL_DIR} to ${SERVICE_USER}:${SERVICE_GROUP} before venv/pip (pip runs as this user)."
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}"
+}
+
+configure_ownership() {
+    assert_install_service_accounts
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}"
     ok "Ownership of ${INSTALL_DIR} set to ${SERVICE_USER}:${SERVICE_GROUP}."
 }
@@ -1472,8 +1716,10 @@ EOF
 # Step 7 — Install core (venv, package, env, systemd, wrapper, enable)
 install_core() {
     create_install_dir
+    prepare_install_dir_for_service_user
     create_venv
     install_package
+    maybe_register_relay_api_key
     configure_ownership
     write_env_file
     write_service_file
@@ -1677,7 +1923,13 @@ main() {
 
     if [[ "${MODE}" == "remove" ]]; then
         check_remove_prerequisites
+    elif [[ "${MODE}" == "update" ]]; then
+        installer_step_banner 1 3 "Check prerequisites..."
+        ensure_dependencies_step1
+        check_required_commands
+        check_systemd
     else
+        installer_step_banner 1 5 "Check/install prerequisites..."
         ensure_dependencies_step1
         check_required_commands
         check_systemd
@@ -1699,16 +1951,20 @@ main() {
     fi
 
     if [[ "${MODE}" == "update" ]]; then
+        installer_step_banner 2 3 "Verify Python and compare package versions..."
         check_python
         update_package_only_mode
         return 0
     fi
 
+    installer_step_banner 2 5 "Configure service user, node name, cardano-node unit and config..."
     check_python
     resolve_service_identity
     resolve_node_name
     resolve_cardano_node_unit
     resolve_node_config_path
+
+    installer_step_banner 3 5 "Configure network and API key..."
     resolve_network
     resolve_api_key
 
@@ -1724,6 +1980,7 @@ main() {
     printf "  %-14s %s\n" "Node unit:"    "${NODE_UNIT_NAME}"
     printf "  %-14s %s\n" "Node config:"  "${NODE_CONFIG_PATH}"
     printf "  %-14s %s\n" "Network:"      "${NETWORK}"
+    printf "  %-14s %s\n" "API key mode:" "${API_KEY_MODE_EFFECTIVE:-calidus}"
     if [[ -n "${API_KEY_TO_INSTALL}" ]]; then
         printf "  %-14s %s\n" "API key:"    "set"
     else
@@ -1741,12 +1998,15 @@ main() {
         return 0
     fi
 
+    installer_step_banner 4 5 "Install virtualenv, package, env file, systemd unit, and wrapper..."
     if [[ "${MODE}" == "reinstall" ]]; then
         confirm_or_die "Reinstall will replace ${INSTALL_DIR}. Continue?"
         stop_disable_service_if_present
     fi
 
     install_core
+
+    installer_step_banner 5 5 "Optional service start and installation summary..."
     maybe_start_service_after_install
     print_post_install_summary
 }
