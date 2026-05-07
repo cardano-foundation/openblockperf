@@ -24,7 +24,10 @@ from .models import (
 class BlockperfApiClient:
     def __init__(self, settings: AppSettings):
         self._api = BlockperfApiBase(
-            full_api_url=settings.full_api_url, api_key=settings.api_key, client_id=settings.client_id
+            full_api_url=settings.full_api_url,
+            api_key=settings.api_key,
+            client_id=settings.client_id,
+            hostname=settings.hostname,
         )
 
     async def submit_block_sample(self, sample: BlockSample) -> BlockSampleResponse:

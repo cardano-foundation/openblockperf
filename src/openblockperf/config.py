@@ -6,8 +6,6 @@ from typing import ClassVar
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from openblockperf.clientid import get_client_id
-
 
 class Network(Enum):
     """All supported networks"""
@@ -39,14 +37,10 @@ class AppSettings(BaseSettings):
     api_port: int = 443
     api_path: str = "/api/v0/"
     api_key: str | None = None
-    client_id: str | None = get_client_id()  # The clients UUID
     block_sample_check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
-
-    hostname: str = socket.gethostname()
-
+    hostname: str = socket.gethostname()  # This clients hostname
     node_unit_name: str = "cardano-tracer"
-
     # Ekg endpoint url
     ekg_url: str = "http://localhost:12798/metrics"
 

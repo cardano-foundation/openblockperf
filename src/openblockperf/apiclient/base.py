@@ -48,7 +48,7 @@ class BlockperfApiBase:
         self,
         full_api_url: str,
         api_key: str,
-        client_id: str | None = None,
+        hostname: str | None = None,
         timeout: float = 10.0,
         **httpx_kwargs,
     ):
@@ -56,7 +56,7 @@ class BlockperfApiBase:
         # Allows CLI overrides to flow through to API client
 
         self.full_api_url = full_api_url
-        self.client_id = client_id
+        self.hostname = hostname
         self.api_key = api_key
         self.token = None
         self.token_expiry = 0
@@ -92,7 +92,6 @@ class BlockperfApiBase:
         self,
         method: str,
         endpoint: str,
-        base_url: str | None = None,
         **kwargs,
     ) -> httpx.Response | None:
         """Make an authenticated request to the API.
@@ -105,27 +104,14 @@ class BlockperfApiBase:
         try:
             headers = kwargs.pop("headers", {})
             headers["X-Api-Key"] = self.api_key or ""
-            headers["X-Client-Id"] = self.client_id
-            if base_url:
-                async with httpx.AsyncClient(
-                    base_url=base_url,
-                    timeout=self.timeout,
-                    **self.httpx_kwargs,
-                ) as tmp_client:
-                    response = await tmp_client.request(
-                        method,
-                        f"/{endpoint.lstrip('/')}",
-                        headers=headers,
-                        **kwargs,
-                    )
-            else:
-                response = await self.client.request(
-                    method,
-                    f"/{endpoint.lstrip('/')}",
-                    headers=headers,
-                    **kwargs,
-                )
-                response.raise_for_status()
+            headers["X-Hostname"] = self.hostname
+            response = await self.client.request(
+                method,
+                f"/{endpoint.lstrip('/')}",
+                headers=headers,
+                **kwargs,
+            )
+            response.raise_for_status()
 
         except httpx.HTTPStatusError as e:
             # if response.status_code == 401:
@@ -209,11 +195,10 @@ class BlockperfApiBase:
         self,
         endpoint: str,
         response_model: type[T] | None = None,
-        base_url: str | None = None,
         **kwargs,
     ) -> T | Mapping[str, Any]:
         """Perform GET request to the API."""
-        response = await self._make_request("GET", endpoint, base_url, **kwargs)
+        response = await self._make_request("GET", endpoint, **kwargs)
         return self._parse_response(response, response_model)
 
     async def post[T](
@@ -221,13 +206,12 @@ class BlockperfApiBase:
         endpoint: str,
         data: BaseModel | None = None,
         response_model: type[T] | None = None,
-        base_url: str | None = None,
         **kwargs,
     ) -> T | Mapping[str, Any]:
         """Perform POST request to the API."""
         if data:
             kwargs["json"] = data.model_dump(mode="json", exclude_none=True)
-        response = await self._make_request("POST", endpoint, base_url, **kwargs)
+        response = await self._make_request("POST", endpoint, **kwargs)
         return self._parse_response(response, response_model)
 
     async def put[T](
@@ -235,13 +219,12 @@ class BlockperfApiBase:
         endpoint: str,
         data: BaseModel | None = None,
         response_model: type[T] | None = None,
-        base_url: str | None = None,
         **kwargs,
     ) -> T | Mapping[str, Any]:
         """Perform PUT request to the API."""
         if data:
             kwargs["json"] = data.model_dump(mode="json", exclude_none=True)
-        response = await self._make_request("PUT", endpoint, base_url, **kwargs)
+        response = await self._make_request("PUT", endpoint, **kwargs)
         return self._parse_response(response, response_model)
 
     async def patch[T](
@@ -249,24 +232,22 @@ class BlockperfApiBase:
         endpoint: str,
         data: BaseModel | None = None,
         response_model: type[T] | None = None,
-        base_url: str | None = None,
         **kwargs,
     ) -> T | Mapping[str, Any]:
         """Perform PATCH request to the API."""
         if data:
             kwargs["json"] = data.model_dump(mode="json", exclude_none=True)
-        response = await self._make_request("PATCH", endpoint, base_url, **kwargs)
+        response = await self._make_request("PATCH", endpoint, **kwargs)
         return self._parse_response(response, response_model)
 
     async def delete[T](
         self,
         endpoint: str,
         response_model: type[T] | None = None,
-        base_url: str | None = None,
         **kwargs,
     ) -> T | Mapping[str, Any] | None:
         """Perform DELETE request to the API."""
-        response = await self._make_request("DELETE", endpoint, base_url, **kwargs)
+        response = await self._make_request("DELETE", endpoint, **kwargs)
         if response.status_code == HTTPStatus.NO_CONTENT:
             return None
         return self._parse_response(response, response_model)
