@@ -56,19 +56,10 @@ class ClientInfoRequest(BaseModel):
     client_version: str
 
 
-class RelayIpProbeRequest(BaseModel):
-    family: str  # v4 | v6
-
-
-class RelayIpProbeResponse(BaseModel):
-    cookie: str
-    family: str
-    detected_ip: str | None = None
-
-
-class RelayIpSubmitRequest(BaseModel):
-    cookie_v4: str | None = None
-    cookie_v6: str | None = None
+class IpRegistrationResponse(BaseModel):
+    apikey: str
+    client_id: str
+    ipaddress: str
 
 
 class RelayIpSubmitResponse(BaseModel):

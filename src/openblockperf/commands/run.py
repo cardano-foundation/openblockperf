@@ -2,13 +2,13 @@ import asyncio
 import contextlib
 import signal
 import sys
+from typing import Annotated
 
 import typer
 from rich.console import Console
 
 from openblockperf.app import Blockperf
 from openblockperf.errors import ConfigurationError
-from openblockperf.logging import logger
 from openblockperf.utils import async_command
 
 from ._utils import _settings
@@ -23,30 +23,36 @@ console = Console(file=sys.stdout, force_terminal=True)
 
 @async_command
 async def run_cmd(
-    network: str = typer.Option(
-        None,
-        "--network",
-        "-n",
-        help="Cardano network to connect to (mainnet, preprod, preview). Defaults to OPENBLOCKPERF_NETWORK env var or 'mainnet'.",
-    ),
-    api_url: str = typer.Option(
-        None,
-        "--api-url",
-        help="""Override API URL (for development/testing). Takes precedence over network-specific URLs.
+    network: Annotated[
+        str | None,
+        typer.Option(
+            "--network",
+            "-n",
+            help="Cardano network to connect to (mainnet, preprod, preview). Defaults to OPENBLOCKPERF_NETWORK env var or 'mainnet'.",
+        ),
+    ] = None,
+    api_url: Annotated[
+        str | None,
+        typer.Option(
+            "--api-url",
+            help="""Override API URL (for development/testing). Takes precedence over network-specific URLs.
 
-        You will need to provide the full url, including port and path of the api.
-        E.g.: http://localhost:8000/api/v0
+            You will need to provide the full url, including port and path of the api.
+            E.g.: http://localhost:8000/api/v0
         """,
-    ),
-    node_unit_name: str = typer.Option(
-        None,
-        "--node-unit-name",
-        help="""Override unit name of the node this client tries to read logs from journald.
+        ),
+    ] = None,
+    node_unit_name: Annotated[
+        str | None,
+        typer.Option(
+            "--node-unit-name",
+            help="""Override unit name of the node this client tries to read logs from journald.
 
-        This is the name of the systemd unit that your cardano-node service runs as.
-        Defaults to cardano-node.
+            This is the name of the systemd unit that your cardano-node service runs as.
+            Defaults to cardano-node.
         """,
-    ),
+        ),
+    ] = None,
 ) -> None:
     """The run command.
 
@@ -65,6 +71,7 @@ async def run_cmd(
         console.print(f"[bold cyan]Network:[/] {settings.network.value}")
         console.print(f"[bold cyan]Hostname:[/] {settings.hostname}")
         console.print(f"[bold cyan]Node Unit:[/] {settings.node_unit_name}")
+        console.print(f"[bold cyan]Client Id:[/] {settings.client_id}")
         console.print(f"[bold cyan]API URL:[/] {settings.full_api_url}")
         console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
 

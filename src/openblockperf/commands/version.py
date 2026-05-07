@@ -6,7 +6,6 @@ from packaging.version import Version
 from rich.console import Console
 
 from openblockperf import __version__
-from openblockperf.logging import logger
 from openblockperf.utils import async_command
 
 console = Console()

@@ -1,5 +1,4 @@
 import rich
-import httpx
 
 from openblockperf import __version__
 from openblockperf.config import AppSettings
@@ -13,13 +12,10 @@ from .models import (
     BlockSampleRequest,
     BlockSampleResponse,
     ClientInfoRequest,
+    IpRegistrationResponse,
     PeerEventRequest,
     RegistrationChallengeRequest,
     RegistrationChallengeResponse,
-    RelayIpProbeRequest,
-    RelayIpProbeResponse,
-    RelayIpSubmitRequest,
-    RelayIpSubmitResponse,
     SubmitSignedChallengeRequest,
     SubmitSignedChallengeResponse,
 )
@@ -28,7 +24,7 @@ from .models import (
 class BlockperfApiClient:
     def __init__(self, settings: AppSettings):
         self._api = BlockperfApiBase(
-            full_api_url=settings.full_api_url, client_id=settings.api_clientid, api_key=settings.api_key
+            full_api_url=settings.full_api_url, api_key=settings.api_key, client_id=settings.client_id
         )
 
     async def submit_block_sample(self, sample: BlockSample) -> BlockSampleResponse:
@@ -46,32 +42,17 @@ class BlockperfApiClient:
 
         rcr = RegistrationChallengeRequest(pool_id_bech32=pool_id_bech32)
         logger.debug("Sending registration request", request=rcr)
-        response = await self._api.post("/registration/challenge", rcr, RegistrationChallengeResponse)
+        response = await self._api.post("/registration/calidus/challenge", rcr, RegistrationChallengeResponse)
         return response.challenge
 
-    async def request_relay_ip_probe(self, family: str) -> RelayIpProbeResponse:
-        if family not in ("v4", "v6"):
-            raise ValueError("family must be 'v4' or 'v6'")
-        local_address = "0.0.0.0" if family == "v4" else "::"
-        probe_api = BlockperfApiBase(
-            full_api_url=self._api.full_api_url,
-            client_id=self._api.clientid,
-            api_key=self._api.api_key,
-            transport=httpx.AsyncHTTPTransport(local_address=local_address),
-        )
-        request = RelayIpProbeRequest(family=family)
-        try:
-            return await probe_api.post("/registration/relayip/probe", request, RelayIpProbeResponse)
-        finally:
-            await probe_api.close()
+    async def clientip_registration(self) -> IpRegistrationResponse | None:
+        """Register the client using the ip registration process.
 
-    async def submit_relay_ip_registration(
-        self,
-        cookie_v4: str | None = None,
-        cookie_v6: str | None = None,
-    ) -> RelayIpSubmitResponse:
-        request = RelayIpSubmitRequest(cookie_v4=cookie_v4, cookie_v6=cookie_v6)
-        return await self._api.post("/registration/relayip/submit", request, RelayIpSubmitResponse)
+        Returns:
+            A Tuple that holds the client_id and the full_api_key.
+        """
+        response = await self._api.post("/registration/ip", {}, IpRegistrationResponse)
+        return response
 
     async def submit_signed_challenge(
         self,

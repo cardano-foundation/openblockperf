@@ -20,7 +20,7 @@ def _settings(network: str | None = None, api_url: str | None = None, node_unit_
                 sys.exit(f"{network=} is not a string")
             try:
                 network = Network(network.lower())
-            except ValueError as e:
+            except ValueError:
                 valid_networks = [n.value for n in Network]
                 sys.exit(f"Invalid network {network!r}. Must be one of: {', '.join(valid_networks)}")
             overrides["network"] = network

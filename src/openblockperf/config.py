@@ -6,6 +6,8 @@ from typing import ClassVar
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from openblockperf.clientid import get_client_id
+
 
 class Network(Enum):
     """All supported networks"""
@@ -37,8 +39,7 @@ class AppSettings(BaseSettings):
     api_port: int = 443
     api_path: str = "/api/v0/"
     api_key: str | None = None
-    api_clientid: str | None = None
-    api_client_secret: str | None = None
+    client_id: str | None = get_client_id()  # The clients UUID
     block_sample_check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
 

@@ -246,7 +246,7 @@ class Blockperf:
         except EventError as e:
             logger.error("Error processing event")
             self.console.print(f"[bold red]Error handling event. {e}[/]")
-        except Exception as e:
+        except Exception:
             logger.exception("Error processing event")
             raise
 
@@ -264,7 +264,7 @@ class Blockperf:
             for conn in psutil.net_connections():
                 if conn.status != "ESTABLISHED":
                     continue
-                if conn.laddr.port != 3001:
+                if conn.laddr.port != 3001:  # noqa: PLR2004
                     continue
                 addr, port = conn.raddr
                 connections.append(conn)
@@ -282,7 +282,7 @@ class Blockperf:
                 for p in self.peer_listener.peers.values()
                 if p.state_inbound == PeerState.UNKNOWN and p.state_outbound == PeerState.UNKNOWN
             ]
-            self.since_hours = self.since_hours + 12 if self.since_hours < 2000 else 2000
+            self.since_hours = self.since_hours + 12 if self.since_hours < 2000 else 2000  # noqa: PLR2004
 
             # If there are no unknown, no need to update
             if not peers:
