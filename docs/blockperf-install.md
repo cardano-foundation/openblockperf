@@ -5,6 +5,8 @@ This document describes how to install, reinstall, remove, and validate the Open
 ## Quick start
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh -o blockperf-install.sh
+chmod +x blockperf-install.sh
 sudo ./blockperf-install.sh
 ```
 

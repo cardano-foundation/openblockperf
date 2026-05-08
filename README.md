@@ -1,8 +1,7 @@
 
 
-**OpenBlockperf** *- A cli tool and systemd service to capture and share network metrics from a cardano relay node.*
-
-
+# OpenBlockperf
+*- A cli tool and systemd service to capture and share network metrics from a cardano relay node.*
 
 The OpenBlockperf Client is a cli tool that collects various data points from
 a local Cardano relay node, run by a stake pool operator. If you are setting up or
