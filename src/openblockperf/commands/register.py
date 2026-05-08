@@ -12,7 +12,6 @@ from openblockperf.calidus import (
     extract_signing_key_from_cbor,
     parse_key_file,
 )
-from openblockperf.clientid import store_client_id
 from openblockperf.errors import ConfigurationError
 from openblockperf.utils import async_command
 
@@ -81,9 +80,7 @@ async def register_cmd(  # noqa: PLR0912
             response = await api.clientip_registration()
             if response:
                 rich.print(f"ApiKey: {response.apikey}")
-                rich.print(f"ClientId: {response.client_id}")
                 rich.print(f"IpAddress: {response.ipaddress}")
-                store_client_id(response.client_id)
 
             else:
                 # No response returned, nothing to do for registration
@@ -124,6 +121,3 @@ async def register_cmd(  # noqa: PLR0912
         else:
             console.print(f"[bold red]Application failed: {e}[/]")
         sys.exit(1)
-    finally:
-        # await app.stop()
-        pass

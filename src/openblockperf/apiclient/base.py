@@ -4,7 +4,7 @@ Its rather simple by only providing basic http verbs to use.
 
 Example Usage:
 
-async with BlockperfApiClient(base_url, client_id, secret) as client:
+async with BlockperfApiClient(base_url, secret) as client:
     data = await client.get("users")
 
 
@@ -80,7 +80,6 @@ class BlockperfApiBase:
         if self._client:
             await self._client.aclose()
 
-    # Provide context manager
     async def __aenter__(self):
         # call client once to ensure it is created
         _ = self.client
@@ -100,7 +99,6 @@ class BlockperfApiBase:
         poison its state with a single call to a different base_url, a temporary
         client is created if there is a temporary client provided.
         """
-        # await self._ensure_valid_token()
         try:
             headers = kwargs.pop("headers", {})
             headers["X-Api-Key"] = self.api_key or ""
@@ -114,17 +112,6 @@ class BlockperfApiBase:
             response.raise_for_status()
 
         except httpx.HTTPStatusError as e:
-            # if response.status_code == 401:
-            #    # Token expired, retry once with new token
-            #    self.token = None
-            #    await self._ensure_valid_token()
-            #    headers["Authorization"] = f"Bearer {self.token}"
-            #    response = await self.client.request(
-            #        method,
-            #        f"/{endpoint.lstrip('/')}",
-            #        headers=headers,
-            #        **kwargs,
-            #    )
             logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
             return None
         except httpx.TimeoutException as e:
@@ -147,47 +134,6 @@ class BlockperfApiBase:
         if response_model and data:
             return response_model.model_validate(data)
         return data
-
-    async def _get_challenge(self) -> str:
-        """Get a challenge from the server for authentication."""
-        response = await self.client.get(
-            "/auth/challenge",
-            params={"clientid": self.client_id},
-        )
-        response.raise_for_status()
-
-        return response.json()["challenge"]
-
-    def _solve_challenge(self, challenge: str) -> str:
-        """
-        Solve the challenge using client secret.
-        Real implementation depends on API requirements.
-        """
-        return f"{challenge}"
-
-    async def _authenticate(self) -> None:
-        """Perform the challenge-response authentication flow."""
-        challenge = await self._get_challenge()
-        solution = self._solve_challenge(challenge)
-
-        response = await self.client.post(
-            "/auth/token",
-            json={
-                "client_id": self.client_id,
-                "challenge": challenge,
-                "solution": solution,
-            },
-        )
-        response.raise_for_status()
-
-        token_data = response.json()
-        self.token = token_data["token"]
-        self.token_expiry = time.time() + token_data.get("expires_in", 3600)
-
-    async def _ensure_valid_token(self) -> None:
-        """Ensure we have a valid token, requesting a new one if needed."""
-        if not self.token or time.time() >= self.token_expiry:
-            await self._authenticate()
 
     # To all http methods provide an endpoint and optonaly a response mode.
     # The response will be validated against that model if present.

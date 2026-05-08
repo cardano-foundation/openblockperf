@@ -9,8 +9,8 @@ a local Cardano relay node, run by a stake pool operator. If you are setting up 
 operating a stake pool, start with this guideline:
 [https://developers.cardano.org/docs/operate-a-stake-pool/](https://developers.cardano.org/docs/operate-a-stake-pool/)
 
-openBlockperf is designed to run on relay nodes located between the stake pool 
-(producer) node and the global network. It can also run on producer nodes if 
+openBlockperf is designed to run on relay nodes located between the stake pool
+(producer) node and the global network. It can also run on producer nodes if
 desired, albeit it is not recommended. In normal operation, OpenBlockperf runs
 as a systemd service. OpenBlockPerf watches and monitors the global data flow
 between the relay nodes of different stake pools.
@@ -20,7 +20,7 @@ between the relay nodes of different stake pools.
 ## Installation / Get started
 
 The installer targets Linux environments typically used for Cardano nodes
-(for example Ubuntu/Debian server setups with systemd) and requires some specific 
+(for example Ubuntu/Debian server setups with systemd) and requires some specific
 traceOptions enabled in the configuration (see [Trace Options Guide](docs/blockperf-traceoptions.md) )
 
 Install OpenBlockperf with the installer script below, or alternatively
@@ -36,7 +36,7 @@ sudo ./blockperf-install.sh
 
 ### interactive
 
-By default this starts an interactive command line wizard that guides you step 
+By default this starts an interactive command line wizard that guides you step
 by step through the installation and configuration:
 
 ```console
@@ -126,7 +126,7 @@ Installation complete.
 Next steps (API key not set in this run):
   1. Register and obtain an API key:
        /opt/cardano/openblockperf/venv/bin/blockperf register
-     A Calidus key is required; 
+     A Calidus key is required;
   2. Set OPENBLOCKPERF_API_KEY in /etc/default/openblockperf
   3. Start the service:  systemctl start openblockperf.service
   4. Status:  systemctl status openblockperf.service
@@ -138,7 +138,7 @@ Once installed you should have a 'blockperf' executable installed.
 ```console
 $ blockperf version
 Installed version: 0.0.25
-Python version: 3.12.3 
+Python version: 3.12.3
 Platform: Linux-6.8.0-100-generic-x86_64-with-glibc2.39
 ```
 
@@ -146,7 +146,7 @@ Platform: Linux-6.8.0-100-generic-x86_64-with-glibc2.39
 
 You can also run the installer in non-interactive mode with command line
 options, or predefine settings via environment variables (useful for
-containerized/deployment automation workflows: see [Installer Guide](docs/blockperf-install.md)). 
+containerized/deployment automation workflows: see [Installer Guide](docs/blockperf-install.md)).
 
 When no explicit API key is provided, non-interactive `--yes` now defaults to
 `--api-key-mode relay` and attempts automatic public-IP registration.
@@ -202,8 +202,6 @@ sudo journalctl -fu openblockperf.service
 # Typical service env file location
 /etc/default/openblockperf
 
-# Typical Client UUID state
-~/.local/state/blockperf/clientid.uuid
 ```
 
 ## Registration
@@ -216,15 +214,15 @@ block propagation and relay connectivity.
 To contribute data, each stake pool registers once and receives an API key
 that can be reused across all of its relay nodes.
 
-Initial operator identification uses the 
+Initial operator identification uses the
 [Calidus Stake Pool Key](https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812):
 
-You can generate and register your own stake pools Calidus key for example 
-with this [SPO script](https://github.com/gitmachtl/scripts/blob/master/cardano/mainnet/15_calidusPoolKey.sh) 
-or by using the CNTools text UI (Pool > Calidus > ...) 
+You can generate and register your own stake pools Calidus key for example
+with this [SPO script](https://github.com/gitmachtl/scripts/blob/master/cardano/mainnet/15_calidusPoolKey.sh)
+or by using the CNTools text UI (Pool > Calidus > ...)
 
 During registration the `blockperf register` command gets a challenge and will sign it with your
-Calidus key. The provided API key is assigned to this Calidus Keys Stakepool(s). 
+Calidus key. The provided API key is assigned to this Calidus Keys Stakepool(s).
 
 ```bash
 blockperf register --pool-id [your pools bech32 id] --calidus-skey [path to your calidus skey file]
@@ -241,10 +239,10 @@ who want to participate with a single relay node.
 For SPO-level participation across a whole pool infrastructure (multiple relays
 reported as one entity), use a Calidus-registered API key.
 
-You only need to run the register command and provide your Calidus skey once 
-on one of your relay nodes to obtain the API key for your stake pool. 
-After that, you can copy and use this API key on additional relay nodes. 
+You only need to run the register command and provide your Calidus skey once
+on one of your relay nodes to obtain the API key for your stake pool.
+After that, you can copy and use this API key on additional relay nodes.
 
 ## Uninstall
 
-When openBlockperf is no longer needed, it can be completely removed using the `blockperf-install.sh --remove` parameter. 
+When openBlockperf is no longer needed, it can be completely removed using the `blockperf-install.sh --remove` parameter.

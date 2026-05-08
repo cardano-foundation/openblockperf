@@ -26,7 +26,6 @@ class BlockperfApiClient:
         self._api = BlockperfApiBase(
             full_api_url=settings.full_api_url,
             api_key=settings.api_key,
-            client_id=settings.client_id,
             hostname=settings.hostname,
         )
 
@@ -52,7 +51,7 @@ class BlockperfApiClient:
         """Register the client using the ip registration process.
 
         Returns:
-            A Tuple that holds the client_id and the full_api_key.
+            A Tuple that holds full_api_key.
         """
         response = await self._api.post("/registration/ip", {}, IpRegistrationResponse)
         return response
@@ -90,7 +89,6 @@ class BlockperfApiClient:
         info_request = ClientInfoRequest(hostname=hostname, node_version=node_version, client_version=str(__version__))
         logger.debug(
             "Sending Clientinfo",
-            hostname=info_request.hostname,
             node_version=info_request.node_version,
             client_version=info_request.client_version,
         )

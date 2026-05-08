@@ -68,14 +68,13 @@ async def run_cmd(
     """
     try:
         settings = _settings(network, api_url, node_unit_name)
+        app = Blockperf(console, settings)
+
         console.print(f"[bold cyan]Network:[/] {settings.network.value}")
         console.print(f"[bold cyan]Hostname:[/] {settings.hostname}")
         console.print(f"[bold cyan]Node Unit:[/] {settings.node_unit_name}")
-        console.print(f"[bold cyan]Client Id:[/] {settings.client_id}")
         console.print(f"[bold cyan]API URL:[/] {settings.full_api_url}")
         console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
-
-        app = Blockperf(console, settings)
 
         shutdown_event = asyncio.Event()  # Signal handler for Ctrl-SIGINT or SIGTERM os signals
 
