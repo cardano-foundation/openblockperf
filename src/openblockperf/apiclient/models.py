@@ -1,4 +1,6 @@
 from datetime import datetime
+from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -56,10 +58,19 @@ class ClientInfoRequest(BaseModel):
     client_version: str
 
 
+class IpRegistrationResponseStatus(StrEnum):
+    ALREADY_REGISTERED = "already_registered"
+    FORCE_RENEWAL = "force_renewal"
+    UPDATE_IP = "update_ip"
+    REGISTERED = "registered"
+    ERROR = "error"
+
+
 class IpRegistrationResponse(BaseModel):
-    apikey: str
-    client_id: str
-    ipaddress: str
+    status: IpRegistrationResponseStatus
+    msg: str | None = None
+    apikey: str | None = None  # The full apikey string
+    ipaddress: str | None = None  # the ip address this key is bound to
 
 
 class RelayIpSubmitResponse(BaseModel):

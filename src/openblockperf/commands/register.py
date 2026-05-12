@@ -8,11 +8,13 @@ import typer
 from rich.console import Console
 
 from openblockperf.apiclient import BlockperfApiClient
+from openblockperf.apiclient.models import IpRegistrationResponseStatus
 from openblockperf.calidus import (
     extract_signing_key_from_cbor,
     parse_key_file,
 )
 from openblockperf.errors import ConfigurationError
+from openblockperf.logging import logger
 from openblockperf.utils import async_command
 
 from ._utils import _settings
@@ -67,6 +69,20 @@ async def register_cmd(  # noqa: PLR0912
             help="Register using backend-detected relay public IPs (IPv4/IPv6 probes as available).",
         ),
     ] = False,
+    force_renewal: Annotated[
+        bool,
+        typer.Option(
+            "--force-renewal",
+            help="Reregisters the IP address and returns a new ApiKey. Use this command from a client where you know it has send data prior but the ApiKey is lost. Invalidates the old ApiKey and creates a new one.",
+        ),
+    ] = False,
+    update_ip: Annotated[
+        bool,
+        typer.Option(
+            "--update-ip",
+            help="Updates the IP Address that is registered with the ApiKey. Use this command from a new client with an existing ApiKey to have the new clients ip be registered with that ApiKey.",
+        ),
+    ] = False,
 ) -> None:
     """The register command."""
 
@@ -77,15 +93,29 @@ async def register_cmd(  # noqa: PLR0912
             if pool_id or calidus_skey:
                 console.print("[yellow]Ignoring --pool-id/--calidus-skey because --relay-ip was requested.[/]")
 
-            response = await api.clientip_registration()
-            if response:
+            if force_renewal and update_ip:
+                console.print("[yellow]You cant provide --force-renewal and --update together! [/]")
+                sys.exit(0)
+
+            response = await api.clientip_registration(force_renewal, update_ip)
+            if response.apikey:
                 rich.print(f"ApiKey: {response.apikey}")
+            if response.ipaddress:
                 rich.print(f"IpAddress: {response.ipaddress}")
 
-            else:
-                # No response returned, nothing to do for registration
+            if response.status == IpRegistrationResponseStatus.REGISTERED:
+                rich.print(
+                    "You have successfully registered. Please note the APIKey. It can never be retrieved again. Use --force-renewal to create a new one."
+                )
+            elif response.status == IpRegistrationResponseStatus.ALREADY_REGISTERED:
+                rich.print("You are already registered with this IP Address.")
+            elif response.status == IpRegistrationResponseStatus.FORCE_RENEWAL:
+                rich.print("You have successfully renewed your ApiPkey. Please note that ApiKey.")
+            elif response.status == IpRegistrationResponseStatus.UPDATE_IP:
                 pass
-            return
+            else:
+                rich.print(f"Unknown Status in response: {response}")
+
         else:  # If not ip registration, then assume calidus key
             if not pool_id:
                 raise ConfigurationError("Missing --pool-id for Calidus registration.")
@@ -114,6 +144,7 @@ async def register_cmd(  # noqa: PLR0912
         console.print(f"[bold red]Configuration error:[/] {e}")
         sys.exit(1)
     except Exception as e:
+        logger.exception(e)
         if hasattr(e, "exceptions"):
             console.print(f"[bold red]App failed with {len(e.exceptions)} error(s):[/]")  # fmt: off
             for exc in e.exceptions:

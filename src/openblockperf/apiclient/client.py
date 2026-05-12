@@ -40,20 +40,25 @@ class BlockperfApiClient:
     async def request_registration_challenge(
         self, pool_id_bech32: str | None = None, calidus_key_id: str | None = None
     ) -> str:
-        """ """
-
+        """"""
         rcr = RegistrationChallengeRequest(pool_id_bech32=pool_id_bech32)
         logger.debug("Sending registration request", request=rcr)
         response = await self._api.post("/registration/calidus/challenge", rcr, RegistrationChallengeResponse)
         return response.challenge
 
-    async def clientip_registration(self) -> IpRegistrationResponse | None:
+    async def clientip_registration(self, force: bool, update_ip: bool) -> IpRegistrationResponse | None:
         """Register the client using the ip registration process.
+
+        Args:
+            force: Flag to force recreation of an ApiKey from a known Client.
+            update_ip: Flag to up the clients ip address of the provided (used) ApiKey
 
         Returns:
             A Tuple that holds full_api_key.
         """
-        response = await self._api.post("/registration/ip", {}, IpRegistrationResponse)
+        # The header must be a str value not a boolean.
+        headers = {"X-Force-Renewal": str(force), "X-Update-Ip": str(update_ip)}
+        response = await self._api.post("/registration/ip", {}, IpRegistrationResponse, headers=headers)
         return response
 
     async def submit_signed_challenge(

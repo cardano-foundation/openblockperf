@@ -93,12 +93,7 @@ class BlockperfApiBase:
         endpoint: str,
         **kwargs,
     ) -> httpx.Response | None:
-        """Make an authenticated request to the API.
-
-        The http client is lazy loaded through the property client(). To not
-        poison its state with a single call to a different base_url, a temporary
-        client is created if there is a temporary client provided.
-        """
+        """Make an authenticated request to the API."""
         try:
             headers = kwargs.pop("headers", {})
             headers["X-Api-Key"] = self.api_key or ""
@@ -113,7 +108,7 @@ class BlockperfApiBase:
 
         except httpx.HTTPStatusError as e:
             logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
-            return None
+            raise ApiError(f"The API returned an error: {e}") from e
         except httpx.TimeoutException as e:
             raise ApiError(f"API request timed out: {e}") from e
         except httpx.ConnectError as e:
