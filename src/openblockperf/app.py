@@ -177,7 +177,7 @@ class Blockperf:
             max_delay = 60
             try:
                 node_version = await self.ekg.get_node_version()
-                await self.api.send_clientinfo(self.settings.hostname, node_version)
+                await self.api.send_clientinfo(node_version)
             except EkgError as e:
                 logger.error(f"Error sending clientinfo, retrying in {delay}s: {e!r}")
                 await asyncio.sleep(delay)

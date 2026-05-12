@@ -98,6 +98,7 @@ class BlockperfApiBase:
             headers = kwargs.pop("headers", {})
             headers["X-Api-Key"] = self.api_key or ""
             headers["X-Hostname"] = self.hostname
+            logger.debug(f"{method.upper()}: {endpoint}", hostname=self.hostname, kwargs=kwargs)
             response = await self.client.request(
                 method,
                 f"/{endpoint.lstrip('/')}",

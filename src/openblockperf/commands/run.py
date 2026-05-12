@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
+import os
 import signal
 import sys
+import traceback
 from typing import Annotated
 
 import typer
@@ -71,8 +73,8 @@ async def run_cmd(
         app = Blockperf(console, settings)
 
         console.print(f"[bold cyan]Network:[/] {settings.network.value}")
-        console.print(f"[bold cyan]Hostname:[/] {settings.hostname}")
-        console.print(f"[bold cyan]Node Unit:[/] {settings.node_unit_name}")
+        console.print(f"[bold cyan]Node Name:[/] {settings.node_name}")
+        console.print(f"[bold cyan]Node Unit Name:[/] {settings.node_unit_name}")
         console.print(f"[bold cyan]API URL:[/] {settings.full_api_url}")
         console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
 
@@ -116,8 +118,12 @@ async def run_cmd(
         if hasattr(e, "exceptions"):
             console.print(f"[bold red]App failed with {len(e.exceptions)} error(s):[/]")  # fmt: off
             for exc in e.exceptions:
+                if os.getenv("OPENBLOCKPERF_LOG_LEVEL", "INFO") == "DEBUG":
+                    traceback.print_exc()
                 console.print(f"[bold red]- {type(exc).__name__}: {exc!r}[/]")
         else:
+            if os.getenv("OPENBLOCKPERF_LOG_LEVEL", "INFO") == "DEBUG":
+                traceback.print_exc()
             console.print(f"[bold red]Application failed: {e!r}[/]")
         sys.exit(1)
     finally:

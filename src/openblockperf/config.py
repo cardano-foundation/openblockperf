@@ -39,7 +39,7 @@ class AppSettings(BaseSettings):
     api_key: str | None = None
     block_sample_check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
-    hostname: str = socket.gethostname()  # This clients hostname
+    node_name: str = socket.gethostname()  # This clients hostname
     node_unit_name: str = "cardano-tracer"
     # Ekg endpoint url
     ekg_url: str = "http://localhost:12798/metrics"

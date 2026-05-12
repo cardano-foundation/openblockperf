@@ -26,7 +26,7 @@ class BlockperfApiClient:
         self._api = BlockperfApiBase(
             full_api_url=settings.full_api_url,
             api_key=settings.api_key,
-            hostname=settings.hostname,
+            hostname=settings.node_name,
         )
 
     async def submit_block_sample(self, sample: BlockSample) -> BlockSampleResponse:
@@ -90,8 +90,8 @@ class BlockperfApiClient:
         logger.debug("Sending PeerEvent", request=per)
         await self._api.post("/submit/peerevent", per)
 
-    async def send_clientinfo(self, hostname: str, node_version: str):
-        info_request = ClientInfoRequest(hostname=hostname, node_version=node_version, client_version=str(__version__))
+    async def send_clientinfo(self, node_version: str):
+        info_request = ClientInfoRequest(node_version=node_version, client_version=str(__version__))
         logger.debug(
             "Sending Clientinfo",
             node_version=info_request.node_version,

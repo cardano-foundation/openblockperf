@@ -112,7 +112,7 @@ async def register_cmd(  # noqa: PLR0912
             elif response.status == IpRegistrationResponseStatus.FORCE_RENEWAL:
                 rich.print("You have successfully renewed your ApiPkey. Please note that ApiKey.")
             elif response.status == IpRegistrationResponseStatus.UPDATE_IP:
-                pass
+                rich.print("You have successfully update the ip address of your ApiPkey.")
             else:
                 rich.print(f"Unknown Status in response: {response}")
 
