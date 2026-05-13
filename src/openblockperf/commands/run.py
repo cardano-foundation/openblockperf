@@ -1,30 +1,22 @@
 import asyncio
 import contextlib
-import os
 import signal
 import sys
-import traceback
 from typing import Annotated
 
 import typer
 from rich.console import Console
 
 from openblockperf.app import Blockperf
-from openblockperf.errors import ConfigurationError
 from openblockperf.utils import async_command
 
 from ._utils import _settings
 
-run_app = typer.Typer(
-    name="run",
-    help="Run the blockperf client",
-    invoke_without_command=True,
-)
 console = Console(file=sys.stdout, force_terminal=True)
 
 
 @async_command
-async def run_cmd(  # noqa: PLR0912
+async def run_cmd(
     network: Annotated[
         str | None,
         typer.Option(
@@ -68,26 +60,25 @@ async def run_cmd(  # noqa: PLR0912
     which would make it finish and thus close the program.
 
     """
+    settings = _settings(network, api_url, node_unit_name)
+    app = Blockperf(console, settings)
+
+    console.print(f"[bold cyan]Network:[/] {settings.network.value}")
+    console.print(f"[bold cyan]Node Name:[/] {settings.node_name}")
+    console.print(f"[bold cyan]Node Unit Name:[/] {settings.node_unit_name}")
+    console.print(f"[bold cyan]API URL:[/] {settings.full_api_url}")
+    console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
+
+    shutdown_event = asyncio.Event()
+
+    def signal_handler():
+        shutdown_event.set()
+
+    loop = asyncio.get_running_loop()
+    for sig in [signal.SIGINT, signal.SIGTERM]:
+        loop.add_signal_handler(sig, signal_handler)
+
     try:
-        settings = _settings(network, api_url, node_unit_name)
-        app = Blockperf(console, settings)
-
-        console.print(f"[bold cyan]Network:[/] {settings.network.value}")
-        console.print(f"[bold cyan]Node Name:[/] {settings.node_name}")
-        console.print(f"[bold cyan]Node Unit Name:[/] {settings.node_unit_name}")
-        console.print(f"[bold cyan]API URL:[/] {settings.full_api_url}")
-        console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
-
-        shutdown_event = asyncio.Event()  # Signal handler for Ctrl-SIGINT or SIGTERM os signals
-
-        def signal_handler():
-            shutdown_event.set()
-
-        loop = asyncio.get_running_loop()
-        for sig in [signal.SIGINT, signal.SIGTERM]:
-            loop.add_signal_handler(sig, signal_handler)
-
-        # create app and shutdown_handler as asyncio tasks
         app_task = asyncio.create_task(app.start())
         shutdown_task = asyncio.create_task(shutdown_event.wait())
 
@@ -104,27 +95,5 @@ async def run_cmd(  # noqa: PLR0912
         # Check if app_task completed with an exception
         if app_task in done and not app_task.cancelled():
             await app_task  # This will re-raise any exception if there was one
-
-    except KeyboardInterrupt:
-        console.print("\n[bold green]Shutdown initiated by user[/]")
-        sys.exit(0)
-    except asyncio.CancelledError:
-        console.print("[bold yellow]Application was cancelled[/]")
-        sys.exit(0)
-    except ConfigurationError as e:
-        console.print(f"[bold red]Configuration error:[/] {e!r}")
-        sys.exit(1)
-    except Exception as e:
-        if hasattr(e, "exceptions"):
-            console.print(f"[bold red]App failed with {len(e.exceptions)} error(s):[/]")  # fmt: off
-            for exc in e.exceptions:
-                if os.getenv("OPENBLOCKPERF_LOG_LEVEL", "INFO") == "DEBUG":
-                    traceback.print_exc()
-                console.print(f"[bold red]- {type(exc).__name__}: {exc!r}[/]")
-        else:
-            if os.getenv("OPENBLOCKPERF_LOG_LEVEL", "INFO") == "DEBUG":
-                traceback.print_exc()
-            console.print(f"[bold red]Application failed: {e!r}[/]")
-        sys.exit(1)
     finally:
         await app.stop()

@@ -1,6 +1,6 @@
 """Base commands implementation for BlockPerf CLI."""
 
-__all__ = ["run_cmd", "version_cmd", "register_cmd"]
+__all__ = ["run_cmd", "version_cmd", "register_calidus_cmd", "register_ip_cmd"]
 
 
 from .register_calidus import register_calidus_cmd

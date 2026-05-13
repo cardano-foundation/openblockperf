@@ -49,7 +49,7 @@ class BlockperfApiBase:
         full_api_url: str,
         api_key: str,
         hostname: str | None = None,
-        timeout: float = 10.0,
+        timeout: float = 6.0,
         **httpx_kwargs,
     ):
         # Initialize from settings instance or create new one
@@ -96,6 +96,8 @@ class BlockperfApiBase:
         """Make an authenticated request to the API."""
         try:
             headers = kwargs.pop("headers", {})
+            if not self.api_key:
+                logger.warning("No ApiKey found!")
             headers["X-Api-Key"] = self.api_key or ""
             headers["X-Hostname"] = self.hostname
             logger.debug(f"{method.upper()}: {endpoint}", hostname=self.hostname, kwargs=kwargs)
@@ -111,7 +113,7 @@ class BlockperfApiBase:
             logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
             raise ApiError(f"The API returned an error: {e}") from e
         except httpx.TimeoutException as e:
-            raise ApiError(f"API request timed out: {e}") from e
+            raise ApiError(f"API request timed out: {self.full_api_url}") from None
         except httpx.ConnectError as e:
             raise ApiConnectionError(f"Failed to connect to API: {e}") from e
 
