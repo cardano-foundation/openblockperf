@@ -55,7 +55,12 @@ async def register_calidus_cmd(
         ),
     ] = None,
 ) -> None:
-    """The register command."""
+    """Register for an ApiKey using your Calidus Key.
+
+    Go through a challenge response cycle. The api will send you a challenge
+    that you will need to sign with your calidus key. You then need to submit
+    that signed challenge for the api to verify the calidus key signature and
+    create an ApiKey. That ApiKey is not bound to an ip address."""
     app_settings = _settings(network=network)
     api = BlockperfApiClient(app_settings)
     if not pool_id:

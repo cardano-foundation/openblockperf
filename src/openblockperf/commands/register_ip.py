@@ -39,18 +39,22 @@ async def register_ip_cmd(
         bool,
         typer.Option(
             "--force-renewal",
-            help="Reregisters the IP address and returns a new ApiKey. Use this command from a client where you know it has send data prior but the ApiKey is lost. Invalidates the old ApiKey and creates a new one.",
+            help="Reregisters the ip address and returns a new ApiKey. Use this command from a client where you know it has send data prior but the ApiKey is lost. Invalidates the old ApiKey and creates a new one.",
         ),
     ] = False,
     update_ip: Annotated[
         bool,
         typer.Option(
             "--update-ip",
-            help="Updates the IP Address that is registered with the ApiKey. Use this command from a new client with an existing ApiKey to have the new clients ip be registered with that ApiKey.",
+            help="Updates the ip address that is registered with the ApiKey. Use this command from a new client with an existing ApiKey to have the new clients ip be registered with that ApiKey.",
         ),
     ] = False,
 ) -> None:
-    """The register command."""
+    """Register for an ApiKey using your ip address.
+
+    If you dont have a Calidus Key You can register using your ip. Run this command
+    from the host where you want to share data. The source ip will be stored
+    and the ApiKey will only every be valid from that ip address."""
     app_settings = _settings(network=network)
     api = BlockperfApiClient(app_settings)
 
@@ -67,7 +71,7 @@ async def register_ip_cmd(
             "You have successfully registered. Please note the APIKey. It can never be retrieved again. Use --force-renewal to create a new one."
         )
     elif response.status == IpRegistrationResponseStatus.ALREADY_REGISTERED:
-        rich.print("You are already registered with this IP Address.")
+        rich.print("You are already registered with this ip address.")
     elif response.status == IpRegistrationResponseStatus.FORCE_RENEWAL:
         rich.print("You have successfully renewed your ApiPkey. Please note that ApiKey.")
     elif response.status == IpRegistrationResponseStatus.UPDATE_IP:
