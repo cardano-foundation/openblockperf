@@ -75,6 +75,6 @@ async def register_ip_cmd(
     elif response.status == IpRegistrationResponseStatus.FORCE_RENEWAL:
         rich.print("You have successfully renewed your ApiPkey. Please note that ApiKey.")
     elif response.status == IpRegistrationResponseStatus.UPDATE_IP:
-        rich.print(f"You have successfully update the ip address of your ApiPkey to '{response.ipaddress}'")
+        rich.print(f"You have successfully updated the ip address of your ApiPkey to '{response.ipaddress}'")
     else:
         rich.print(f"Unknown Status in response: {response}")
