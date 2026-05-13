@@ -24,7 +24,7 @@ console = Console(file=sys.stdout, force_terminal=True)
 
 
 @async_command
-async def run_cmd(
+async def run_cmd(  # noqa: PLR0912
     network: Annotated[
         str | None,
         typer.Option(

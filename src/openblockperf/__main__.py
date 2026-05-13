@@ -15,7 +15,7 @@ import sys
 
 import typer
 
-from openblockperf.commands import register_cmd, run_cmd, version_cmd
+from openblockperf.commands import register_calidus_cmd, register_ip_cmd, run_cmd, version_cmd
 from openblockperf.logging import setup_logging
 
 # Initialize the Typer application
@@ -29,7 +29,9 @@ BlockperfCli = typer.Typer(
 # Add commands directly to the app
 BlockperfCli.command("version")(version_cmd)
 BlockperfCli.command("run")(run_cmd)
-BlockperfCli.command("register")(register_cmd)
+BlockperfCli.command("register_ip")(register_ip_cmd)
+BlockperfCli.command("register_calidus")(register_calidus_cmd)
+
 # BlockperfCli.add_typer(run_app)
 
 
