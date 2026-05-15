@@ -1,10 +1,17 @@
 import socket
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import ClassVar
 
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    JsonConfigSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 
 class Network(Enum):
@@ -73,6 +80,46 @@ class AppSettings(BaseSettings):
             api_url="https://preview.api.openblockperf.cardano.org",
         ),
     }
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Inject an optional JSON/YAML config file as a low-priority source.
+
+        Pass the file path via the ``_config_file`` init kwarg. Sources earlier
+        in the returned tuple win, so env vars and explicit init kwargs still
+        override values from the file.
+        """
+        config_file = init_settings.init_kwargs.pop("_config_file", None)
+
+        sources: list[PydanticBaseSettingsSource] = [
+            init_settings,
+            env_settings,
+            dotenv_settings,
+        ]
+
+        if config_file:
+            path = Path(config_file)
+            if not path.is_file():
+                raise FileNotFoundError(f"Config file not found: {path}")
+            suffix = path.suffix.lower()
+            if suffix == ".json":
+                sources.append(JsonConfigSettingsSource(settings_cls, json_file=path))
+            elif suffix in (".yaml", ".yml"):
+                sources.append(YamlConfigSettingsSource(settings_cls, yaml_file=path))
+            else:
+                raise ValueError(
+                    f"Unsupported config file extension {suffix!r}. Use .json, .yaml, or .yml"
+                )
+
+        sources.append(file_secret_settings)
+        return tuple(sources)
 
     @property
     def full_api_url(self):

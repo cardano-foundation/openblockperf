@@ -174,23 +174,96 @@ sudo ./blockperf-install.sh --update
 The installer configures and starts OpenBlockperf as a systemd service, which
 is the recommended way to run it continuously on node hosts.
 
-You can also run it in your console for tests and explorations
+You can also run it in your console for tests and explorations.
 
-Usage Examples:
+### Command structure
 
-```shell
-  # Use mainnet (default)
-  blockperf run
-
-  # Use preprod network
-  blockperf run --network preprod
-
-  # Or use environment variable
-  export OPENBLOCKPERF_NETWORK=preprod
-  blockperf run
+```
+blockperf [SHARED OPTIONS] <COMMAND> [COMMAND OPTIONS]
 ```
 
-Service activity and common file locations:
+Shared options must appear **before** the subcommand name; they are inherited
+by every subcommand.
+
+| Shared option | Default | Description |
+| --- | --- | --- |
+| `-n, --network {mainnet,preprod,preview}` | `mainnet` (or `OPENBLOCKPERF_NETWORK`) | Cardano network. Selects the network-specific API URL and chain magic. |
+| `--api-url URL` | network-specific | Override the API URL (full URL including port and path, e.g. `http://localhost:8000/api/v0`). |
+| `-c, --config FILE` | unset | Path to a JSON or YAML configuration file (`.json`, `.yaml`, `.yml`) used to seed settings. |
+
+### Subcommands
+
+| Command | Purpose | Command-specific options |
+| --- | --- | --- |
+| `version` | Print client version | (none) |
+| `run` | Start the metrics collector (long-running) | `--node-unit-name TEXT` — systemd unit to read from journald (default `cardano-tracer`). |
+| `register-ip` | Register for an API key bound to this relay's public IP | `--force-renewal`, `--update-ip` (mutually exclusive). |
+| `register-calidus` | Register for an API key via Calidus challenge/response | `-p, --pool-id BECH32`, `--calidus-skey FILE`. |
+
+### Examples
+
+```shell
+# Run with defaults (mainnet)
+blockperf run
+
+# Use preprod
+blockperf --network preprod run
+
+# Or use an environment variable
+export OPENBLOCKPERF_NETWORK=preprod
+blockperf run
+
+# Load configuration from a file
+blockperf --config /etc/blockperf/config.json run
+
+# Config file + override one value via flag (the flag wins)
+blockperf --config /etc/blockperf/config.json --network preview run
+
+# Local backend during development
+blockperf --api-url http://localhost:8000/api/v0 run
+```
+
+### Configuration file
+
+The `--config` flag accepts a JSON or YAML file whose keys correspond to
+`AppSettings` fields (without the `OPENBLOCKPERF_` prefix). Use this to keep
+settings under version control or share them across deployments. Values are
+layered with the following precedence (highest wins):
+
+1. CLI flags
+2. Environment variables (`OPENBLOCKPERF_*`)
+3. `.env` file
+4. `--config` file
+
+Example `config.json`:
+
+```json
+{
+  "network": "mainnet",
+  "api_key": "pk_replace_me",
+  "api_port": 443,
+  "node_name": "relay-seoul",
+  "node_unit_name": "cardano-node",
+  "ekg_url": "http://localhost:12798/metrics",
+  "sync_check_enabled": true,
+  "sync_check_threshold": 99.9
+}
+```
+
+The equivalent YAML:
+
+```yaml
+network: mainnet
+api_key: pk_replace_me
+api_port: 443
+node_name: relay-seoul
+node_unit_name: cardano-node
+ekg_url: http://localhost:12798/metrics
+sync_check_enabled: true
+sync_check_threshold: 99.9
+```
+
+### Service activity and common file locations
 
 ```shell
 # Check service state
@@ -198,10 +271,6 @@ sudo systemctl status openblockperf.service
 
 # Follow OpenBlockperf logs
 sudo journalctl -fu openblockperf.service
-
-# Typical service env file location
-/etc/default/openblockperf
-
 ```
 
 ## Registration
@@ -209,10 +278,10 @@ sudo journalctl -fu openblockperf.service
 OpenBlockperf is built around a shared global view: distributed stake pool
 operators submit relay-side block samples and peering events into a common
 backend. In return, each contributing operator gets insights about their own
-block propagation and relay connectivity.
+block propagation and relay connectivity. To contribute data, each stake pool
+registers once and receives an API key. There are two ways to register for an ApiKey.
 
-To contribute data, each stake pool registers once and receives an API key
-that can be reused across all of its relay nodes.
+### Calidus Key Registration
 
 Initial operator identification uses the
 [Calidus Stake Pool Key](https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812):
@@ -221,27 +290,37 @@ You can generate and register your own stake pools Calidus key for example
 with this [SPO script](https://github.com/gitmachtl/scripts/blob/master/cardano/mainnet/15_calidusPoolKey.sh)
 or by using the CNTools text UI (Pool > Calidus > ...)
 
-During registration the `blockperf register` command gets a challenge and will sign it with your
-Calidus key. The provided API key is assigned to this Calidus Keys Stakepool(s).
+During registration the `blockperf register-calidus` command gets a challenge
+and will sign it with your Calidus key. The provided API key is assigned to
+this Calidus Keys Stakepool(s).
 
 ```bash
-blockperf register --pool-id [your pools bech32 id] --calidus-skey [path to your calidus skey file]
+blockperf register-calidus --pool-id [your pools bech32 id] --calidus-skey [path to your calidus skey file]
 ```
+
+### IP based registration
 
 For public relay IP-bound registration (IPv4/IPv6 probes as available), use:
 
 ```bash
-blockperf register --relay-ip
+blockperf register-ip
 ```
+
+This will store the IP address of the machine that send the request. Only
+that IP will be able to use that ApiKey.
+
+`register-ip` also supports `--force-renewal` (issue a new API key, invalidating
+the old one) and `--update-ip` (rebind an existing API key to a new relay IP).
+These two flags are mutually exclusive.
 
 Relay-IP registration is intended for operators without stake-pool credentials
 who want to participate with a single relay node.
 For SPO-level participation across a whole pool infrastructure (multiple relays
 reported as one entity), use a Calidus-registered API key.
 
-You only need to run the register command and provide your Calidus skey once
-on one of your relay nodes to obtain the API key for your stake pool.
-After that, you can copy and use this API key on additional relay nodes.
+You only need to run `register-calidus` and provide your Calidus skey once on
+one of your relay nodes to obtain the API key for your stake pool. After that,
+you can copy and use this API key on additional relay nodes.
 
 ## Uninstall
 

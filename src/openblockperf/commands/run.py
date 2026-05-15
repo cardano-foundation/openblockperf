@@ -10,32 +10,14 @@ from rich.console import Console
 from openblockperf.app import Blockperf
 from openblockperf.utils import async_command
 
-from ._utils import _settings
+from ._utils import SharedOptions, _settings
 
 console = Console(file=sys.stdout, force_terminal=True)
 
 
 @async_command
 async def run_cmd(
-    network: Annotated[
-        str | None,
-        typer.Option(
-            "--network",
-            "-n",
-            help="Cardano network to connect to (mainnet, preprod, preview). Defaults to OPENBLOCKPERF_NETWORK env var or 'mainnet'.",
-        ),
-    ] = None,
-    api_url: Annotated[
-        str | None,
-        typer.Option(
-            "--api-url",
-            help="""Override API URL (for development/testing). Takes precedence over network-specific URLs.
-
-            You will need to provide the full url, including port and path of the api.
-            E.g.: http://localhost:8000/api/v0
-        """,
-        ),
-    ] = None,
+    ctx: typer.Context,
     node_unit_name: Annotated[
         str | None,
         typer.Option(
@@ -60,7 +42,13 @@ async def run_cmd(
     which would make it finish and thus close the program.
 
     """
-    settings = _settings(network, api_url, node_unit_name)
+    shared: SharedOptions = ctx.obj
+    settings = _settings(
+        network=shared.network,
+        api_url=shared.api_url,
+        node_unit_name=node_unit_name,
+        config_file=shared.config,
+    )
     app = Blockperf(console, settings)
 
     console.print(f"[bold cyan]Network:[/] {settings.network.value}")

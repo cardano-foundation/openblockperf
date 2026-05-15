@@ -9,32 +9,14 @@ from openblockperf.apiclient import BlockperfApiClient
 from openblockperf.apiclient.models import IpRegistrationResponseStatus
 from openblockperf.utils import async_command
 
-from ._utils import _settings
+from ._utils import SharedOptions, _settings
 
 console = Console(file=sys.stdout, force_terminal=True)
 
 
 @async_command
 async def register_ip_cmd(
-    network: Annotated[
-        str | None,
-        typer.Option(
-            "--network",
-            "-n",
-            help="Cardano network to connect to (mainnet, preprod, preview). Defaults to OPENBLOCKPERF_NETWORK env var or 'mainnet'.",
-        ),
-    ] = None,
-    api_url: Annotated[
-        str | None,
-        typer.Option(
-            "--api-url",
-            help="""Override API URL (for development/testing). Takes precedence over network-specific URLs.
-
-            You will need to provide the full url, including port and path of the api.
-            E.g.: http://localhost:8000/api/v0
-        """,
-        ),
-    ] = None,
+    ctx: typer.Context,
     force_renewal: Annotated[
         bool,
         typer.Option(
@@ -54,8 +36,14 @@ async def register_ip_cmd(
 
     If you dont have a Calidus Key You can register using your ip. Run this command
     from the host where you want to share data. The source ip will be stored
-    and the ApiKey will only every be valid from that ip address."""
-    app_settings = _settings(network=network)
+    and the ApiKey will only every be valid from that ip address.
+    """
+    shared: SharedOptions = ctx.obj
+    app_settings = _settings(
+        network=shared.network,
+        api_url=shared.api_url,
+        config_file=shared.config,
+    )
     api = BlockperfApiClient(app_settings)
 
     if force_renewal and update_ip:
