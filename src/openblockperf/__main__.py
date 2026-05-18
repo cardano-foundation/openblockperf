@@ -100,10 +100,9 @@ def cli():
     except ConfigurationError as e:
         _console.print(f"[bold red]Configuration error:[/] {e}")
         if os.getenv("OPENBLOCKPERF_LOG_LEVEL", "INFO") == "DEBUG":
-            traceback.print_exc()
+            logger.exception(e)
         sys.exit(1)
     except Exception as e:
-
         if isinstance(e, ExceptionGroup):
             _console.print(f"[bold red]App failed with {len(e.exceptions)} error(s):[/]")
             for exc in e.exceptions:
