@@ -1654,19 +1654,12 @@ write_config_file() {
     cat > "${CONFIG_FILE}" <<EOF
 {
   "_comment": "OpenBlockPerf client configuration. Documentation: https://openblockperf.readthedocs.io",
-
   "api_key": $(json_string "${API_KEY_TO_INSTALL}"),
-
   "network": $(json_string "${NETWORK}"),
-
   "log_level": "WARNING",
-
   "node_name": $(json_string "${NODE_NAME}"),
-
   "node_config": $(json_string "${NODE_CONFIG_PATH}"),
-
   "node_unit_name": $(json_string "${NODE_UNIT_NAME}"),
-
   "local_addr": "0.0.0.0",
   "local_port": 3001
 }
