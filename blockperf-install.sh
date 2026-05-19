@@ -59,7 +59,7 @@ set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/26"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.1.3"
+INSTALLER_VERSION="0.2.0"
 INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
