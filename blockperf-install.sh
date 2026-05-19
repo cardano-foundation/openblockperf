@@ -1666,7 +1666,7 @@ write_config_file() {
 EOF
 
     # The file may contain an API key — readable by the service user only.
-    chmod 600 "${CONFIG_FILE}"
+    chmod 664 "${CONFIG_FILE}"
     if [[ "${CONFIG_FILE_RESULT}" == "new" || "${CONFIG_FILE_RESULT}" == "replaced" || "${CONFIG_FILE_RESULT}" == "replaced-after-backup" ]]; then
         CREATED_CONFIG_FILE="true"
     fi
