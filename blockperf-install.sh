@@ -5,7 +5,7 @@
 #   1. Creates an installation directory for the virtual environment
 #   2. Creates a Python virtual environment using the system Python
 #   3. Installs the openblockperf package from PyPI
-#   4. Writes an environment file at /etc/default/openblockperf
+#   4. Writes a config file at ${INSTALL_DIR}/config.json
 #   5. Writes a systemd service unit and enables it
 #
 # All steps are configurable via environment variables (see below).
@@ -45,12 +45,10 @@
 #                     Default: /etc/systemd/system/openblockperf.service
 #   WRAPPER_COMMAND   Script that will start the client within its environment
 #                     Default: /usr/local/bin/blockperf
-#   ENV_FILE          Path for the environment configuration file
-#                     Default: /etc/default/openblockperf
 #   NETWORK           Cardano network: mainnet | preprod | preview
 #                     Default: unset → derived from Shelley genesis or mainnet; use --network to set.
 #   NODE_NAME         Operator node label (defaults to OS hostname).
-#                     Written to OPENBLOCKPERF_NODE_NAME in /etc/default/openblockperf.
+#                     Written to config.json as node_name.
 #   NODE_UNIT_NAME    systemd unit for cardano-node (e.g. cardano-node.service).
 #                     Default: auto-discover; use --node-unit-name to set explicitly.
 #   NODE_CONFIG_PATH  Absolute path to cardano-node config.json (TraceOptions).
@@ -61,7 +59,7 @@ set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/26"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.1.3"
+INSTALLER_VERSION="0.2.0"
 INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
@@ -75,14 +73,13 @@ SERVICE_USER="${SERVICE_USER:-}"
 SERVICE_GROUP="${SERVICE_GROUP:-}"
 SERVICE_FILE="${SERVICE_FILE:-/etc/systemd/system/openblockperf.service}"
 WRAPPER_COMMAND="${WRAPPER_COMMAND:-/usr/local/bin/blockperf}"
-ENV_FILE="${ENV_FILE:-/etc/default/openblockperf}"
 NETWORK="${NETWORK:-}"
 NODE_NAME="${NODE_NAME:-}"
 NODE_UNIT_NAME="${NODE_UNIT_NAME:-}"
 NODE_CONFIG_PATH="${NODE_CONFIG_PATH:-}"
 MODE="install"        # install | reinstall | update | remove
 ASSUME_YES="false"    # true to skip interactive confirmations
-PURGE_CONFIG="false"  # true to remove ENV_FILE on --remove
+PURGE_CONFIG="false"  # true to remove CONFIG_FILE on --remove
 CLI_USER_CONTEXT=""   # set by --user-context <username> (overrides SERVICE_USER from env)
 CLI_NODE_UNIT_NAME="" # set by --node-unit-name <unit>
 CLI_NODE_CONFIG=""    # set by --node-config <path>
@@ -93,22 +90,23 @@ CLI_API_KEY_FILE=""   # set by --api-key-file <path>
 CLI_API_KEY_MODE=""   # set by --api-key-mode <calidus|relay>
 DRY_RUN="false"       # set interactively (preview-only); no --dry-run flag
 
-# Set by resolve_api_key (Step 6); written to ENV_FILE in write_env_file
+# Set by resolve_api_key (Step 6); written to CONFIG_FILE in write_config_file
 API_KEY_TO_INSTALL=""
 API_KEY_MODE_EFFECTIVE=""
 
-# Set by write_env_file: new | kept | replaced | replaced-after-backup
-ENV_FILE_RESULT=""
+# Set by write_config_file: new | kept | replaced | replaced-after-backup
+CONFIG_FILE_RESULT=""
 
 # Install artifacts touched in this run (used for rollback hints/cleanup)
 CREATED_SERVICE_FILE="false"
 CREATED_WRAPPER_FILE="false"
-CREATED_ENV_FILE="false"
+CREATED_CONFIG_FILE="false"
 CREATED_INSTALL_DIR="false"
 INSTALL_DIR_EXISTED_BEFORE="false"
 
 # Derived values
 VENV_DIR="${INSTALL_DIR}/venv"
+CONFIG_FILE="${INSTALL_DIR}/config.json"
 PACKAGE_SPEC="${PACKAGE_NAME}${PACKAGE_VERSION:+==${PACKAGE_VERSION}}"
 UNIT_NAME="$(basename "${SERVICE_FILE}")"
 
@@ -204,9 +202,9 @@ cleanup_on_failure() {
         rm -f "${WRAPPER_COMMAND}" || true
         warn "Removed created wrapper: ${WRAPPER_COMMAND}"
     fi
-    if [[ "${CREATED_ENV_FILE}" == "true" && -f "${ENV_FILE}" ]]; then
-        rm -f "${ENV_FILE}" || true
-        warn "Removed created env file: ${ENV_FILE}"
+    if [[ "${CREATED_CONFIG_FILE}" == "true" && -f "${CONFIG_FILE}" ]]; then
+        rm -f "${CONFIG_FILE}" || true
+        warn "Removed created config file: ${CONFIG_FILE}"
     fi
     if [[ "${CREATED_INSTALL_DIR}" == "true" && "${INSTALL_DIR_EXISTED_BEFORE}" != "true" && -d "${INSTALL_DIR}" ]]; then
         rm -rf "${INSTALL_DIR}" || true
@@ -248,7 +246,7 @@ maybe_prompt_interactive_dry_run() {
     case "${ans}" in
         y|Y|yes|YES)
             DRY_RUN="true"
-            info "Preview-only mode: venv, env file, systemd unit, and service start will be skipped."
+            info "Preview-only mode: venv, config file, systemd unit, and service start will be skipped."
             ;;
         *) ;;
     esac
@@ -261,7 +259,7 @@ print_intro_and_confirm() {
     echo "  1) Check/install prerequisites (Debian/Ubuntu and RHEL-family)"
     echo "  2) Configure service user, node name, cardano-node unit and config"
     echo "  3) Configure network and API key"
-    echo "  4) Install virtualenv, package, env file, systemd unit, and wrapper"
+    echo "  4) Install virtualenv, package, config file, systemd unit, and wrapper"
     echo "  5) Optionally start the service and print next steps"
     echo
     if [[ "${DRY_RUN}" == "true" ]]; then
@@ -280,7 +278,7 @@ print_update_intro_and_confirm() {
     echo "  3) Optionally upgrade openblockperf in the existing virtualenv"
     echo
     info "Only the Python package in ${VENV_DIR} is updated."
-    info "No systemd unit, env file, install folder layout, or node config is modified."
+    info "No systemd unit, config file, install folder layout, or node config is modified."
     if [[ "${DRY_RUN}" == "true" ]]; then
         info "Preview-only mode: package upgrade will be skipped."
     fi
@@ -372,18 +370,18 @@ Options:
   --network mainnet|preprod|preview
                  Cardano network. Skips genesis-based detection. Same as NETWORK=...
   --node-name <name>
-                 Operator node label used as OPENBLOCKPERF_NODE_NAME in ${ENV_FILE}.
+                 Operator node label used as node_name in config.json.
                  Defaults to OS hostname if omitted.
   --api-key <value>
-                 OPENBLOCKPERF_API_KEY to store in ${ENV_FILE}. Skips prompts. Same as
+                 api_key to store in config.json. Skips prompts. Same as
                  exporting OPENBLOCKPERF_API_KEY=... (visible in process list — prefer env file).
   --api-key-file <path>
-                 Read OPENBLOCKPERF_API_KEY from a file (recommended over --api-key).
+                 Read api_key from a file (recommended over --api-key).
   --api-key-mode <calidus|relay>
                  API key fallback strategy when no key is provided explicitly.
                  Default: --yes => relay, otherwise calidus.
   --version      Print installer script version and exit.
-  --purge        With --remove, also delete ${ENV_FILE}
+  --purge        With --remove, also delete ${INSTALL_DIR}/config.json
   -h, --help     Show this help
 EOF
 }
@@ -1140,12 +1138,12 @@ resolve_api_key() {
     fi
 
     if [[ "${ASSUME_YES}" == "true" ]]; then
-        warn "No API key (--api-key or OPENBLOCKPERF_API_KEY). Add OPENBLOCKPERF_API_KEY to ${ENV_FILE} before starting the service."
+        warn "No API key (--api-key or --api-key-file). Add api_key to ${CONFIG_FILE} before starting the service."
         return 0
     fi
 
     if ! has_prompt_tty; then
-        warn "No API key (non-interactive, no TTY). Set OPENBLOCKPERF_API_KEY or use --api-key."
+        warn "No API key (non-interactive, no TTY). Use --api-key or --api-key-file."
         return 0
     fi
 
@@ -1153,14 +1151,14 @@ resolve_api_key() {
     prompt_read ans "Do you already have a Blockperf API key? [y/N]: " || return 0
     case "${ans}" in
         y|Y|yes|YES)
-            prompt_read_secret API_KEY_TO_INSTALL "Enter OPENBLOCKPERF_API_KEY value (input hidden): " || true
+            prompt_read_secret API_KEY_TO_INSTALL "Enter api_key value (input hidden): " || true
             ;;
         *)
             echo
             info "After this install finishes, register your pool and obtain an API key with:"
             echo "    blockperf register"
             info "Registration requires a Calidus key; see:  ${OBP_DOC_REGISTER_URL}"
-            info "Then set OPENBLOCKPERF_API_KEY in ${ENV_FILE} and start the service."
+            info "Then set api_key in ${CONFIG_FILE} and start the service."
             ;;
     esac
 }
@@ -1506,7 +1504,6 @@ install_package() {
         warn "  ${VENV_DIR}/bin/pip install -v ${PACKAGE_SPEC}"
         die "pip install failed."
     fi
-    local installed_version
 }
 
 get_current_installed_package_version() {
@@ -1609,22 +1606,30 @@ configure_ownership() {
     ok "Ownership of ${INSTALL_DIR} set to ${SERVICE_USER}:${SERVICE_GROUP}."
 }
 
-write_env_file() {
-    ENV_FILE_RESULT="new"
+# Emit a JSON string literal, escaping backslash and double-quote.
+json_string() {
+    local val="$1"
+    val="${val//\\/\\\\}"
+    val="${val//\"/\\\"}"
+    printf '"%s"' "${val}"
+}
 
-    if [[ -f "${ENV_FILE}" ]]; then
+write_config_file() {
+    CONFIG_FILE_RESULT="new"
+
+    if [[ -f "${CONFIG_FILE}" ]]; then
         if has_prompt_tty && [[ "${ASSUME_YES}" != "true" ]]; then
             local choice=""
-            prompt_read choice "Environment file ${ENV_FILE} already exists. Replace with a new file from this run, or keep the existing file? [R/k] (default R): " || choice=""
+            prompt_read choice "Config file ${CONFIG_FILE} already exists. Replace with a new file from this run, or keep the existing file? [R/k] (default R): " || choice=""
             case "${choice:-R}" in
                 k|K|keep|KEEP)
-                    warn "Keeping existing environment file: ${ENV_FILE}"
-                    ENV_FILE_RESULT="kept"
+                    warn "Keeping existing config file: ${CONFIG_FILE}"
+                    CONFIG_FILE_RESULT="kept"
                     return 0
                     ;;
                 r|R|replace|REPLACE|"")
-                    ok "Replacing existing environment file: ${ENV_FILE}"
-                    ENV_FILE_RESULT="replaced"
+                    ok "Replacing existing config file: ${CONFIG_FILE}"
+                    CONFIG_FILE_RESULT="replaced"
                     ;;
                 *)
                     die "Invalid choice '${choice}'. Use R (replace) or k (keep)."
@@ -1632,88 +1637,50 @@ write_env_file() {
             esac
         else
             local backup=""
-            backup="$(dirname "${ENV_FILE}")/$(basename "${ENV_FILE}")-$(date +%Y-%m-%d_%H-%M).backup"
+            backup="$(dirname "${CONFIG_FILE}")/$(basename "${CONFIG_FILE}" .json)-$(date +%Y-%m-%d_%H-%M).backup.json"
             if [[ -e "${backup}" ]]; then
-                backup="$(dirname "${ENV_FILE}")/$(basename "${ENV_FILE}")-$(date +%Y-%m-%d_%H-%M-%S).backup"
+                backup="$(dirname "${CONFIG_FILE}")/$(basename "${CONFIG_FILE}" .json)-$(date +%Y-%m-%d_%H-%M-%S).backup.json"
             fi
-            mv "${ENV_FILE}" "${backup}"
-            ok "Non-interactive: renamed existing env file to ${backup}"
-            ENV_FILE_RESULT="replaced-after-backup"
+            mv "${CONFIG_FILE}" "${backup}"
+            ok "Non-interactive: renamed existing config file to ${backup}"
+            CONFIG_FILE_RESULT="replaced-after-backup"
         fi
     fi
 
-    local api_line
-    if [[ -n "${API_KEY_TO_INSTALL}" ]]; then
-        api_line="OPENBLOCKPERF_API_KEY=$(printf '%q' "${API_KEY_TO_INSTALL}")"
-    else
-        api_line="OPENBLOCKPERF_API_KEY="
-    fi
+    ok "Writing config file: ${CONFIG_FILE}"
+    mkdir -p "$(dirname "${CONFIG_FILE}")"
 
-    ok "Writing environment file: ${ENV_FILE}"
-    mkdir -p "$(dirname "${ENV_FILE}")"
-    cat > "${ENV_FILE}" <<EOF
-# OpenBlockPerf client configuration
-# Documentation: https://openblockperf.readthedocs.io
-#
-# All variables use the OPENBLOCKPERF_ prefix (pydantic-settings convention).
-# After editing this file, restart the service:
-#   systemctl restart ${UNIT_NAME}
-
-# -----------------------------------------------------------------------
-# API key (from blockperf register); Calidus key required — ${OBP_DOC_REGISTER_URL}
-# -----------------------------------------------------------------------
-${api_line}
-
-# -----------------------------------------------------------------------
-# Cardano network: mainnet | preprod | preview
-# -----------------------------------------------------------------------
-OPENBLOCKPERF_NETWORK=${NETWORK}
-
-# -----------------------------------------------------------------------
-# Client log level: DEBUG | INFO | WARNING | ERROR | EXCEPTION
-# -----------------------------------------------------------------------
-OPENBLOCKPERF_LOG_LEVEL=WARNING
-
-# -----------------------------------------------------------------------
-# Operator-defined node label (used to identify this node in aggregated data)
-# -----------------------------------------------------------------------
-OPENBLOCKPERF_NODE_NAME=${NODE_NAME}
-
-# -----------------------------------------------------------------------
-# cardano-node config.json path (resolved by install.sh)
-# -----------------------------------------------------------------------
-OPENBLOCKPERF_NODE_CONFIG=${NODE_CONFIG_PATH}
-
-# -----------------------------------------------------------------------
-# cardano-node systemd unit name (used for journald node log lookup)
-# -----------------------------------------------------------------------
-OPENBLOCKPERF_NODE_UNIT_NAME=${NODE_UNIT_NAME}
-
-# -----------------------------------------------------------------------
-# Local cardano-node connection address and port (EKG / cardano-tracer)
-# -----------------------------------------------------------------------
-OPENBLOCKPERF_LOCAL_ADDR=0.0.0.0
-OPENBLOCKPERF_LOCAL_PORT=3001
+    # Build JSON using json_string() so special characters are safely escaped.
+    cat > "${CONFIG_FILE}" <<EOF
+{
+  "_comment": "OpenBlockPerf client configuration. Documentation: https://openblockperf.readthedocs.io",
+  "api_key": $(json_string "${API_KEY_TO_INSTALL}"),
+  "network": $(json_string "${NETWORK}"),
+  "log_level": "WARNING",
+  "node_name": $(json_string "${NODE_NAME}"),
+  "node_config": $(json_string "${NODE_CONFIG_PATH}"),
+  "node_unit_name": $(json_string "${NODE_UNIT_NAME}"),
+  "local_addr": "0.0.0.0",
+  "local_port": 3001
+}
 EOF
 
-    # The file may contain an API key — readable by root only.
-    # systemd reads EnvironmentFile as root before dropping privileges,
-    # so mode 600 is sufficient and keeps the secret off other users.
-    chmod 600 "${ENV_FILE}"
-    if [[ "${ENV_FILE_RESULT}" == "new" || "${ENV_FILE_RESULT}" == "replaced" || "${ENV_FILE_RESULT}" == "replaced-after-backup" ]]; then
-        CREATED_ENV_FILE="true"
+    # The file may contain an API key — readable by the service user only.
+    chmod 600 "${CONFIG_FILE}"
+    if [[ "${CONFIG_FILE_RESULT}" == "new" || "${CONFIG_FILE_RESULT}" == "replaced" || "${CONFIG_FILE_RESULT}" == "replaced-after-backup" ]]; then
+        CREATED_CONFIG_FILE="true"
     fi
     echo
     if [[ -z "${API_KEY_TO_INSTALL}" ]]; then
         warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        warn " ACTION REQUIRED: Set OPENBLOCKPERF_API_KEY in ${ENV_FILE}"
+        warn " ACTION REQUIRED: Set \"api_key\" in ${CONFIG_FILE}"
         warn " before starting the service."
         warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo
     fi
 }
 
-# Step 7 — Install core (venv, package, env, systemd, wrapper, enable)
+# Step 7 — Install core (venv, package, config, systemd, wrapper, enable)
 install_core() {
     create_install_dir
     prepare_install_dir_for_service_user
@@ -1721,7 +1688,7 @@ install_core() {
     install_package
     maybe_register_relay_api_key
     configure_ownership
-    write_env_file
+    write_config_file
     write_service_file
     write_wrappercommand_file
     enable_service
@@ -1765,17 +1732,17 @@ print_post_install_summary() {
     echo "Installer version: ${INSTALLER_VERSION}"
     echo
     echo "Summary:"
-    echo "  • Virtual env:     ${VENV_DIR}"
-    echo "  • CLI wrapper:     ${WRAPPER_COMMAND}"
-    echo "  • Environment:     ${ENV_FILE}"
-    case "${ENV_FILE_RESULT}" in
-        new)                    echo "  • Env file action: created new" ;;
-        kept)                   echo "  • Env file action: kept existing (not overwritten)" ;;
-        replaced)               echo "  • Env file action: replaced in place" ;;
-        replaced-after-backup)  echo "  • Env file action: previous file renamed to *.backup, new file written" ;;
-        *)                      echo "  • Env file action: ${ENV_FILE_RESULT:-unknown}" ;;
+    echo "  • Virtual env:      ${VENV_DIR}"
+    echo "  • CLI wrapper:      ${WRAPPER_COMMAND}"
+    echo "  • Config file:      ${CONFIG_FILE}"
+    case "${CONFIG_FILE_RESULT}" in
+        new)                    echo "  • Config action:    created new" ;;
+        kept)                   echo "  • Config action:    kept existing (not overwritten)" ;;
+        replaced)               echo "  • Config action:    replaced in place" ;;
+        replaced-after-backup)  echo "  • Config action:    previous file renamed to *.backup.json, new file written" ;;
+        *)                      echo "  • Config action:    ${CONFIG_FILE_RESULT:-unknown}" ;;
     esac
-    echo "  • systemd unit:    ${SERVICE_FILE} (enabled)"
+    echo "  • systemd unit:     ${SERVICE_FILE} (enabled)"
     echo
     if [[ -n "${API_KEY_TO_INSTALL}" ]]; then
         echo "Next steps:"
@@ -1787,19 +1754,19 @@ print_post_install_summary() {
         echo "  1. Register and obtain an API key:"
         echo "       ${INSTALL_DIR}/venv/bin/blockperf register"
         echo "     A Calidus key is required; documentation:  ${OBP_DOC_REGISTER_URL}"
-        echo "  2. Set OPENBLOCKPERF_API_KEY in ${ENV_FILE}"
+        echo "  2. Set \"api_key\" in ${CONFIG_FILE}"
         echo "  3. Start the service:  systemctl start ${UNIT_NAME}"
         echo "  4. Status:  systemctl status ${UNIT_NAME}"
         echo "  5. Logs:    journalctl -fu ${UNIT_NAME}"
     fi
-    if [[ "${ENV_FILE_RESULT}" == "kept" ]]; then
+    if [[ "${CONFIG_FILE_RESULT}" == "kept" ]]; then
         echo
-        warn "The existing env file was kept. Resolved values from this run were NOT written."
-        warn "Check and update these entries manually in ${ENV_FILE}:"
-        warn "  OPENBLOCKPERF_NETWORK=${NETWORK}"
-        warn "  OPENBLOCKPERF_NODE_NAME=${NODE_NAME}"
-        warn "  OPENBLOCKPERF_NODE_CONFIG=${NODE_CONFIG_PATH}"
-        warn "  OPENBLOCKPERF_NODE_UNIT_NAME=${NODE_UNIT_NAME}"
+        warn "The existing config file was kept. Resolved values from this run were NOT written."
+        warn "Check and update these keys manually in ${CONFIG_FILE}:"
+        warn "  \"network\":       \"${NETWORK}\""
+        warn "  \"node_name\":     \"${NODE_NAME}\""
+        warn "  \"node_config\":   \"${NODE_CONFIG_PATH}\""
+        warn "  \"node_unit_name\": \"${NODE_UNIT_NAME}\""
     fi
     echo
 }
@@ -1821,8 +1788,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_DIR}
-EnvironmentFile=${ENV_FILE}
-ExecStart=${bin} run
+ExecStart=${bin} --config ${CONFIG_FILE} run
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=30s
@@ -1881,15 +1847,19 @@ remove_installation() {
         rm -f "${WRAPPER_COMMAND}"
     fi
     if [[ -d "${INSTALL_DIR}" ]]; then
-        ok "Removing installation directory: ${INSTALL_DIR}"
-        rm -rf "${INSTALL_DIR}"
-    fi
-
-    if [[ "${PURGE_CONFIG}" == "true" && -f "${ENV_FILE}" ]]; then
-        ok "Removing environment file: ${ENV_FILE}"
-        rm -f "${ENV_FILE}"
-    elif [[ -f "${ENV_FILE}" ]]; then
-        warn "Keeping existing environment file: ${ENV_FILE} (use --purge to remove it)."
+        if [[ "${PURGE_CONFIG}" == "true" ]]; then
+            ok "Removing installation directory (including config.json): ${INSTALL_DIR}"
+            rm -rf "${INSTALL_DIR}"
+        else
+            # Remove everything except config.json so the operator keeps their settings.
+            ok "Removing installation directory (preserving config.json): ${INSTALL_DIR}"
+            find "${INSTALL_DIR}" -mindepth 1 -not -name "config.json" -delete 2>/dev/null || rm -rf "${INSTALL_DIR}"
+            # If the directory is now empty (no config), remove it too.
+            rmdir "${INSTALL_DIR}" 2>/dev/null || true
+            if [[ -f "${CONFIG_FILE}" ]]; then
+                warn "Keeping config file: ${CONFIG_FILE} (use --purge to remove it)."
+            fi
+        fi
     fi
 
     systemctl daemon-reload || true
@@ -1941,7 +1911,7 @@ main() {
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         printf "  %-14s %s\n" "Install dir:"  "${INSTALL_DIR}"
         printf "  %-14s %s\n" "Service file:" "${SERVICE_FILE}"
-        printf "  %-14s %s\n" "Env file:"     "${ENV_FILE}"
+        printf "  %-14s %s\n" "Config file:"  "${CONFIG_FILE}"
         printf "  %-14s %s\n" "Command:"      "${WRAPPER_COMMAND}"
         printf "  %-14s %s\n" "Purge config:" "${PURGE_CONFIG}"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1980,6 +1950,7 @@ main() {
     printf "  %-14s %s\n" "Node unit:"    "${NODE_UNIT_NAME}"
     printf "  %-14s %s\n" "Node config:"  "${NODE_CONFIG_PATH}"
     printf "  %-14s %s\n" "Network:"      "${NETWORK}"
+    printf "  %-14s %s\n" "Config file:"  "${CONFIG_FILE}"
     printf "  %-14s %s\n" "API key mode:" "${API_KEY_MODE_EFFECTIVE:-calidus}"
     if [[ -n "${API_KEY_TO_INSTALL}" ]]; then
         printf "  %-14s %s\n" "API key:"    "set"
@@ -1987,7 +1958,6 @@ main() {
         printf "  %-14s %s\n" "API key:"    "not set"
     fi
     printf "  %-14s %s\n" "Service file:" "${SERVICE_FILE}"
-    printf "  %-14s %s\n" "Env file:"     "${ENV_FILE}"
     printf "  %-14s %s\n" "Command:"      "${WRAPPER_COMMAND}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
@@ -1998,7 +1968,7 @@ main() {
         return 0
     fi
 
-    installer_step_banner 4 5 "Install virtualenv, package, env file, systemd unit, and wrapper..."
+    installer_step_banner 4 5 "Install virtualenv, package, config file, systemd unit, and wrapper..."
     if [[ "${MODE}" == "reinstall" ]]; then
         confirm_or_die "Reinstall will replace ${INSTALL_DIR}. Continue?"
         stop_disable_service_if_present
