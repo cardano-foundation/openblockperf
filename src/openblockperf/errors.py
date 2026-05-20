@@ -40,7 +40,7 @@ class ApiError(BlockperfError):
     pass
 
 
-class ApiConnectionError(BlockperfError):
+class ApiConnectionError(ApiError):
     """Raised when there is a problem connecting to the api."""
 
     pass

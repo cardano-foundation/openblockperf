@@ -61,10 +61,10 @@ async def run_cmd(
     loop = asyncio.get_running_loop()
     for sig in [signal.SIGINT, signal.SIGTERM]:
         loop.add_signal_handler(sig, shutdown_event.set)
+    shutdown_task = asyncio.create_task(shutdown_event.wait())
 
     try:
         app_task = asyncio.create_task(app.start())
-        shutdown_task = asyncio.create_task(shutdown_event.wait())
 
         # Wait until either one finishes.
         done, pending = await asyncio.wait([app_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED)

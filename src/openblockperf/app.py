@@ -10,7 +10,7 @@ from openblockperf.blocksamplegroup import BlockSampleGroup
 from openblockperf.config import AppSettings
 from openblockperf.ekg import EkgClient, EkgError
 from openblockperf.errors import (
-    ApiConnectionError,
+    ApiError,
     ConfigurationError,
     EventError,
     InvalidEventDataError,
@@ -103,14 +103,16 @@ class Blockperf:
                 self.create_task(self.print_peer_statistics_task, tg)
                 self.create_task(self.monitor_sync_state_task, tg)
 
-        except* asyncio.CancelledError as _eg:
+        except* asyncio.CancelledError as eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
             # canceles all tasks. Each one will send an CancelledError.
             # Thus this needs to be an exception group catch and rais
             # to signal clean shutdown.
+            for exc in eg.exceptions:
+                logger.exception(f"{type(exc).__name__}: {str(exc)}")
             raise
 
-        except* ApiConnectionError as eg:
+        except* ApiError as eg:
             for exc in eg.exceptions:
                 logger.exception(f"{type(exc).__name__}: {str(exc)}")
             raise
@@ -155,7 +157,7 @@ class Blockperf:
             logger.debug(f"Task '{task_name}' was cancelled")
             raise  # Re-raise CancelledError as it's expected during shutdown
         except Exception as e:
-            logger.error(f"Task '{task_name}' failed: {e}")
+            logger.error(f"Task '{task_name}' failed: {e.__class__.__name__}: {str(e)}")
             raise  # Fail fast - any task failure crashes the app
 
     def _tasks_status(self) -> dict[str, str]:
@@ -175,10 +177,11 @@ class Blockperf:
             try:
                 node_version = await self.ekg.get_node_version()
                 await self.api.send_clientinfo(node_version)
-            except EkgError as e:
+            except (EkgError, ApiError) as e:
                 logger.error(f"Error sending clientinfo, retrying in {delay}s: {e!r}")
                 await asyncio.sleep(delay)
                 delay = min(delay + 10, max_delay)
+
             else:
                 self.clientinfo_sent = True
                 break
@@ -240,9 +243,9 @@ class Blockperf:
             pass  # The Messages namespace is not registered as an event
         except InvalidEventDataError:
             self.console.print(f"[bold red]Validation error for {message.get('ns')}[/]")  # fmt: off
-        except EventError as e:
+        except (EventError, ApiError) as e:
             logger.error("Error processing event")
-            self.console.print(f"[bold red]Error handling event. {e}[/]")
+            self.console.print(f"[bold red]Event error. {e!r}[/]")
         except Exception:
             logger.exception("Error processing event")
             raise
@@ -312,28 +315,31 @@ class Blockperf:
         """
 
         while True:
-            await asyncio.sleep(self.settings.block_sample_check_interval)
+            try:
+                await asyncio.sleep(self.settings.block_sample_check_interval)
 
-            # Dont send block samples when not synced
-            if self.settings.sync_check_enabled and not self.node_synced_event.is_set():
-                return
+                # Dont send block samples when not synced
+                if self.settings.sync_check_enabled and not self.node_synced_event.is_set():
+                    return
 
-            if self.replaying:
-                logger.debug("Wont send samples because of the replay")
-                continue
-            ready_groups = {}
-            for k, group in self.block_sample_groups.items():
-                if group.is_complete() and group.age_seconds > self.settings.min_age:
-                    ready_groups[k] = group
-
-            for k, group in ready_groups.items():
-                if not group.is_ok():
+                if self.replaying:
+                    logger.debug("Wont send samples because of the replay")
                     continue
-                sample = group.get_sample()
-                resp = await self.api.submit_block_sample(sample)
-                logger.debug("Sample published.", sample=sample, response=resp)
-                # Delete group
-                del self.block_sample_groups[k]
+                ready_groups = {}
+                for k, group in self.block_sample_groups.items():
+                    if group.is_complete() and group.age_seconds > self.settings.min_age:
+                        ready_groups[k] = group
+
+                for k, group in ready_groups.items():
+                    if not group.is_ok():
+                        continue
+                    sample = group.get_sample()
+                    resp = await self.api.submit_block_sample(sample)
+                    logger.debug("Sample published.", sample=sample, response=resp)
+                    # Delete group
+                    del self.block_sample_groups[k]
+            except ApiError as e:
+                logger.error(f"Error sending blocksamples: {e!r}")
 
     async def print_peer_statistics_task(self):
         """Print peer statistics periodically."""
