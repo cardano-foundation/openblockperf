@@ -58,13 +58,9 @@ async def run_cmd(
     console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
 
     shutdown_event = asyncio.Event()
-
-    def signal_handler():
-        shutdown_event.set()
-
     loop = asyncio.get_running_loop()
     for sig in [signal.SIGINT, signal.SIGTERM]:
-        loop.add_signal_handler(sig, signal_handler)
+        loop.add_signal_handler(sig, shutdown_event.set)
 
     try:
         app_task = asyncio.create_task(app.start())
