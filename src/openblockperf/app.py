@@ -78,14 +78,9 @@ class Blockperf:
             # If disabled always, assume the node is synced
             self.node_synced_event.set()
 
-    def _validate_configuration(self) -> None:
-        """Validate application configuration."""
         if not self.settings.block_sample_check_interval or self.settings.block_sample_check_interval <= 0:
             raise ConfigurationError("Invalid check_interval in configuration")
 
-    async def start(self):
-        """Run all application tasks with proper error handling and coordination."""
-        self._validate_configuration()
         self.api = BlockperfApiClient(self.settings)  # Single api client for app
         self.log_reader = create_log_reader("journalctl", self.settings.node_unit_name)
         self.handler = EventHandler(
@@ -96,6 +91,8 @@ class Blockperf:
         )
         self.ekg = EkgClient(self.settings.ekg_url)
 
+    async def start(self):
+        """Run all application tasks with proper error handling and coordination."""
         try:
             async with asyncio.TaskGroup() as tg:
                 self.create_task(self.send_clientinfo_task, tg)
