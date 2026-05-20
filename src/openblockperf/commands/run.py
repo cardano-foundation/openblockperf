@@ -7,6 +7,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from openblockperf.apiclient.base import set_stop_event
 from openblockperf.app import Blockperf
 from openblockperf.utils import async_command
 
@@ -42,6 +43,7 @@ async def run_cmd(
     which would make it finish and thus close the program.
 
     """
+
     shared: SharedOptions = ctx.obj
     settings = _settings(
         network=shared.network,
@@ -58,13 +60,11 @@ async def run_cmd(
     console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
 
     shutdown_event = asyncio.Event()
-
-    def signal_handler():
-        shutdown_event.set()
+    set_stop_event(shutdown_event)
 
     loop = asyncio.get_running_loop()
     for sig in [signal.SIGINT, signal.SIGTERM]:
-        loop.add_signal_handler(sig, signal_handler)
+        loop.add_signal_handler(sig, shutdown_event.set)
 
     try:
         app_task = asyncio.create_task(app.start())
