@@ -1751,9 +1751,9 @@ print_post_install_summary() {
         echo "  3. Logs:     journalctl -fu ${UNIT_NAME}"
     else
         echo "Next steps (API key not set in this run):"
-        echo "  1. Register and obtain an API key:"
-        echo "       ${INSTALL_DIR}/venv/bin/blockperf register"
-        echo "     A Calidus key is required; documentation:  ${OBP_DOC_REGISTER_URL}"
+        echo "  1. Register and obtain an API key bei either using your stake pool calidus key or your fixed public IP address"
+        echo "       ${INSTALL_DIR}/venv/bin/blockperf register-ip"
+        echo "       ${INSTALL_DIR}/venv/bin/blockperf register-calidus --help"
         echo "  2. Set \"api_key\" in ${CONFIG_FILE}"
         echo "  3. Start the service:  systemctl start ${UNIT_NAME}"
         echo "  4. Status:  systemctl status ${UNIT_NAME}"
