@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import signal
 import sys
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -29,6 +30,20 @@ async def run_cmd(
         """,
         ),
     ] = None,
+    tracer_log_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--tracer-log-file",
+            help="""Optional path to a cardano-tracer logfile.
+
+            When set, blockperf reads from this logfile instead of journald and
+            follows log rotations on that path.
+        """,
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ] = None,
 ) -> None:
     """The run command.
 
@@ -47,6 +62,7 @@ async def run_cmd(
         network=shared.network,
         api_url=shared.api_url,
         node_unit_name=node_unit_name,
+        tracer_log_file=tracer_log_file,
         config_file=shared.config,
     )
     app = Blockperf(console, settings)
@@ -54,6 +70,7 @@ async def run_cmd(
     console.print(f"[bold cyan]Network:[/] {settings.network.value}")
     console.print(f"[bold cyan]Node Name:[/] {settings.node_name}")
     console.print(f"[bold cyan]Node Unit Name:[/] {settings.node_unit_name}")
+    console.print(f"[bold cyan]Tracer Log File:[/] {settings.tracer_log_file}")
     console.print(f"[bold cyan]API URL:[/] {settings.full_api_url}")
     console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
 

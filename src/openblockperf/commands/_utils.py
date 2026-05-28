@@ -27,6 +27,7 @@ def _settings(
     network: str | None = None,
     api_url: str | None = None,
     node_unit_name: str | None = None,
+    tracer_log_file: Path | None = None,
     config_file: Path | None = None,
 ) -> AppSettings:
     """Helper that creates the AppSettings instance.
@@ -49,6 +50,8 @@ def _settings(
             overrides["api_url"] = api_url
         if node_unit_name:
             overrides["node_unit_name"] = node_unit_name
+        if tracer_log_file:
+            overrides["tracer_log_file"] = tracer_log_file
         if config_file:
             overrides["_config_file"] = config_file
         settings = AppSettings(**overrides)

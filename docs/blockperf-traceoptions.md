@@ -18,6 +18,16 @@ Please note that the following is absolutely necessary
 
 This traceOptions are optimized for a relay node. 
 
+## Log transport modes
+
+OpenBlockperf supports two ingestion modes:
+
+- journald mode (default): cardano-node writes tracer JSON to stdout and systemd/journald is used as source.
+- logfile mode (optional): cardano-tracer writes JSON files; set `tracer_log_file` in blockperf config to the active logfile path.
+
+In logfile mode openblockperf follows the configured path and continues after log rotation.
+The configured `node_unit_name` is still used to select the relevant node stream when multiple nodes are written into the same tracer logfile.
+
 ```json
   "TraceOptions": {
     "": {

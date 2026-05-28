@@ -1,16 +1,17 @@
-"""
-logreader
-
-"""
+"""Log source readers used by the OpenBlockperf client."""
 
 import abc
 import asyncio
 import json
 from collections.abc import AsyncGenerator
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from openblockperf.errors import StartupMarkerNotFoundError
 from openblockperf.logging import logger
+
+if TYPE_CHECKING:
+    from openblockperf.config import AppSettings
 
 
 class NodeLogReader(abc.ABC):
@@ -35,7 +36,7 @@ class NodeLogReader(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def search_messages(self, search_string: str) -> AsyncGenerator[dict[str, Any], None]:
+    async def search_messages(self, search_string: str, since_hours: int) -> AsyncGenerator[dict[str, Any], None]:
         """Search historical messages for a given string.
 
         Args:
@@ -47,7 +48,7 @@ class NodeLogReader(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def replay_from_startup(self, startup_marker: str) -> AsyncGenerator[dict[str, Any], None]:
+    async def replay_from_startup(self) -> AsyncGenerator[dict[str, Any], None]:
         """Replay all log messages from the last service startup to present.
 
         This method should:
@@ -376,6 +377,165 @@ class JournalCtlLogReader(NodeLogReader):
                     await process.wait()
 
 
+class FileLogReader(NodeLogReader):
+    """Tail JSON logfiles produced by cardano-tracer and follow rotations."""
+
+    def __init__(self, path: str | Path, unit: str, poll_interval: float = 0.2):
+        self.path = Path(path)
+        self.unit = unit
+        self.poll_interval = poll_interval
+        self._file: Any | None = None
+        self._inode: int | None = None
+        self._position: int = 0
+        self._matched_messages = 0
+        self._skipped_messages = 0
+        logger.debug(f"Created FileLogReader for {self.path} with unit filter {self.unit}")
+
+    async def connect(self) -> None:
+        """Open the active logfile and seek to EOF for live tailing."""
+        if not self.path.is_file():
+            raise FileNotFoundError(f"Tracer logfile not found: {self.path}")
+        await self._open_current_file(seek_to_end=True)
+
+    async def close(self) -> None:
+        if self._file:
+            self._file.close()
+            self._file = None
+            self._inode = None
+            self._position = 0
+
+    async def _open_current_file(self, seek_to_end: bool) -> None:
+        if self._file:
+            self._file.close()
+        self._file = self.path.open("r", encoding="utf-8", errors="replace")
+        stat = self.path.stat()
+        self._inode = stat.st_ino
+        if seek_to_end:
+            self._file.seek(0, 2)
+        self._position = self._file.tell()
+
+    async def _refresh_if_rotated(self) -> None:
+        """Detect rotate/truncate and reopen as needed."""
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
+            # During rotate the new file may not exist yet.
+            if self._file:
+                self._file.close()
+                self._file = None
+                self._inode = None
+                self._position = 0
+            return
+
+        if not self._file:
+            await self._open_current_file(seek_to_end=False)
+            return
+
+        # Standard rename+create rotation changes inode at same path.
+        if self._inode is not None and stat.st_ino != self._inode:
+            await self._open_current_file(seek_to_end=False)
+            return
+
+        # copytruncate rotation keeps inode, but file size jumps backwards.
+        if stat.st_size < self._position:
+            await self._open_current_file(seek_to_end=False)
+
+    def _parse_message_line(self, line: str) -> dict[str, Any] | None:
+        line = line.strip()
+        if not line:
+            return None
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            logger.debug(f"Malformed JSON in logfile reader: {line[:100]}...")
+            return None
+
+    def _matches_unit(self, message: dict[str, Any], raw_line: str) -> bool:
+        """Filter messages for the configured node unit in mixed tracer files."""
+        # Prefer structured fields when available.
+        for key in ("unit", "syslog_identifier", "syslogIdentifier", "SYSLOG_IDENTIFIER"):
+            value = message.get(key)
+            if value is not None:
+                return str(value) == self.unit
+
+        # Fallback to raw line filtering.
+        return self.unit in raw_line
+
+    async def read_messages(self) -> AsyncGenerator[dict[str, Any], None]:
+        if not self._file:
+            raise RuntimeError("Logfile not opened. Did you call connect() first?")
+
+        while True:
+            if not self._file:
+                await asyncio.sleep(self.poll_interval)
+                await self._refresh_if_rotated()
+                continue
+
+            line = self._file.readline()
+            if line:
+                self._position = self._file.tell()
+                message = self._parse_message_line(line)
+                if not message:
+                    continue
+                if self._matches_unit(message, line):
+                    self._matched_messages += 1
+                    yield message
+                else:
+                    self._skipped_messages += 1
+                continue
+
+            await asyncio.sleep(self.poll_interval)
+            await self._refresh_if_rotated()
+
+    async def search_messages(self, search_string: str, since_hours: int) -> AsyncGenerator[dict[str, Any], None]:
+        """Search the active logfile for lines that match search_string."""
+        del since_hours  # File searches currently scan full file only.
+        if not self.path.is_file():
+            return
+
+        with self.path.open("r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                if search_string not in raw_line:
+                    continue
+                message = self._parse_message_line(raw_line)
+                if not message:
+                    continue
+                if self._matches_unit(message, raw_line):
+                    yield message
+
+    async def replay_from_startup(self) -> AsyncGenerator[dict[str, Any], None]:
+        """Replay from last startup marker in the active logfile."""
+        startup_marker = '"ns":"Net.Server.Local.Started"'
+        if not self.path.is_file():
+            raise StartupMarkerNotFoundError()
+
+        with self.path.open("r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+
+        start_index = None
+        for idx in range(len(lines) - 1, -1, -1):
+            if startup_marker in lines[idx]:
+                start_index = idx
+                break
+
+        if start_index is None:
+            raise StartupMarkerNotFoundError()
+
+        for raw_line in lines[start_index:]:
+            message = self._parse_message_line(raw_line)
+            if not message:
+                continue
+            if self._matches_unit(message, raw_line):
+                yield message
+
+
+def create_log_reader_from_settings(settings: "AppSettings") -> NodeLogReader:
+    """Create an appropriate reader based on configured log source."""
+    if settings.tracer_log_file:
+        return FileLogReader(path=settings.tracer_log_file, unit=settings.node_unit_name)
+    return JournalCtlLogReader(unit=settings.node_unit_name or "cardano-tracer")
+
+
 def create_log_reader(reader_type: str, unit: str | None) -> NodeLogReader:
     """Creates a log reader of the given type.
 
@@ -389,5 +549,4 @@ def create_log_reader(reader_type: str, unit: str | None) -> NodeLogReader:
     unit = unit or "cardano-tracer"
     if reader_type == "journalctl":
         return JournalCtlLogReader(unit=unit)
-    else:
-        raise ValueError("Unsupported log reader type. Only 'journalctl' is allowed currently.")
+    raise ValueError("Unsupported log reader type. Only 'journalctl' is allowed currently.")

@@ -19,7 +19,7 @@ from openblockperf.errors import (
 )
 from openblockperf.handler import EventHandler
 from openblockperf.logging import logger
-from openblockperf.logreader import NodeLogReader, create_log_reader
+from openblockperf.logreader import NodeLogReader, create_log_reader_from_settings
 from openblockperf.models.peer import Peer, PeerState
 
 
@@ -87,7 +87,7 @@ class Blockperf:
         """Run all application tasks with proper error handling and coordination."""
         self._validate_configuration()
         self.api = BlockperfApiClient(self.settings)  # Single api client for app
-        self.log_reader = create_log_reader("journalctl", self.settings.node_unit_name)
+        self.log_reader = create_log_reader_from_settings(self.settings)
         self.handler = EventHandler(
             self.block_sample_groups,  # Sample Groups the handler will put events into
             self.peers,  # The live list of peers that is being updated by the handler

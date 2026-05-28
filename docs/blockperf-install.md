@@ -27,6 +27,7 @@ Piped or non-interactive runs (for example `curl ... | sudo bash`) have no termi
 - `--version`: print installer script version and exit.
 - `--user-context <username>`: service user.
 - `--node-unit-name <unit>`: cardano-node systemd unit.
+- `--tracer-log-file <path>`: optional path to a cardano-tracer logfile. When set, blockperf reads this file instead of journald.
 - `--node-name <name>`: operator node label (defaults to OS hostname).
 - `--node-config <path>`: path to node `config.json`.
 - `--network mainnet|preprod|preview`: network override.
@@ -39,6 +40,8 @@ Piped or non-interactive runs (for example `curl ... | sudo bash`) have no termi
 The installer also performs an online installer-version check and can offer a self-update if a newer script is available.
 
 **Node config path:** the script derives `config.json` from the unit’s `ExecStart` and expands variables such as `$CONFIG` using the unit’s merged `Environment` and `EnvironmentFiles`. If the path is still wrong or missing, interactive mode asks for the absolute path; an empty answer exits the installer.
+
+**Log source selection:** interactive installs ask whether blockperf should read tracer messages from journald (default) or a logfile path. If logfile mode is selected, the installer stores `tracer_log_file` in config and blockperf follows rotation on that file path.
 
 ## API key flow
 
@@ -75,7 +78,8 @@ When a new config file is written, the installer sets:
 - `log_level` (default `WARNING`; valid values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `EXCEPTION`)
 - `node_name`
 - `node_config` (path to cardano-node `config.json`)
-- `node_unit_name` (used to identify cardano-node journald messages)
+- `node_unit_name` (used to select the cardano-node stream in journald or logfile mode)
+- `tracer_log_file` (optional; if set, read tracer JSON from this file and follow rotations)
 - `local_addr` (default `0.0.0.0`)
 - `local_port` (default `3001`)
 
@@ -93,6 +97,7 @@ If you choose to keep the existing config file, update these keys manually as ne
 - `node_name`
 - `node_config`
 - `node_unit_name`
+- `tracer_log_file`
 
 ## Reliability behavior
 

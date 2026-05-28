@@ -15,6 +15,7 @@ export SERVICE_USER="<non-root-user>"
 export SERVICE_GROUP="$(id -gn "${SERVICE_USER}")"
 export NODE_NAME="$(hostname)"
 export NODE_UNIT_NAME="cnode.service"
+export TRACER_LOG_FILE=""  # optional, e.g. /var/log/cardano/tracer.log
 export NODE_CONFIG_PATH="/opt/cardano/cnode/files/config.json"
 export NETWORK="mainnet"  # mainnet | preprod | preview
 ```
@@ -72,6 +73,7 @@ sudo chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}"
 ## 6) Write config file
 
 Create `${INSTALL_DIR}/config.json` with the same keys written by the installer.
+Leave `tracer_log_file` empty/omitted for journald mode; set it to use file mode.
 
 ```bash
 sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
@@ -83,6 +85,7 @@ sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
   "node_name": "${NODE_NAME}",
   "node_config": "${NODE_CONFIG_PATH}",
   "node_unit_name": "${NODE_UNIT_NAME}",
+  "tracer_log_file": "${TRACER_LOG_FILE}",
   "local_addr": "0.0.0.0",
   "local_port": 3001
 }
