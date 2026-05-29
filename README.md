@@ -44,7 +44,7 @@ OpenBlockPerf installer overview
   1) Check/install prerequisites (Debian/Ubuntu and RHEL-family)
   2) Resolve service user/group, node name, and cardano-node unit/config
   3) Resolve network and API-key strategy
-  4) Install venv/package, write env+unit+wrapper, enable service
+  4) Install venv/package, write config+unit+wrapper, enable service
   5) Print summary and next steps
 
 Continue? [y/N]: y
@@ -77,7 +77,7 @@ Step 3/5  Configure network and API key...
 
 [INFO]  Network: mainnet (from Shelley genesis networkMagic)
 Do you already have a Blockperf API key? [y/N]: y
-Enter OPENBLOCKPERF_API_KEY value (input hidden):
+Enter api_key value (input hidden):
 
 OpenBlockPerf Installer (install)
   Version:       0.1.2
@@ -92,21 +92,21 @@ OpenBlockPerf Installer (install)
   Network:       mainnet
   API key:       set
   Service file:  /etc/systemd/system/openblockperf.service
-  Env file:      /etc/default/openblockperf
+  Config file:   /opt/cardano/openblockperf/config.json
   Command:       /usr/local/bin/blockperf
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Step 4/5  Install virtualenv, package, env file, systemd unit, and wrapper...
+Step 4/5  Install virtualenv, package, config file, systemd unit, and wrapper...
 
 [ OK ]  Creating installation directory: /opt/cardano/openblockperf
 [INFO]  Changing ownership of /opt/cardano/openblockperf to mtn:mtn before venv/pip (pip runs as this user).
 [ OK ]  Creating virtual environment at /opt/cardano/openblockperf/venv ...
 [ OK ]  Installing openblockperf from PyPI ...
 [ OK ]  Ownership of /opt/cardano/openblockperf set to mtn:mtn.
-Environment file /etc/default/openblockperf already exists. Replace with a new file from this run, or keep the existing file? [R/k] (default R):
-[ OK ]  Replacing existing environment file: /etc/default/openblockperf
-[ OK ]  Writing environment file: /etc/default/openblockperf
+Config file /opt/cardano/openblockperf/config.json already exists. Replace with a new file from this run, or keep the existing file? [R/k] (default R):
+[ OK ]  Replacing existing config file: /opt/cardano/openblockperf/config.json
+[ OK ]  Writing config file: /opt/cardano/openblockperf/config.json
 
 [ OK ]  Writing systemd unit: /etc/systemd/system/openblockperf.service
 [ OK ]  Writing wrapper command: /usr/local/bin/blockperf
@@ -126,7 +126,7 @@ Next steps (API key not set in this run):
   1. Register and obtain an API key:
        /opt/cardano/openblockperf/venv/bin/blockperf register
      A Calidus key is required;
-  2. Set OPENBLOCKPERF_API_KEY in /etc/default/openblockperf
+  2. Set "api_key" in /opt/cardano/openblockperf/config.json
   3. Start the service:  systemctl start openblockperf.service
   4. Status:  systemctl status openblockperf.service
   5. Logs:    journalctl -fu openblockperf.service
@@ -154,7 +154,7 @@ You can force legacy behavior with `--api-key-mode calidus`.
 ### install result
 
 - systemd unit: `openblockperf.service`
-- env file: `/etc/default/openblockperf`
+- config file: `/opt/cardano/openblockperf/config.json`
 - CLI wrapper: `/usr/local/bin/blockperf`
 - app install + venv: `/opt/cardano/openblockperf`
 - logs: `journalctl -fu openblockperf.service`
@@ -186,7 +186,7 @@ by every subcommand.
 
 | Shared option | Default | Description |
 | --- | --- | --- |
-| `-n, --network {mainnet,preprod,preview}` | `mainnet` (or `OPENBLOCKPERF_NETWORK`) | Cardano network. Selects the network-specific API URL and chain magic. |
+| `-n, --network {mainnet,preprod,preview}` | `mainnet` (or `network` in config file) | Cardano network. Selects the network-specific API URL and chain magic. |
 | `--api-url URL` | network-specific | Override the API URL (full URL including port and path, e.g. `http://localhost:8000/api/v0`). |
 | `-c, --config FILE` | unset | Path to a JSON or YAML configuration file (`.json`, `.yaml`, `.yml`) used to seed settings. |
 
@@ -208,15 +208,11 @@ blockperf run
 # Use preprod
 blockperf --network preprod run
 
-# Or use an environment variable
-export OPENBLOCKPERF_NETWORK=preprod
-blockperf run
-
-# Load configuration from a file
-blockperf --config /etc/blockperf/config.json run
+# Or set network in the install config file
+blockperf --config /opt/cardano/openblockperf/config.json run
 
 # Config file + override one value via flag (the flag wins)
-blockperf --config /etc/blockperf/config.json --network preview run
+blockperf --config /opt/cardano/openblockperf/config.json --network preview run
 
 # Local backend during development
 blockperf --api-url http://localhost:8000/api/v0 run
@@ -224,42 +220,46 @@ blockperf --api-url http://localhost:8000/api/v0 run
 
 ### Configuration file
 
-The `--config` flag accepts a JSON or YAML file whose keys correspond to
-`AppSettings` fields (without the `OPENBLOCKPERF_` prefix). Use this to keep
-settings under version control or share them across deployments. Values are
-layered with the following precedence (highest wins):
+The `--config` flag accepts a JSON or YAML file whose keys use snake_case and
+match `AppSettings` field names (for example `api_key`, `network`,
+`node_name`). The installer writes `${INSTALL_DIR}/config.json` with the
+service settings; use the same format for manual or shared deployments. Values
+are layered with the following precedence (highest wins):
 
 1. CLI flags
-2. Environment variables (`OPENBLOCKPERF_*`)
+2. Environment variables (`OPENBLOCKPERF_*`, optional overrides)
 3. `.env` file
 4. `--config` file
 
-Example `config.json`:
+Example `config.json` (as written by the installer):
 
 ```json
 {
-  "network": "mainnet",
   "api_key": "pk_replace_me",
-  "api_port": 443,
+  "network": "mainnet",
+  "log_level": "WARNING",
   "node_name": "relay-seoul",
-  "node_unit_name": "cardano-node",
-  "ekg_url": "http://localhost:12798/metrics",
-  "sync_check_enabled": true,
-  "sync_check_threshold": 99.9
+  "node_config": "/opt/cardano/cnode/files/config.json",
+  "node_unit_name": "cnode.service",
+  "local_addr": "0.0.0.0",
+  "local_port": 3001
 }
 ```
+
+Additional optional keys (not set by the installer) include `api_port`,
+`ekg_url`, `sync_check_enabled`, and `sync_check_threshold`.
 
 The equivalent YAML:
 
 ```yaml
-network: mainnet
 api_key: pk_replace_me
-api_port: 443
+network: mainnet
+log_level: WARNING
 node_name: relay-seoul
-node_unit_name: cardano-node
-ekg_url: http://localhost:12798/metrics
-sync_check_enabled: true
-sync_check_threshold: 99.9
+node_config: /opt/cardano/cnode/files/config.json
+node_unit_name: cnode.service
+local_addr: 0.0.0.0
+local_port: 3001
 ```
 
 ### Service activity and common file locations

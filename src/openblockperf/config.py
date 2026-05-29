@@ -48,6 +48,7 @@ class AppSettings(BaseSettings):
     min_age: int = 10  # Wait x seconds before even processing a group/block
     node_name: str = socket.gethostname()  # This clients hostname
     node_unit_name: str = "cardano-tracer"
+    tracer_log_file: Path | None = None
     # Ekg endpoint url
     ekg_url: str = "http://localhost:12798/metrics"
 

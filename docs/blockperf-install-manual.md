@@ -15,6 +15,7 @@ export SERVICE_USER="<non-root-user>"
 export SERVICE_GROUP="$(id -gn "${SERVICE_USER}")"
 export NODE_NAME="$(hostname)"
 export NODE_UNIT_NAME="cnode.service"
+export TRACER_LOG_FILE=""  # optional, e.g. /var/log/cardano/tracer.log
 export NODE_CONFIG_PATH="/opt/cardano/cnode/files/config.json"
 export NETWORK="mainnet"  # mainnet | preprod | preview
 ```
@@ -69,23 +70,27 @@ Set ownership so the configured service user owns the installation tree.
 sudo chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}"
 ```
 
-## 6) Write environment file
+## 6) Write config file
 
-Create `/etc/default/openblockperf` with the same keys written by the installer.
+Create `${INSTALL_DIR}/config.json` with the same keys written by the installer.
+Leave `tracer_log_file` empty/omitted for journald mode; set it to use file mode.
 
 ```bash
-sudo tee /etc/default/openblockperf >/dev/null <<EOF
-# OpenBlockPerf client configuration
-OPENBLOCKPERF_API_KEY=
-OPENBLOCKPERF_NETWORK=${NETWORK}
-OPENBLOCKPERF_LOG_LEVEL=WARNING
-OPENBLOCKPERF_NODE_NAME=${NODE_NAME}
-OPENBLOCKPERF_NODE_CONFIG=${NODE_CONFIG_PATH}
-OPENBLOCKPERF_NODE_UNIT_NAME=${NODE_UNIT_NAME}
-OPENBLOCKPERF_LOCAL_ADDR=0.0.0.0
-OPENBLOCKPERF_LOCAL_PORT=3001
+sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
+{
+  "_comment": "OpenBlockPerf client configuration",
+  "api_key": "",
+  "network": "${NETWORK}",
+  "log_level": "WARNING",
+  "node_name": "${NODE_NAME}",
+  "node_config": "${NODE_CONFIG_PATH}",
+  "node_unit_name": "${NODE_UNIT_NAME}",
+  "tracer_log_file": "${TRACER_LOG_FILE}",
+  "local_addr": "0.0.0.0",
+  "local_port": 3001
+}
 EOF
-sudo chmod 600 /etc/default/openblockperf
+sudo chmod 664 "${INSTALL_DIR}/config.json"
 ```
 
 ## 7) Write systemd service unit
@@ -106,8 +111,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_DIR}
-EnvironmentFile=/etc/default/openblockperf
-ExecStart=${INSTALL_DIR}/venv/bin/blockperf run
+ExecStart=${INSTALL_DIR}/venv/bin/blockperf --config ${INSTALL_DIR}/config.json run
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=30s
@@ -144,7 +148,7 @@ sudo systemctl enable openblockperf.service
 
 ## 10) Register for API key (one-time)
 
-Register with your Calidus key to obtain an API key, then place it in the env file.
+Register with your Calidus key to obtain an API key, then place it in the config file.
 
 ```bash
 ${INSTALL_DIR}/venv/bin/blockperf register
@@ -158,11 +162,11 @@ ${INSTALL_DIR}/venv/bin/blockperf register --relay-ip
 
 Relay-IP registration probes IPv4/IPv6 separately (when available) and requests one API key bound to the validated public IP(s).
 
-After receiving your API key, set it in `/etc/default/openblockperf`:
+After receiving your API key, set it in `${INSTALL_DIR}/config.json`:
 
 ```bash
-sudoedit /etc/default/openblockperf
-# set: OPENBLOCKPERF_API_KEY=<your-api-key>
+sudoedit "${INSTALL_DIR}/config.json"
+# set: "api_key": "<your-api-key>"
 ```
 
 ## 11) Start and validate

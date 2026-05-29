@@ -51,6 +51,8 @@
 #                     Written to config.json as node_name.
 #   NODE_UNIT_NAME    systemd unit for cardano-node (e.g. cardano-node.service).
 #                     Default: auto-discover; use --node-unit-name to set explicitly.
+#   TRACER_LOG_FILE   Optional absolute path to cardano-tracer logfile. When set,
+#                     openblockperf reads this file instead of journald.
 #   NODE_CONFIG_PATH  Absolute path to cardano-node config.json (TraceOptions).
 #                     Default: derived from the node unit ExecStart; use --node-config.
 #   OPENBLOCKPERF_API_KEY  If set before install, written to the env file (same as --api-key).
@@ -76,12 +78,14 @@ WRAPPER_COMMAND="${WRAPPER_COMMAND:-/usr/local/bin/blockperf}"
 NETWORK="${NETWORK:-}"
 NODE_NAME="${NODE_NAME:-}"
 NODE_UNIT_NAME="${NODE_UNIT_NAME:-}"
+TRACER_LOG_FILE="${TRACER_LOG_FILE:-}"
 NODE_CONFIG_PATH="${NODE_CONFIG_PATH:-}"
 MODE="install"        # install | reinstall | update | remove
 ASSUME_YES="false"    # true to skip interactive confirmations
 PURGE_CONFIG="false"  # true to remove CONFIG_FILE on --remove
 CLI_USER_CONTEXT=""   # set by --user-context <username> (overrides SERVICE_USER from env)
 CLI_NODE_UNIT_NAME="" # set by --node-unit-name <unit>
+CLI_TRACER_LOG_FILE="" # set by --tracer-log-file <path>
 CLI_NODE_CONFIG=""    # set by --node-config <path>
 CLI_NETWORK=""        # set by --network mainnet|preprod|preview
 CLI_NODE_NAME=""      # set by --node-name <name>
@@ -341,7 +345,7 @@ usage() {
     cat <<EOF
 Usage:
   $0 [--install|--reinstall|--update|--remove] [--yes] [--purge]
-          [--user-context <username>] [--node-unit-name <unit>] [--node-config <path>]
+          [--user-context <username>] [--node-unit-name <unit>] [--tracer-log-file <path>] [--node-config <path>]
           [--network mainnet|preprod|preview] [--node-name <name>]
           [--api-key <value>|--api-key-file <path>] [--api-key-mode <calidus|relay>] [--version]
 
@@ -367,6 +371,10 @@ Options:
   --node-config <path>
                  Path to cardano-node config.json (TraceOptions). Skips discovery
                  from the unit ExecStart. Same as NODE_CONFIG_PATH=...
+  --tracer-log-file <path>
+                 Optional path to a cardano-tracer logfile. If set, openblockperf
+                 reads this file (with rotation follow) instead of journald.
+                 Same as TRACER_LOG_FILE=...
   --network mainnet|preprod|preview
                  Cardano network. Skips genesis-based detection. Same as NETWORK=...
   --node-name <name>
@@ -408,6 +416,11 @@ parse_args() {
             --node-config)
                 [[ $# -ge 2 ]] || die "--node-config requires a path to config.json"
                 CLI_NODE_CONFIG="$2"
+                shift 2
+                ;;
+            --tracer-log-file)
+                [[ $# -ge 2 ]] || die "--tracer-log-file requires a logfile path"
+                CLI_TRACER_LOG_FILE="$2"
                 shift 2
                 ;;
             --network)
@@ -803,7 +816,57 @@ Set NODE_UNIT_NAME= or --node-unit-name to choose one."
     info "Cardano node unit: ${NODE_UNIT_NAME}"
 }
 
-# Step 4 — Node config.json path (TraceOptions backend validation is skipped for now)
+# Step 4 — Choose journald vs logfile source
+resolve_log_source() {
+    if [[ -n "${CLI_TRACER_LOG_FILE}" ]]; then
+        TRACER_LOG_FILE="${CLI_TRACER_LOG_FILE}"
+    fi
+
+    if [[ -n "${TRACER_LOG_FILE}" ]]; then
+        [[ "${TRACER_LOG_FILE}" = /* ]] || die "TRACER_LOG_FILE must be an absolute path."
+        local d
+        d="$(dirname "${TRACER_LOG_FILE}")"
+        [[ -d "${d}" ]] || die "Directory for TRACER_LOG_FILE does not exist: ${d}"
+        if [[ ! -e "${TRACER_LOG_FILE}" ]]; then
+            warn "Tracer logfile does not exist yet: ${TRACER_LOG_FILE}"
+            warn "Installation continues, but blockperf will fail to start until the file exists."
+        fi
+        info "Log source: logfile (${TRACER_LOG_FILE})"
+        return 0
+    fi
+
+    if [[ "${ASSUME_YES}" == "true" ]] || ! has_prompt_tty; then
+        info "Log source: journald (default)"
+        return 0
+    fi
+
+    local ans=""
+    echo
+    prompt_read ans "Read tracer logs from journald (recommended default)? [Y/n]: " || true
+    case "${ans}" in
+        n|N|no|NO)
+            local p=""
+            prompt_read p "Absolute path to tracer logfile (e.g. /var/log/cardano/tracer.log): " || die "No tracer logfile path given."
+            [[ -n "${p}" ]] || die "No tracer logfile path given."
+            [[ "${p}" = /* ]] || die "Tracer logfile path must be absolute."
+            local d
+            d="$(dirname "${p}")"
+            [[ -d "${d}" ]] || die "Directory does not exist: ${d}"
+            TRACER_LOG_FILE="${p}"
+            if [[ ! -e "${TRACER_LOG_FILE}" ]]; then
+                warn "Tracer logfile does not exist yet: ${TRACER_LOG_FILE}"
+                warn "blockperf will follow this path once cardano-tracer creates it."
+            fi
+            info "Log source: logfile (${TRACER_LOG_FILE})"
+            ;;
+        *)
+            TRACER_LOG_FILE=""
+            info "Log source: journald"
+            ;;
+    esac
+}
+
+# Step 5 — Node config.json path (TraceOptions backend validation is skipped for now)
 
 # Merge systemd Environment= and EnvironmentFile= entries so we can expand $VAR in paths.
 gather_systemd_unit_environment_blob() {
@@ -1649,6 +1712,10 @@ write_config_file() {
 
     ok "Writing config file: ${CONFIG_FILE}"
     mkdir -p "$(dirname "${CONFIG_FILE}")"
+    local tracer_log_file_line=""
+    if [[ -n "${TRACER_LOG_FILE}" ]]; then
+        tracer_log_file_line=$'\n  "tracer_log_file": '"$(json_string "${TRACER_LOG_FILE}")"$','
+    fi
 
     # Build JSON using json_string() so special characters are safely escaped.
     cat > "${CONFIG_FILE}" <<EOF
@@ -1660,6 +1727,7 @@ write_config_file() {
   "node_name": $(json_string "${NODE_NAME}"),
   "node_config": $(json_string "${NODE_CONFIG_PATH}"),
   "node_unit_name": $(json_string "${NODE_UNIT_NAME}"),
+${tracer_log_file_line}
   "local_addr": "0.0.0.0",
   "local_port": 3001
 }
@@ -1751,9 +1819,9 @@ print_post_install_summary() {
         echo "  3. Logs:     journalctl -fu ${UNIT_NAME}"
     else
         echo "Next steps (API key not set in this run):"
-        echo "  1. Register and obtain an API key:"
-        echo "       ${INSTALL_DIR}/venv/bin/blockperf register"
-        echo "     A Calidus key is required; documentation:  ${OBP_DOC_REGISTER_URL}"
+        echo "  1. Register and obtain an API key bei either using your stake pool calidus key or your fixed public IP address"
+        echo "       ${INSTALL_DIR}/venv/bin/blockperf register-ip"
+        echo "       ${INSTALL_DIR}/venv/bin/blockperf register-calidus --help"
         echo "  2. Set \"api_key\" in ${CONFIG_FILE}"
         echo "  3. Start the service:  systemctl start ${UNIT_NAME}"
         echo "  4. Status:  systemctl status ${UNIT_NAME}"
@@ -1927,11 +1995,12 @@ main() {
         return 0
     fi
 
-    installer_step_banner 2 5 "Configure service user, node name, cardano-node unit and config..."
+    installer_step_banner 2 5 "Configure service user, node name, log source, cardano-node unit and config..."
     check_python
     resolve_service_identity
     resolve_node_name
     resolve_cardano_node_unit
+    resolve_log_source
     resolve_node_config_path
 
     installer_step_banner 3 5 "Configure network and API key..."
@@ -1948,6 +2017,14 @@ main() {
     printf "  %-14s %s\n" "Service user:" "${SERVICE_USER}:${SERVICE_GROUP}"
     printf "  %-14s %s\n" "Node name:"    "${NODE_NAME}"
     printf "  %-14s %s\n" "Node unit:"    "${NODE_UNIT_NAME}"
+    if [[ -n "${TRACER_LOG_FILE}" ]]; then
+        printf "  %-14s %s\n" "Log source:" "logfile"
+    else
+        printf "  %-14s %s\n" "Log source:" "journald"
+    fi
+    if [[ -n "${TRACER_LOG_FILE}" ]]; then
+        printf "  %-14s %s\n" "Log file:" "${TRACER_LOG_FILE}"
+    fi
     printf "  %-14s %s\n" "Node config:"  "${NODE_CONFIG_PATH}"
     printf "  %-14s %s\n" "Network:"      "${NETWORK}"
     printf "  %-14s %s\n" "Config file:"  "${CONFIG_FILE}"
