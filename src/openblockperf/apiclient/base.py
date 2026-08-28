@@ -113,8 +113,10 @@ class BlockperfApiBase:
             logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
             raise ApiError(f"The API returned an error: {e}") from e
         except httpx.TimeoutException as e:
+            logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
             raise ApiError(f"API request timed out: {self.full_api_url}") from None
         except httpx.ConnectError as e:
+            logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
             raise ApiConnectionError(f"Failed to connect to API: {e}") from e
 
         return response

@@ -75,17 +75,13 @@ async def run_cmd(
     console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
 
     shutdown_event = asyncio.Event()
-
-    def signal_handler():
-        shutdown_event.set()
-
     loop = asyncio.get_running_loop()
     for sig in [signal.SIGINT, signal.SIGTERM]:
-        loop.add_signal_handler(sig, signal_handler)
+        loop.add_signal_handler(sig, shutdown_event.set)
+    shutdown_task = asyncio.create_task(shutdown_event.wait())
 
     try:
         app_task = asyncio.create_task(app.start())
-        shutdown_task = asyncio.create_task(shutdown_event.wait())
 
         # Wait until either one finishes.
         done, pending = await asyncio.wait([app_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED)
