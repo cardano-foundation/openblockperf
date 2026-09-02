@@ -34,9 +34,6 @@ from openblockperf.discovery import API_REQUEST_RETRIES, API_REQUEST_TIMEOUT, En
 from openblockperf.errors import ApiConnectionError, ApiError
 from openblockperf.logging import logger
 
-# Initial attempt plus the configured extra retries.
-_ATTEMPTS_PER_HOST = 1 + API_REQUEST_RETRIES
-
 
 class BlockperfApiBase:
     """
@@ -53,6 +50,7 @@ class BlockperfApiBase:
         api_key: str | None,
         hostname: str | None = None,
         timeout: float = API_REQUEST_TIMEOUT,
+        retries: int = API_REQUEST_RETRIES,
         **httpx_kwargs,
     ):
         self.pool = pool
@@ -64,6 +62,12 @@ class BlockperfApiBase:
         self._client_base: str | None = None
         self.httpx_kwargs = httpx_kwargs
         self.timeout = timeout
+        self.retries = retries
+
+    @property
+    def attempts_per_host(self) -> int:
+        """Initial attempt plus the configured extra retries."""
+        return 1 + self.retries
 
     @property
     def full_api_url(self) -> str:
@@ -165,9 +169,9 @@ class BlockperfApiBase:
                     error=repr(e),
                     url=self.full_api_url,
                     attempt=attempts_on_host,
-                    max_attempts=_ATTEMPTS_PER_HOST,
+                    max_attempts=self.attempts_per_host,
                 )
-                if attempts_on_host < _ATTEMPTS_PER_HOST:
+                if attempts_on_host < self.attempts_per_host:
                     continue
                 if not self.pool.service_mode:
                     raise ApiConnectionError(f"Failed to connect to API: {e}") from e

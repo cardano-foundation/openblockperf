@@ -13,9 +13,9 @@ import httpx
 
 from openblockperf.config import DEFAULT_API_SRV, AppSettings
 from openblockperf.errors import DiscoveryError
-from openblockperf.logging import logger
+from openblockperf.logging import log_json_event, logger
 
-API_REQUEST_TIMEOUT = 0.5
+API_REQUEST_TIMEOUT = 1.0
 API_REQUEST_RETRIES = 2
 HEALTH_PROBE_TIMEOUT = 2.0
 ENDPOINT_LIST_EXHAUSTED_PAUSE = 30.0
@@ -202,22 +202,22 @@ class EndpointPool:
         self.ranked = ranked
         self.index = 0
         fastest = ranked[0]
-        logger.info(
-            "Selected lowest-RTT healthy API edge",
+        log_json_event(
+            "apiEdgeRanking",
             srv=srv_name,
-            url=fastest.base_url,
-            host=fastest.host,
-            port=fastest.port,
-            rtt_ms=round(fastest.rtt_ms, 1) if fastest.rtt_ms is not None else None,
+            selected=fastest.base_url,
             healthy=len(ranked),
             probed=probed,
+            edges=[
+                {
+                    "host": endpoint.host,
+                    "port": endpoint.port,
+                    "rtt_ms": round(endpoint.rtt_ms, 1) if endpoint.rtt_ms is not None else None,
+                    "url": endpoint.base_url,
+                }
+                for endpoint in ranked
+            ],
         )
-        for endpoint in ranked:
-            logger.debug(
-                "Ranked API edge",
-                url=endpoint.base_url,
-                rtt_ms=round(endpoint.rtt_ms, 1) if endpoint.rtt_ms is not None else None,
-            )
 
     async def _refresh_unlocked(self, *, retry_until_healthy: bool) -> None:
         if self.settings.api_url:

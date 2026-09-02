@@ -30,6 +30,8 @@ class BlockperfApiClient:
             pool=self.pool,
             api_key=settings.api_key,
             hostname=settings.node_name,
+            timeout=settings.api_request_timeout_ms / 1000.0,
+            retries=settings.api_request_retries,
         )
 
     @property
@@ -51,7 +53,7 @@ class BlockperfApiClient:
 
     async def submit_block_sample(self, sample: BlockSample) -> BlockSampleResponse:
         bsr = BlockSampleRequest(**sample.model_dump())
-        logger.debug("Sending BlockSample", request=bsr)
+        logger.debug("Sending BlockSample", block_hash=sample.block_hash, slot=sample.slot)
         return await self._api.post("/submit/blocksample", bsr, BlockSampleResponse)
 
     async def post_status_change(self):

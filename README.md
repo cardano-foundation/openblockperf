@@ -265,7 +265,9 @@ local_port: 3001
 ```
 
 Additional optional keys (not set by the installer) include `api_srv`,
-`api_url`, `ekg_url`, `sync_check_enabled`, and `sync_check_threshold`.
+`api_url`, `ekg_url`, `sync_check_enabled`, `sync_check_threshold`,
+`api_request_timeout_ms` (default `1000`), and `api_request_retries`
+(default `2`).
 
 `api_srv` defaults to `_obpf._tcp.network.cardano.org`. Set it (or
 `OPENBLOCKPERF_API_SRV`) to resolve a different SRV name. `api_url` skips
@@ -282,11 +284,13 @@ The Cardano network is only a URL path:
 - API: `https://{fqdn}:{port}/{network}/api/v0/registration/...` and `.../submit/...`
 
 `blockperf run` (service mode) probes each target's health endpoint in parallel,
-ranks healthy edges by lowest RTT, and uses the fastest. If later API calls
-time out (500ms, two extra retries), it fails over to the next ranked edge
-without probing health again. HTTP 4xx and 5xx do not fail over. When the list
-is exhausted it waits 30 seconds, re-resolves SRV, re-ranks, and starts again
-with the fastest. The ranked list is also refreshed once a day.
+ranks healthy edges by lowest RTT, and uses the fastest. The full ranked list
+is logged at INFO. If later API calls time out (1000ms by default, two extra
+retries; both are configurable via `api_request_timeout_ms` and
+`api_request_retries`), it fails over to the next ranked edge without probing
+health again. HTTP 4xx and 5xx do not fail over. When the list is exhausted it
+waits 30 seconds, re-resolves SRV, re-ranks, and starts again with the fastest.
+The ranked list is also refreshed once a day.
 
 One-shot commands (`register-ip`, `register-calidus`) pick a single SRV target
 at random and do not fail over.

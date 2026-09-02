@@ -1,5 +1,6 @@
 """Tests for SRV discovery, health ranking, and endpoint failover."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -17,6 +18,7 @@ from openblockperf.discovery import (
     probe_health,
     rank_healthy_endpoints,
 )
+from openblockperf.logging import logger
 
 
 def test_normalize_host_strips_trailing_dot():
@@ -143,6 +145,41 @@ async def test_service_mode_ranks_and_selects_lowest_rtt():
     assert [e.host for e in pool.ranked] == ["fast.example.test", "slow.example.test"]
 
 
+def test_apply_ranked_logs_full_list_at_info():
+    settings = AppSettings(network=Network.PREPROD)
+    pool = EndpointPool(settings, service_mode=True)
+    ranked = [
+        EdgeEndpoint(
+            base_url="https://fast.example.test:443/preprod/api/v0/",
+            host="fast.example.test",
+            port=443,
+            rtt_ms=5.04,
+        ),
+        EdgeEndpoint(
+            base_url="https://slow.example.test:443/preprod/api/v0/",
+            host="slow.example.test",
+            port=443,
+            rtt_ms=25.0,
+        ),
+    ]
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(str(message.record["message"])), level="INFO")
+    try:
+        pool._apply_ranked(ranked, srv_name="_obpf._tcp.example.test", probed=3)
+    finally:
+        logger.remove(sink_id)
+
+    payload = json.loads(messages[-1])
+    assert list(payload.keys())[0] == "kind"
+    assert payload["kind"] == "apiEdgeRanking"
+    assert payload["selected"] == "https://fast.example.test:443/preprod/api/v0/"
+    assert payload["healthy"] == 2
+    assert payload["probed"] == 3
+    assert [edge["host"] for edge in payload["edges"]] == ["fast.example.test", "slow.example.test"]
+    assert payload["edges"][0]["rtt_ms"] == 5.0
+    assert "\n" not in messages[-1]
+
+
 @pytest.mark.asyncio
 async def test_api_url_override_skips_srv():
     settings = AppSettings(api_url="http://localhost:8000/mainnet/api/v0")
@@ -240,3 +277,34 @@ async def test_make_request_does_not_failover_on_http_error():
 
     assert pool.index == 0
     assert client.request.await_count == 1
+
+
+def test_api_client_uses_timeout_and_retries_from_settings():
+    from openblockperf.apiclient.client import BlockperfApiClient
+
+    settings = AppSettings(api_request_timeout_ms=2500, api_request_retries=4)
+    api = BlockperfApiClient(settings, service_mode=True)
+    assert api._api.timeout == 2.5
+    assert api._api.retries == 4
+    assert api._api.attempts_per_host == 5
+
+
+def test_log_json_event_peer_count_stats_is_single_line():
+    from openblockperf.logging import log_json_event
+
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(str(message.record["message"])), level="INFO")
+    try:
+        log_json_event("peerCountStats", in_cold=1, out_cold=2, total_peers=3)
+    finally:
+        logger.remove(sink_id)
+
+    payload = json.loads(messages[-1])
+    assert list(payload.keys())[0] == "kind"
+    assert payload == {
+        "kind": "peerCountStats",
+        "in_cold": 1,
+        "out_cold": 2,
+        "total_peers": 3,
+    }
+    assert "\n" not in messages[-1]

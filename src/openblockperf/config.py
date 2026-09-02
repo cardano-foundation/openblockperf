@@ -46,6 +46,10 @@ class AppSettings(BaseSettings):
     # DNS SRV name used to discover API edges when api_url is not set
     api_srv: str = DEFAULT_API_SRV
     api_key: str | None = None
+    # Per-request HTTP timeout when talking to a ranked API edge (milliseconds)
+    api_request_timeout_ms: int = Field(default=1000, ge=1)
+    # Extra retries on the same host after the first failed attempt (timeouts/connection errors)
+    api_request_retries: int = Field(default=2, ge=0)
     block_sample_check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
     node_name: str = socket.gethostname()  # This clients hostname

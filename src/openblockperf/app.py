@@ -19,7 +19,7 @@ from openblockperf.errors import (
     UnknowEventNameSpaceError,
 )
 from openblockperf.handler import EventHandler
-from openblockperf.logging import logger
+from openblockperf.logging import log_json_event, logger
 from openblockperf.logreader import NodeLogReader, create_log_reader_from_settings
 from openblockperf.models.peer import Peer, PeerState
 
@@ -326,7 +326,7 @@ class Blockperf:
 
                 # Dont send block samples when not synced
                 if self.settings.sync_check_enabled and not self.node_synced_event.is_set():
-                    return
+                    continue
 
                 if self.replaying:
                     logger.debug("Wont send samples because of the replay")
@@ -340,8 +340,8 @@ class Blockperf:
                     if not group.is_ok():
                         continue
                     sample = group.get_sample()
-                    resp = await self.api.submit_block_sample(sample)
-                    logger.debug("Sample published.", sample=sample, response=resp)
+                    log_json_event("blockSample", **sample.model_dump())
+                    await self.api.submit_block_sample(sample)
                     # Delete group
                     del self.block_sample_groups[k]
             except ApiError as e:
@@ -363,20 +363,20 @@ class Blockperf:
             out_cooling = [p for p in peers if p.state_outbound == PeerState.COOLING]  # fmt: off
             in_unknown = [p for p in peers if p.state_inbound == PeerState.UNKNOWN]  # fmt: off
             out_unknown = [p for p in peers if p.state_outbound == PeerState.UNKNOWN]
-            stats = {
-                "in_cold": len(in_cold),
-                "out_cold": len(out_cold),
-                "in_warm": len(in_warm),
-                "out_warm": len(out_warm),
-                "in_hot": len(in_hot),
-                "out_hot": len(out_hot),
-                "in_cooling": len(in_cooling),
-                "out_cooling": len(out_cooling),
-                "in_unknown": len(in_unknown),
-                "out_unknown": len(out_unknown),
-                "total_peers": len(self.peers),
-            }
-            rich.print(stats)
+            log_json_event(
+                "peerCountStats",
+                in_cold=len(in_cold),
+                out_cold=len(out_cold),
+                in_warm=len(in_warm),
+                out_warm=len(out_warm),
+                in_hot=len(in_hot),
+                out_hot=len(out_hot),
+                in_cooling=len(in_cooling),
+                out_cooling=len(out_cooling),
+                in_unknown=len(in_unknown),
+                out_unknown=len(out_unknown),
+                total_peers=len(self.peers),
+            )
 
     async def testapi_task(self):
         while True:

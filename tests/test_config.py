@@ -62,6 +62,12 @@ class TestSettingsDefaults:
     def test_api_url_default_is_none(self, default_settings):
         assert default_settings.api_url is None
 
+    def test_default_api_request_timeout_is_1000ms(self, default_settings):
+        assert default_settings.api_request_timeout_ms == 1000
+
+    def test_default_api_request_retries_is_two(self, default_settings):
+        assert default_settings.api_request_retries == 2
+
 
 class TestSettingsOverrides:
     def test_network_override_enum(self):
@@ -84,3 +90,22 @@ class TestSettingsOverrides:
     def test_api_srv_can_be_overridden(self):
         s = AppSettings(api_srv="_obpf._tcp.example.test")
         assert s.api_srv == "_obpf._tcp.example.test"
+
+    def test_api_request_timeout_and_retries_can_be_overridden(self):
+        s = AppSettings(api_request_timeout_ms=2500, api_request_retries=4)
+        assert s.api_request_timeout_ms == 2500
+        assert s.api_request_retries == 4
+
+    def test_api_request_timeout_must_be_positive(self):
+        with pytest.raises(ValidationError):
+            AppSettings(api_request_timeout_ms=0)
+
+    def test_api_request_settings_load_from_json_config(self, tmp_path):
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            '{"api_request_timeout_ms": 1500, "api_request_retries": 1}',
+            encoding="utf-8",
+        )
+        s = AppSettings(_config_file=config_file)
+        assert s.api_request_timeout_ms == 1500
+        assert s.api_request_retries == 1

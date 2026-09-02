@@ -89,6 +89,9 @@ Optional keys you can add by hand (not written by the installer):
   name used to discover API edges
 - `api_url` to skip SRV discovery and use a full API base URL (for example a
   local backend)
+- `api_request_timeout_ms` (default `1000`) HTTP timeout per API request
+- `api_request_retries` (default `2`) extra retries on the same host after
+  a timeout or connection error
 
 The client resolves SRV targets as FQDNs and calls
 `https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy
