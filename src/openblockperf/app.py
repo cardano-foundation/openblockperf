@@ -348,9 +348,12 @@ class Blockperf:
                 logger.error(f"Error sending blocksamples: {e!r}")
 
     async def print_peer_statistics_task(self):
-        """Print peer statistics periodically."""
+        """Log peerCountStats periodically. Disabled when the interval is 0."""
+        interval = self.settings.peer_count_stats_interval
+        if interval <= 0:
+            return
         while True:
-            await asyncio.sleep(30)
+            await asyncio.sleep(interval)
             peers = self.peers.values()
 
             in_cold = [p for p in peers if p.state_inbound == PeerState.COLD]

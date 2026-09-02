@@ -68,6 +68,9 @@ class TestSettingsDefaults:
     def test_default_api_request_retries_is_two(self, default_settings):
         assert default_settings.api_request_retries == 2
 
+    def test_default_peer_count_stats_interval_is_300(self, default_settings):
+        assert default_settings.peer_count_stats_interval == 300
+
 
 class TestSettingsOverrides:
     def test_network_override_enum(self):
@@ -100,6 +103,14 @@ class TestSettingsOverrides:
         with pytest.raises(ValidationError):
             AppSettings(api_request_timeout_ms=0)
 
+    def test_peer_count_stats_interval_zero_disables_logging(self):
+        s = AppSettings(peer_count_stats_interval=0)
+        assert s.peer_count_stats_interval == 0
+
+    def test_peer_count_stats_interval_must_not_be_negative(self):
+        with pytest.raises(ValidationError):
+            AppSettings(peer_count_stats_interval=-1)
+
     def test_api_request_settings_load_from_json_config(self, tmp_path):
         config_file = tmp_path / "config.json"
         config_file.write_text(
@@ -109,3 +120,9 @@ class TestSettingsOverrides:
         s = AppSettings(_config_file=config_file)
         assert s.api_request_timeout_ms == 1500
         assert s.api_request_retries == 1
+
+    def test_peer_count_stats_interval_loads_from_json_config(self, tmp_path):
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"peer_count_stats_interval": 0}', encoding="utf-8")
+        s = AppSettings(_config_file=config_file)
+        assert s.peer_count_stats_interval == 0

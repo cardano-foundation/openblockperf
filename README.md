@@ -266,8 +266,9 @@ local_port: 3001
 
 Additional optional keys (not set by the installer) include `api_srv`,
 `api_url`, `ekg_url`, `sync_check_enabled`, `sync_check_threshold`,
-`api_request_timeout_ms` (default `1000`), and `api_request_retries`
-(default `2`).
+`api_request_timeout_ms` (default `1000`), `api_request_retries`
+(default `2`), and `peer_count_stats_interval` (default `300` seconds;
+set `0` to disable `peerCountStats` log lines).
 
 `api_srv` defaults to `_obpf._tcp.network.cardano.org`. Set it (or
 `OPENBLOCKPERF_API_SRV`) to resolve a different SRV name. `api_url` skips

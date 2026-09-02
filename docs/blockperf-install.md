@@ -92,6 +92,8 @@ Optional keys you can add by hand (not written by the installer):
 - `api_request_timeout_ms` (default `1000`) HTTP timeout per API request
 - `api_request_retries` (default `2`) extra retries on the same host after
   a timeout or connection error
+- `peer_count_stats_interval` (default `300`) seconds between `peerCountStats`
+  log lines; `0` disables them
 
 The client resolves SRV targets as FQDNs and calls
 `https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy
