@@ -42,17 +42,17 @@ def main(
         typer.Option(
             "--network",
             "-n",
-            help="Cardano network to connect to (mainnet, preprod, preview). Defaults to OPENBLOCKPERF_NETWORK env var or 'mainnet'.",
+            help="Cardano network to connect to (mainnet, preprod, preview). Used as the API path prefix and chain magic. Defaults to OPENBLOCKPERF_NETWORK env var or 'mainnet'.",
         ),
     ] = None,
     api_url: Annotated[
         str | None,
         typer.Option(
             "--api-url",
-            help="""Override API URL (for development/testing). Takes precedence over network-specific URLs.
+            help="""Override API URL and skip SRV discovery (for development/testing).
 
-            You will need to provide the full url, including port and path of the api.
-            E.g.: http://localhost:8000/api/v0
+            Provide the full base URL, including port and path.
+            E.g.: http://localhost:8000/mainnet/api/v0
         """,
         ),
     ] = None,

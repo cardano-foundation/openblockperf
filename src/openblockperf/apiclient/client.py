@@ -2,6 +2,7 @@ import rich
 
 from openblockperf import __version__
 from openblockperf.config import AppSettings
+from openblockperf.discovery import EndpointPool
 from openblockperf.logging import logger
 from openblockperf.models.events import PeerEvent
 from openblockperf.models.peer import Peer
@@ -22,16 +23,37 @@ from .models import (
 
 
 class BlockperfApiClient:
-    def __init__(self, settings: AppSettings):
+    def __init__(self, settings: AppSettings, *, service_mode: bool = False):
+        self.settings = settings
+        self.pool = EndpointPool(settings, service_mode=service_mode)
         self._api = BlockperfApiBase(
-            full_api_url=settings.full_api_url,
+            pool=self.pool,
             api_key=settings.api_key,
             hostname=settings.node_name,
+            timeout=settings.api_request_timeout_ms / 1000.0,
+            retries=settings.api_request_retries,
         )
+
+    @property
+    def current_api_url(self) -> str | None:
+        current = self.pool.current
+        return current.base_url if current else None
+
+    async def prepare(self) -> str:
+        endpoint = await self.pool.ensure_ready()
+        return endpoint.base_url
+
+    async def refresh_endpoints(self) -> str:
+        endpoint = await self.pool.refresh()
+        await self._api.rebuild_client()
+        return endpoint.base_url
+
+    async def close(self) -> None:
+        await self._api.close()
 
     async def submit_block_sample(self, sample: BlockSample) -> BlockSampleResponse:
         bsr = BlockSampleRequest(**sample.model_dump())
-        logger.debug("Sending BlockSample", request=bsr)
+        logger.debug("Sending BlockSample", block_hash=sample.block_hash, slot=sample.slot)
         return await self._api.post("/submit/blocksample", bsr, BlockSampleResponse)
 
     async def post_status_change(self):

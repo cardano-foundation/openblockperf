@@ -1,7 +1,8 @@
 """Configure and provide common logging."""
 
-__all__ = ["logger", "setup_logging"]
+__all__ = ["log_json_event", "logger", "setup_logging"]
 
+import json
 import sys
 
 from loguru import logger
@@ -25,6 +26,11 @@ def formatter(record: dict) -> str:
         format_string += " - " + " ".join(parts)
 
     return format_string + "\n"
+
+
+def log_json_event(kind: str, **fields) -> None:
+    """Log a single-line JSON event with ``kind`` as the first key."""
+    logger.info(json.dumps({"kind": kind, **fields}, default=str))
 
 
 def setup_logging(level: str):

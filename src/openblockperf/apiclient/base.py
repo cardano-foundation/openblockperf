@@ -23,7 +23,6 @@ async with BlockperfApiClient(...) as client:
 
 """
 
-import time
 from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any
@@ -31,6 +30,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
+from openblockperf.discovery import API_REQUEST_RETRIES, API_REQUEST_TIMEOUT, EndpointPool
 from openblockperf.errors import ApiConnectionError, ApiError
 from openblockperf.logging import logger
 
@@ -46,43 +46,72 @@ class BlockperfApiBase:
 
     def __init__(
         self,
-        full_api_url: str,
-        api_key: str,
+        pool: EndpointPool,
+        api_key: str | None,
         hostname: str | None = None,
-        timeout: float = 6.0,
+        timeout: float = API_REQUEST_TIMEOUT,
+        retries: int = API_REQUEST_RETRIES,
         **httpx_kwargs,
     ):
-        # Initialize from settings instance or create new one
-        # Allows CLI overrides to flow through to API client
-
-        self.full_api_url = full_api_url
+        self.pool = pool
         self.hostname = hostname
         self.api_key = api_key
         self.token = None
         self.token_expiry = 0
         self._client: httpx.AsyncClient | None = None
+        self._client_base: str | None = None
         self.httpx_kwargs = httpx_kwargs
         self.timeout = timeout
+        self.retries = retries
+
+    @property
+    def attempts_per_host(self) -> int:
+        """Initial attempt plus the configured extra retries."""
+        return 1 + self.retries
+
+    @property
+    def full_api_url(self) -> str:
+        current = self.pool.current
+        if current is not None:
+            return current.base_url
+        return self._client_base or ""
+
+    async def _ensure_client(self) -> httpx.AsyncClient:
+        await self.pool.ensure_ready()
+        current = self.pool.current
+        if current is None:
+            raise ApiConnectionError("No API endpoint available")
+        if self._client is None or self._client_base != current.base_url:
+            await self.close()
+            self._client = httpx.AsyncClient(
+                base_url=current.base_url,
+                timeout=httpx.Timeout(self.timeout),
+                **self.httpx_kwargs,
+            )
+            self._client_base = current.base_url
+        return self._client
+
+    async def rebuild_client(self) -> None:
+        """Drop the cached httpx client so the next request uses the current edge."""
+        await self.close()
 
     @property
     def client(self):
-        """Return the client and initialize class cache"""
+        """Return the cached client. Prefer _ensure_client() in async code."""
         if not self._client:
-            self._client = httpx.AsyncClient(
-                base_url=self.full_api_url,
-                timeout=self.timeout,
-                **self.httpx_kwargs,
-            )
+            raise RuntimeError("API client is not initialized; await a request first")
         return self._client
 
     async def close(self):
         """Close the client if there is one"""
         if self._client:
             await self._client.aclose()
+            self._client = None
+            self._client_base = None
 
     async def __aenter__(self):
-        # call client once to ensure it is created
-        _ = self.client
+        await self._ensure_client()
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
@@ -93,33 +122,64 @@ class BlockperfApiBase:
         endpoint: str,
         **kwargs,
     ) -> httpx.Response | None:
-        """Make an authenticated request to the API."""
-        try:
-            headers = kwargs.pop("headers", {})
-            if not self.api_key:
-                logger.warning("No ApiKey found!")
-            headers["X-Api-Key"] = self.api_key or ""
-            headers["X-Hostname"] = self.hostname
-            logger.debug(f"{method.upper()}: {endpoint}", hostname=self.hostname, kwargs=kwargs)
-            response = await self.client.request(
-                method,
-                f"/{endpoint.lstrip('/')}",
-                headers=headers,
-                **kwargs,
-            )
-            response.raise_for_status()
+        """Make an authenticated request to the API.
 
-        except httpx.HTTPStatusError as e:
-            logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
-            raise ApiError(f"The API returned an error: {e}") from e
-        except httpx.TimeoutException as e:
-            logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
-            raise ApiError(f"API request timed out: {self.full_api_url}") from None
-        except httpx.ConnectError as e:
-            logger.error(f"API request failed: {e.response.status_code} {e.response.reason_phrase}", url=e.response.url)
-            raise ApiConnectionError(f"Failed to connect to API: {e}") from e
+        Transport timeouts and connection errors are retried on the same host,
+        then the service-mode pool fails over. HTTP 4xx and 5xx never fail over.
+        """
+        headers = kwargs.pop("headers", {})
+        if not self.api_key:
+            logger.warning("No ApiKey found!")
+        headers["X-Api-Key"] = self.api_key or ""
+        headers["X-Hostname"] = self.hostname
+        # Relative path so httpx keeps /{network}/api/v0/ from the base URL.
+        request_path = endpoint.lstrip("/")
+        attempts_on_host = 0
 
-        return response
+        while True:
+            client = await self._ensure_client()
+            current = self.pool.current
+            try:
+                logger.debug(
+                    f"{method.upper()}: {request_path}",
+                    hostname=self.hostname,
+                    url=self.full_api_url,
+                    kwargs=kwargs,
+                )
+                response = await client.request(
+                    method,
+                    request_path,
+                    headers=headers,
+                    **kwargs,
+                )
+                response.raise_for_status()
+                return response
+
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f"API request failed: {e.response.status_code} {e.response.reason_phrase}",
+                    url=str(e.response.url),
+                )
+                raise ApiError(f"The API returned an error: {e}") from e
+
+            except httpx.RequestError as e:
+                attempts_on_host += 1
+                logger.warning(
+                    "API transport error",
+                    error=repr(e),
+                    url=self.full_api_url,
+                    attempt=attempts_on_host,
+                    max_attempts=self.attempts_per_host,
+                )
+                if attempts_on_host < self.attempts_per_host:
+                    continue
+                if not self.pool.service_mode:
+                    raise ApiConnectionError(f"Failed to connect to API: {e}") from e
+                if current is None:
+                    raise ApiConnectionError(f"Failed to connect to API: {e}") from e
+                await self.close()
+                await self.pool.failover_from(current)
+                attempts_on_host = 0
 
     def _parse_response[T](
         self,

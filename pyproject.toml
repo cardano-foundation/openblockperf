@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openblockperf"
-version = "0.0.35"
+version = "0.0.36"
 description = "The OpenBlockperf client"
-readme = "README.md"
+readme = "pypi-release.md"
 requires-python = ">=3.12"
 dependencies = [
   "cbor2>=5.7.1,<6.0",
   "click>=8.1.8",
+  "dnspython>=2.7.0,<3.0",
   "httpx>=0.28.1",
   "loguru>=0.7.3",
   "packaging>=26.0",
@@ -24,10 +25,8 @@ dependencies = [
 keywords = ["cardano", "cardano-foundation", "ops"]
 authors = [
   { name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" },
-  { name = "Markus Gufler", email = "markus.gufler-ext@cardanofoundation.org" },
 ]
 maintainers = [
-  { name = "Manuel Schmidt", email = "manuel.schmidt@cardanofoundation.org" },
   { name = "Markus Gufler", email = "markus.gufler-ext@cardanofoundation.org" },
 ]
 
@@ -45,6 +44,7 @@ dev = [
   "mypy>=1.18.2",
   "pudb>=2025.1",
   "pytest>=8.4.2",
+  "pytest-asyncio>=0.25.0",
   "ruff>=0.15.9",
   "textual-dev>=1.7.0",
 ]
@@ -92,6 +92,8 @@ convention = "google" # Or "numpy", "pep257"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 source = ["src"]

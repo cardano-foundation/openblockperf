@@ -13,6 +13,8 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+DEFAULT_API_SRV = "_obpf._tcp.network.cardano.org"
+
 
 class Network(Enum):
     """All supported networks"""
@@ -28,7 +30,6 @@ class NetworkConfig:
 
     magic: int
     starttime: int
-    api_url: str
 
 
 class AppSettings(BaseSettings):
@@ -40,10 +41,17 @@ class AppSettings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+    # Direct API base URL bypasses SRV discovery (full URL including path, e.g. http://localhost:8000/mainnet/api/v0)
     api_url: str | None = None
-    api_port: int = 443
-    api_path: str = "/api/v0/"
+    # DNS SRV name used to discover API edges when api_url is not set
+    api_srv: str = DEFAULT_API_SRV
     api_key: str | None = None
+    # Per-request HTTP timeout when talking to a ranked API edge (milliseconds)
+    api_request_timeout_ms: int = Field(default=1000, ge=1)
+    # Extra retries on the same host after the first failed attempt (timeouts/connection errors)
+    api_request_retries: int = Field(default=2, ge=0)
+    # How often to log peerCountStats (seconds). 0 disables that log line.
+    peer_count_stats_interval: int = Field(default=300, ge=0)
     block_sample_check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
     node_name: str = socket.gethostname()  # This clients hostname
@@ -68,17 +76,14 @@ class AppSettings(BaseSettings):
         Network.MAINNET.value: NetworkConfig(
             magic=764824073,
             starttime=1591566291,  # Sun Jun 07 2020 21:44:51 GMT+0000
-            api_url="https://api.openblockperf.cardano.org",
         ),
         Network.PREPROD.value: NetworkConfig(
             magic=1,
             starttime=1654041600,  # Wed Jun 01 2022 00:00:00 GMT+0000
-            api_url="https://preprod.api.openblockperf.cardano.org",
         ),
         Network.PREVIEW.value: NetworkConfig(
             magic=2,
             starttime=1666656000,  # Tue Oct 25 2022 00:00:00 GMT+0000
-            api_url="https://preview.api.openblockperf.cardano.org",
         ),
     }
 
@@ -115,25 +120,14 @@ class AppSettings(BaseSettings):
             elif suffix in (".yaml", ".yml"):
                 sources.append(YamlConfigSettingsSource(settings_cls, yaml_file=path))
             else:
-                raise ValueError(
-                    f"Unsupported config file extension {suffix!r}. Use .json, .yaml, or .yml"
-                )
+                raise ValueError(f"Unsupported config file extension {suffix!r}. Use .json, .yaml, or .yml")
 
         sources.append(file_secret_settings)
         return tuple(sources)
 
     @property
-    def full_api_url(self):
-        """Return the complete url to the api endpoint. If one is provided
-        on the cli, just return that without adding any extra ports or paths.
-        """
-        # Use api_url if set
-        if self.api_url:
-            return f"{self.api_url}:{self.api_port}{self.api_path}"
-
-        # else look up from network configuration
-        _api_url = self._NETWORK_CONFIGS[self.network.value].api_url
-        return f"{_api_url}:{self.api_port}{self.api_path}"
+    def network_name(self) -> str:
+        return self.network.value
 
     @property
     def network_config(self) -> NetworkConfig:

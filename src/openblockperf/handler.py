@@ -124,7 +124,12 @@ class EventHandler:
     @dispatch_event.register
     async def _on_block_sample_event(self, event: BlockSampleEvent):
         """Add a block-related event to the BlockSampleGroup for its block_hash."""
-        logger.debug("BlockEvent", event=event)
+        logger.debug(
+            "BlockEvent",
+            event_type=type(event).__name__,
+            ns=getattr(event, "ns", None),
+            block_hash=getattr(event, "block_hash", None),
+        )
         if not hasattr(event, "block_hash"):
             raise EventError("Block event has no block_hash.")
         block_hash = event.block_hash

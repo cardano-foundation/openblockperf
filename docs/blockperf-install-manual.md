@@ -93,6 +93,10 @@ EOF
 sudo chmod 664 "${INSTALL_DIR}/config.json"
 ```
 
+Optional: set `"api_srv": "_obpf._tcp.network.cardano.org"` (the client default) or
+point it at your own SRV name. Set `"api_url"` only when you want to skip SRV
+discovery and use a full base URL such as `http://localhost:8000/mainnet/api/v0`.
+
 ## 7) Write systemd service unit
 
 Create the same service unit the installer generates.
@@ -149,18 +153,20 @@ sudo systemctl enable openblockperf.service
 ## 10) Register for API key (one-time)
 
 Register with your Calidus key to obtain an API key, then place it in the config file.
+Pass `--config` before the subcommand so network and `api_srv` settings are loaded.
 
 ```bash
-${INSTALL_DIR}/venv/bin/blockperf register
+${INSTALL_DIR}/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-calidus --pool-id <bech32> --calidus-skey /path/to/calidus.skey
 ```
 
 Alternative (public relay IP based):
 
 ```bash
-${INSTALL_DIR}/venv/bin/blockperf register --relay-ip
+${INSTALL_DIR}/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-ip
 ```
 
-Relay-IP registration probes IPv4/IPv6 separately (when available) and requests one API key bound to the validated public IP(s).
+`register-ip` picks one SRV target at random. `blockperf run` (the systemd service)
+ranks healthy edges by RTT and fails over if the selected host times out.
 
 After receiving your API key, set it in `${INSTALL_DIR}/config.json`:
 

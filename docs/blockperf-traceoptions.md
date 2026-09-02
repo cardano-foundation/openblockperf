@@ -113,3 +113,7 @@ you can generate this reference with specific notes related to your own node con
 cardano-node trace-documentation --config config.json --output-file tracerOptions.md
 ```
 
+Parsed tracer events are submitted to OpenBlockPerf API edges discovered via
+DNS SRV (see [OpenBlockPerf Client Overview](blockperf-client.md)).
+
+
