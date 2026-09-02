@@ -50,19 +50,24 @@ async def register_calidus_cmd(
         api_url=shared.api_url,
         config_file=shared.config,
     )
-    api = BlockperfApiClient(app_settings)
+    api = BlockperfApiClient(app_settings, service_mode=False)
     if not pool_id:
         raise ConfigurationError("Missing --pool-id for Calidus registration.")
     if not calidus_skey:
         raise ConfigurationError("Missing --calidus-skey for Calidus registration.")
 
-    challenge = await api.request_registration_challenge(pool_id_bech32=pool_id)
-    skey_data = parse_key_file(calidus_skey)
-    skey = extract_signing_key_from_cbor(skey_data.get("cborHex"))
-    signature = skey.sign(challenge.encode("utf-8"))
-    response = await api.submit_signed_challenge(
-        signature_hex=signature.hex(),
-        pool_id_bech32=pool_id,
-    )
+    try:
+        selected = await api.prepare()
+        console.print(f"[bold cyan]API URL:[/] {selected}")
+        challenge = await api.request_registration_challenge(pool_id_bech32=pool_id)
+        skey_data = parse_key_file(calidus_skey)
+        skey = extract_signing_key_from_cbor(skey_data.get("cborHex"))
+        signature = skey.sign(challenge.encode("utf-8"))
+        response = await api.submit_signed_challenge(
+            signature_hex=signature.hex(),
+            pool_id_bech32=pool_id,
+        )
+    finally:
+        await api.close()
     console.print(f"Your new Api key is {response.apikey}")
     console.print(f"API_KEY={response.apikey}")

@@ -44,13 +44,17 @@ async def register_ip_cmd(
         api_url=shared.api_url,
         config_file=shared.config,
     )
-    api = BlockperfApiClient(app_settings)
-
     if force_renewal and update_ip:
         console.print("[yellow]You cant provide --force-renewal and --update together! [/]")
         sys.exit(0)
 
-    response = await api.clientip_registration(force_renewal, update_ip)
+    api = BlockperfApiClient(app_settings, service_mode=False)
+    try:
+        selected = await api.prepare()
+        console.print(f"[bold cyan]API URL:[/] {selected}")
+        response = await api.clientip_registration(force_renewal, update_ip)
+    finally:
+        await api.close()
     if response.apikey:
         rich.print(f"ApiKey: {response.apikey}")
 

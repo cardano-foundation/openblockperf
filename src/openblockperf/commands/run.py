@@ -71,7 +71,10 @@ async def run_cmd(
     console.print(f"[bold cyan]Node Name:[/] {settings.node_name}")
     console.print(f"[bold cyan]Node Unit Name:[/] {settings.node_unit_name}")
     console.print(f"[bold cyan]Tracer Log File:[/] {settings.tracer_log_file}")
-    console.print(f"[bold cyan]API URL:[/] {settings.full_api_url}")
+    if settings.api_url:
+        console.print(f"[bold cyan]API URL override:[/] {settings.api_url}")
+    else:
+        console.print(f"[bold cyan]API SRV:[/] {settings.api_srv}")
     console.print(f"[bold cyan]API Key:[/] {settings.api_key.split('_')[0] if settings.api_key else None}")
 
     shutdown_event = asyncio.Event()

@@ -46,6 +46,12 @@ class ApiConnectionError(ApiError):
     pass
 
 
+class DiscoveryError(ApiError):
+    """Raised when API endpoint discovery (SRV or health) fails."""
+
+    pass
+
+
 class StartupMarkerNotFoundError(BlockperfError):
     pass
 

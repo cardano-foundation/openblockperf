@@ -11,10 +11,20 @@ tracer messages emitted by `cardano-node`. This is why a specific set of node
 tracers must be enabled in the node configuration. See the
 [Trace Options Guide](blockperf-traceoptions.md).
 
-The parsed information is submitted to a central backend endpoint with the goal
+The parsed information is submitted to a central backend with the goal
 of building a common global view of Cardano blockchain network behavior and of
 block and transaction propagation flows, while avoiding exposure of security
 relevant information.
+
+Backend hosts are discovered at runtime from the DNS SRV record
+`_obpf._tcp.network.cardano.org` (overridable via `api_srv` /
+`OPENBLOCKPERF_API_SRV`). The Cardano network name is a URL path, not part of
+the hostname: `https://{fqdn}:{port}/{network}/api/v0/...`. The long-running
+`run` service probes each edge health endpoint, uses the lowest-RTT healthy
+host, and fails over down a ranked list if that host stops responding.
+One-shot CLI commands pick one SRV target at random. See the README
+"API endpoint discovery" section for timeouts, failover, and `--api-url`
+overrides.
 
 OpenBlockPerf is intended to run on relay nodes, which act as the gateway
 between a stake pool's producer node and the rest of the global Cardano

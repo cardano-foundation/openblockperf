@@ -6,7 +6,7 @@
 The OpenBlockperf Client is a cli tool that collects various data points from
 a local Cardano relay node, run by a stake pool operator. If you are setting up or
 operating a stake pool, start with this guideline:
-[https://developers.cardano.org/docs/operate-a-stake-pool/](https://developers.cardano.org/docs/operate-a-stake-pool/)
+[https://developers.cardano.org/docs/operate-a-stake-pool/](https://developers.cardano.org/docs/operators/)
 
 openBlockperf is designed to run on relay nodes located between the stake pool
 (producer) node and the global network. It can also run on producer nodes if
@@ -17,6 +17,8 @@ between the relay nodes of different stake pools.
 ---
 
 ## Installation / Get started
+
+As it stands, this installer is based on the Haskell cardano-node. Support for other node implementations is planned. 
 
 The installer targets Linux environments typically used for Cardano nodes
 (for example Ubuntu/Debian server setups with systemd) and requires some specific
@@ -186,8 +188,8 @@ by every subcommand.
 
 | Shared option | Default | Description |
 | --- | --- | --- |
-| `-n, --network {mainnet,preprod,preview}` | `mainnet` (or `network` in config file) | Cardano network. Selects the network-specific API URL and chain magic. |
-| `--api-url URL` | network-specific | Override the API URL (full URL including port and path, e.g. `http://localhost:8000/api/v0`). |
+| `-n, --network {mainnet,preprod,preview}` | `mainnet` (or `network` in config file) | Cardano network. Selects chain magic and the `/{network}/` path on discovered API edges. |
+| `--api-url URL` | unset (SRV discovery) | Skip SRV discovery and use this full API base URL (including port and path, e.g. `http://localhost:8000/mainnet/api/v0`). |
 | `-c, --config FILE` | unset | Path to a JSON or YAML configuration file (`.json`, `.yaml`, `.yml`) used to seed settings. |
 
 ### Subcommands
@@ -214,8 +216,11 @@ blockperf --config /opt/cardano/openblockperf/config.json run
 # Config file + override one value via flag (the flag wins)
 blockperf --config /opt/cardano/openblockperf/config.json --network preview run
 
-# Local backend during development
-blockperf --api-url http://localhost:8000/api/v0 run
+# Register using the installed config (required so api_srv / network / api_key are loaded)
+blockperf --config /opt/cardano/openblockperf/config.json register-ip
+
+# Local backend during development (skips SRV discovery)
+blockperf --api-url http://localhost:8000/mainnet/api/v0 run
 ```
 
 ### Configuration file
@@ -246,9 +251,6 @@ Example `config.json` (as written by the installer):
 }
 ```
 
-Additional optional keys (not set by the installer) include `api_port`,
-`ekg_url`, `sync_check_enabled`, and `sync_check_threshold`.
-
 The equivalent YAML:
 
 ```yaml
@@ -261,6 +263,36 @@ node_unit_name: cnode.service
 local_addr: 0.0.0.0
 local_port: 3001
 ```
+
+Additional optional keys (not set by the installer) include `api_srv`,
+`api_url`, `ekg_url`, `sync_check_enabled`, and `sync_check_threshold`.
+
+`api_srv` defaults to `_obpf._tcp.network.cardano.org`. Set it (or
+`OPENBLOCKPERF_API_SRV`) to resolve a different SRV name. `api_url` skips
+discovery and uses that base URL as-is.
+
+### API endpoint discovery
+
+The client no longer uses a hardcoded API hostname. Unless `api_url` /
+`--api-url` is set, it resolves the DNS SRV record in `api_srv`. SRV targets
+are used as returned FQDNs (the client does not append `.network.cardano.org`).
+The Cardano network is only a URL path:
+
+- Health: `GET https://{fqdn}:{port}/{network}/api/health`
+- API: `https://{fqdn}:{port}/{network}/api/v0/registration/...` and `.../submit/...`
+
+`blockperf run` (service mode) probes each target's health endpoint in parallel,
+ranks healthy edges by lowest RTT, and uses the fastest. If later API calls
+time out (500ms, two extra retries), it fails over to the next ranked edge
+without probing health again. HTTP 4xx and 5xx do not fail over. When the list
+is exhausted it waits 30 seconds, re-resolves SRV, re-ranks, and starts again
+with the fastest. The ranked list is also refreshed once a day.
+
+One-shot commands (`register-ip`, `register-calidus`) pick a single SRV target
+at random and do not fail over.
+
+The `--config` flag must appear before the subcommand. `register-ip` does not
+load `/opt/cardano/openblockperf/config.json` unless you pass `--config`.
 
 ### Service activity and common file locations
 
@@ -302,7 +334,7 @@ blockperf register-calidus --pool-id [your pools bech32 id] --calidus-skey [path
 For public relay IP-bound registration (IPv4/IPv6 probes as available), use:
 
 ```bash
-blockperf register-ip
+blockperf --config /opt/cardano/openblockperf/config.json register-ip
 ```
 
 This will store the IP address of the machine that send the request. Only

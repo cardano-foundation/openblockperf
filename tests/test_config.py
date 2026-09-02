@@ -3,13 +3,14 @@
 Covers:
 - Network enum values
 - NetworkConfig per network
-- settings() factory: defaults, CLI overrides, error cases
-- AppSettings.full_api_url construction
+- AppSettings defaults and SRV/API override fields
 """
 
 import pytest
 
-from openblockperf.config import AppSettings, Network, settings
+from pydantic import ValidationError
+
+from openblockperf.config import DEFAULT_API_SRV, AppSettings, Network
 
 
 class TestNetworkEnum:
@@ -27,7 +28,7 @@ class TestNetworkEnum:
 
 
 class TestNetworkConfig:
-    """Each network has a distinct magic number and API URL."""
+    """Each network has a distinct magic number."""
 
     def test_mainnet_magic(self, default_settings):
         assert default_settings.network_config.magic == 764824073
@@ -36,22 +37,17 @@ class TestNetworkConfig:
         assert preprod_settings.network_config.magic == 1
 
     def test_preview_magic(self):
-        s = settings(network=Network.PREVIEW)
+        s = AppSettings(network=Network.PREVIEW)
         assert s.network_config.magic == 2
 
     def test_mainnet_starttime(self, default_settings):
         # Shelley genesis: Sun Jun 07 2020 21:44:51 UTC
         assert default_settings.network_config.starttime == 1591566291
 
-    # TODO: add tests for preprod / preview starttimes
-
 
 class TestSettingsDefaults:
     def test_default_network_is_mainnet(self, default_settings):
         assert default_settings.network == Network.MAINNET
-
-    def test_default_api_port(self, default_settings):
-        assert default_settings.api_port == 443
 
     def test_default_local_port(self, default_settings):
         assert default_settings.local_port == 3001
@@ -59,47 +55,32 @@ class TestSettingsDefaults:
     def test_default_check_interval(self, default_settings):
         assert default_settings.block_sample_check_interval == 2
 
-    # TODO: test that min_age default is 10
+    def test_default_api_srv(self, default_settings):
+        assert default_settings.api_srv == DEFAULT_API_SRV
+        assert default_settings.api_srv == "_obpf._tcp.network.cardano.org"
+
+    def test_api_url_default_is_none(self, default_settings):
+        assert default_settings.api_url is None
 
 
-class TestSettingsFactory:
+class TestSettingsOverrides:
     def test_network_override_enum(self):
-        s = settings(network=Network.PREPROD)
+        s = AppSettings(network=Network.PREPROD)
         assert s.network == Network.PREPROD
 
     def test_network_override_string(self):
-        s = settings(network="preview")
+        s = AppSettings(network="preview")
         assert s.network == Network.PREVIEW
 
-    def test_invalid_network_raises_value_error(self):
-        with pytest.raises(ValueError, match="Invalid network"):
-            settings(network="notanetwork")
+    def test_invalid_network_raises(self):
+        with pytest.raises(ValidationError):
+            AppSettings(network="notanetwork")
 
-    def test_api_url_override_bypasses_network_url(self):
-        custom_url = "http://localhost:9000/api/"
-        s = settings(api_url_override=custom_url)
-        assert s.full_api_url == custom_url
+    def test_api_url_override_is_stored_as_given(self):
+        custom_url = "http://localhost:8000/mainnet/api/v0"
+        s = AppSettings(api_url=custom_url)
+        assert s.api_url == custom_url
 
-    def test_api_url_override_takes_precedence_over_network(self):
-        custom_url = "http://localhost:9000"
-        s = settings(network=Network.PREPROD, api_url_override=custom_url)
-        assert s.full_api_url == custom_url
-
-    # TODO: test env var OPENBLOCKPERF_NETWORK overrides default
-    # TODO: test env var OPENBLOCKPERF_API_KEY is picked up
-
-
-class TestFullApiUrl:
-    def test_mainnet_url_contains_expected_domain(self, default_settings):
-        assert "openblockperf.cardano.org" in default_settings.full_api_url
-
-    def test_preprod_url_contains_preprod(self, preprod_settings):
-        assert "preprod" in preprod_settings.full_api_url
-
-    def test_url_includes_port(self, default_settings):
-        assert str(default_settings.api_port) in default_settings.full_api_url
-
-    def test_url_includes_api_path(self, default_settings):
-        assert default_settings.api_path in default_settings.full_api_url
-
-    # TODO: test that a non-default api_port is reflected in full_api_url
+    def test_api_srv_can_be_overridden(self):
+        s = AppSettings(api_srv="_obpf._tcp.example.test")
+        assert s.api_srv == "_obpf._tcp.example.test"

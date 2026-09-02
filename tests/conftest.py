@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openblockperf.config import AppSettings, Network, settings
+from openblockperf.config import AppSettings, Network
 
 # ---------------------------------------------------------------------------
 # Raw event payloads

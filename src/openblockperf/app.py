@@ -8,6 +8,7 @@ from rich.console import Console
 from openblockperf.apiclient import BlockperfApiClient
 from openblockperf.blocksamplegroup import BlockSampleGroup
 from openblockperf.config import AppSettings
+from openblockperf.discovery import SRV_REFRESH_INTERVAL
 from openblockperf.ekg import EkgClient, EkgError
 from openblockperf.errors import (
     ApiError,
@@ -81,7 +82,7 @@ class Blockperf:
         if not self.settings.block_sample_check_interval or self.settings.block_sample_check_interval <= 0:
             raise ConfigurationError("Invalid check_interval in configuration")
 
-        self.api = BlockperfApiClient(self.settings)  # Single api client for app
+        self.api = BlockperfApiClient(self.settings, service_mode=True)  # Single api client for app
         self.log_reader = create_log_reader_from_settings(self.settings)
         self.handler = EventHandler(
             self.block_sample_groups,  # Sample Groups the handler will put events into
@@ -93,6 +94,9 @@ class Blockperf:
 
     async def start(self):
         """Run all application tasks with proper error handling and coordination."""
+        selected = await self.api.prepare()
+        logger.info("API endpoint ready", url=selected)
+        self.console.print(f"[bold cyan]API URL:[/] {selected}")
         try:
             async with asyncio.TaskGroup() as tg:
                 self.create_task(self.send_clientinfo_task, tg)
@@ -102,6 +106,7 @@ class Blockperf:
                 self.create_task(self.send_block_samples_task, tg)
                 self.create_task(self.print_peer_statistics_task, tg)
                 self.create_task(self.monitor_sync_state_task, tg)
+                self.create_task(self.refresh_api_endpoints_task, tg)
 
         except* asyncio.CancelledError as eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
@@ -136,6 +141,7 @@ class Blockperf:
         # Wait for tasks to finish cancellation
         if self.tasks:
             await asyncio.gather(*self.tasks.values(), return_exceptions=True)
+        await self.api.close()
 
     def create_task(
         self,
@@ -406,3 +412,16 @@ class Blockperf:
                 self.node_synced_event.clear()
                 rich.print(f"[red]EKG unreachable: {exc}[/red]")
             await asyncio.sleep(self.settings.sync_check_interval)
+
+    async def refresh_api_endpoints_task(self) -> None:
+        """Re-resolve SRV records once a day and switch to the new fastest edge."""
+        if self.settings.api_url:
+            return
+        while True:
+            await asyncio.sleep(SRV_REFRESH_INTERVAL)
+            try:
+                selected = await self.api.refresh_endpoints()
+                logger.info("Daily API edge refresh complete", url=selected)
+                self.console.print(f"[bold cyan]API URL refreshed:[/] {selected}")
+            except Exception as exc:
+                logger.error(f"Daily API edge refresh failed: {exc!r}")

@@ -53,13 +53,13 @@ The installer also performs an online installer-version check and can offer a se
 If no key is provided, register after install:
 
 ```bash
-<INSTALL_DIR>/venv/bin/blockperf register
+<INSTALL_DIR>/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-ip
 ```
 
 Relay/IP registration (for unattended relays):
 
 ```bash
-<INSTALL_DIR>/venv/bin/blockperf register --relay-ip
+<INSTALL_DIR>/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-ip
 ```
 
 In relay mode, the client probes IPv4 and IPv6 separately (as available), then submits short-lived cookies to obtain one API key bound to the validated public IP(s).
@@ -83,6 +83,23 @@ When a new config file is written, the installer sets:
 - `local_addr` (default `0.0.0.0`)
 - `local_port` (default `3001`)
 
+Optional keys you can add by hand (not written by the installer):
+
+- `api_srv` (default `_obpf._tcp.network.cardano.org`) to change the DNS SRV
+  name used to discover API edges
+- `api_url` to skip SRV discovery and use a full API base URL (for example a
+  local backend)
+
+The client resolves SRV targets as FQDNs and calls
+`https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy
+edges by RTT; `register-ip` / `register-calidus` pick one SRV target at random.
+Always pass `--config` before those subcommands so the installed config file
+is loaded:
+
+```bash
+<INSTALL_DIR>/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-ip
+```
+
 When the config file already exists:
 
 - Interactive mode (without `--yes`): asks whether to keep or replace.
@@ -98,6 +115,7 @@ If you choose to keep the existing config file, update these keys manually as ne
 - `node_config`
 - `node_unit_name`
 - `tracer_log_file`
+- `api_srv` / `api_url` (if you override backend discovery)
 
 ## Reliability behavior
 
