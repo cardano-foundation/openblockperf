@@ -14,7 +14,10 @@ tracers must be enabled in the node configuration. See the
 The parsed information is submitted to a central backend with the goal
 of building a common global view of Cardano blockchain network behavior and of
 block and transaction propagation flows, while avoiding exposure of security
-relevant information.
+relevant information. Outbound peer and block-sample addresses that are
+private, loopback, or link-local are always replaced with `0.0.0.0` before
+submit. Operators can also list extra addresses in `obfuscate_ips` (for
+example a public producer IP) so those are never reported either.
 
 Backend hosts are discovered at runtime from the DNS SRV record
 `_obpf._tcp.network.cardano.org` (overridable via `api_srv` /

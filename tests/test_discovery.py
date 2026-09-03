@@ -289,6 +289,49 @@ def test_api_client_uses_timeout_and_retries_from_settings():
     assert api._api.attempts_per_host == 5
 
 
+@pytest.mark.asyncio
+async def test_submit_block_sample_obfuscates_private_and_extra_ips():
+    from openblockperf.apiclient.client import BlockperfApiClient
+    from openblockperf.models.samples import BlockSample
+
+    settings = AppSettings(
+        api_url="http://localhost:8000/mainnet/api/v0",
+        obfuscate_ips=["203.0.113.9"],
+    )
+    api = BlockperfApiClient(settings, service_mode=True)
+    sample = BlockSample(
+        block_hash="abc",
+        block_number=1,
+        block_size=100,
+        block_g=0.1,
+        slot=1,
+        slot_time="2025-01-01T00:00:00+00:00",
+        header_remote_addr="192.168.10.2",
+        header_remote_port=3001,
+        header_delta=1,
+        block_remote_addr="203.0.113.9",
+        block_remote_port=3001,
+        block_request_delta=1,
+        block_response_delta=1,
+        block_adopt_delta=1,
+        local_addr="10.1.1.1",
+        local_port=3001,
+        magic=764824073,
+    )
+    captured: dict = {}
+
+    async def fake_post(endpoint, data=None, response_model=None, **kwargs):
+        captured["data"] = data
+        return response_model() if response_model else {}
+
+    api._api.post = fake_post  # type: ignore[method-assign]
+    await api.submit_block_sample(sample)
+
+    assert captured["data"].header_remote_addr == "0.0.0.0"
+    assert captured["data"].block_remote_addr == "0.0.0.0"
+    assert captured["data"].local_addr == "0.0.0.0"
+
+
 def test_log_json_event_peer_count_stats_is_single_line():
     from openblockperf.logging import log_json_event
 

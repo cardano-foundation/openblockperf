@@ -3,6 +3,7 @@ import rich
 from openblockperf import __version__
 from openblockperf.config import AppSettings
 from openblockperf.discovery import EndpointPool
+from openblockperf.ip_obfuscate import obfuscate_ip
 from openblockperf.logging import logger
 from openblockperf.models.events import PeerEvent
 from openblockperf.models.peer import Peer
@@ -34,6 +35,9 @@ class BlockperfApiClient:
             retries=settings.api_request_retries,
         )
 
+    def _obfuscate(self, addr: str | None) -> str:
+        return obfuscate_ip(addr, self.settings.obfuscate_ips)
+
     @property
     def current_api_url(self) -> str | None:
         current = self.pool.current
@@ -52,7 +56,11 @@ class BlockperfApiClient:
         await self._api.close()
 
     async def submit_block_sample(self, sample: BlockSample) -> BlockSampleResponse:
-        bsr = BlockSampleRequest(**sample.model_dump())
+        payload = sample.model_dump()
+        payload["header_remote_addr"] = self._obfuscate(payload.get("header_remote_addr"))
+        payload["block_remote_addr"] = self._obfuscate(payload.get("block_remote_addr"))
+        payload["local_addr"] = self._obfuscate(payload.get("local_addr"))
+        bsr = BlockSampleRequest(**payload)
         logger.debug("Sending BlockSample", block_hash=sample.block_hash, slot=sample.slot)
         return await self._api.post("/submit/blocksample", bsr, BlockSampleResponse)
 
@@ -101,9 +109,9 @@ class BlockperfApiClient:
         per = PeerEventRequest(
             at=event.at,
             direction=event.direction,
-            local_addr=peer.local_addr,
+            local_addr=self._obfuscate(peer.local_addr),
             local_port=peer.local_port,
-            remote_addr=peer.remote_addr,
+            remote_addr=self._obfuscate(peer.remote_addr),
             remote_port=peer.remote_port,
             change_type=event.change_type.value,
             last_seen=event.at.isoformat(),

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openblockperf"
-version = "0.0.36"
+version = "0.0.37"
 description = "The OpenBlockperf client"
 readme = "pypi-release.md"
 requires-python = ">=3.12"

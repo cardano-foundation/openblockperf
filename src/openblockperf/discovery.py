@@ -15,7 +15,7 @@ from openblockperf.config import DEFAULT_API_SRV, AppSettings
 from openblockperf.errors import DiscoveryError
 from openblockperf.logging import log_json_event, logger
 
-API_REQUEST_TIMEOUT = 1.0
+API_REQUEST_TIMEOUT = 5.0
 API_REQUEST_RETRIES = 2
 HEALTH_PROBE_TIMEOUT = 2.0
 ENDPOINT_LIST_EXHAUSTED_PAUSE = 30.0

@@ -96,6 +96,8 @@ sudo chmod 664 "${INSTALL_DIR}/config.json"
 Optional: set `"api_srv": "_obpf._tcp.network.cardano.org"` (the client default) or
 point it at your own SRV name. Set `"api_url"` only when you want to skip SRV
 discovery and use a full base URL such as `http://localhost:8000/mainnet/api/v0`.
+Private/loopback/link-local peer addresses are always sent as `0.0.0.0`; add
+extra addresses to hide with `"obfuscate_ips": ["203.0.113.10"]`.
 
 ## 7) Write systemd service unit
 
