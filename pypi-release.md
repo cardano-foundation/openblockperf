@@ -9,8 +9,16 @@ and connectivity. It is intended for relay nodes that sit between a stake pool
 producer and the rest of the network. Running it on a producer is possible
 but not recommended. In normal operation it runs as a systemd service.
 
-## Installation
+## Release notes
+- v0.0.37 - 2026-09-03
+  - increased submit timouts
+  - filter private IPs
+  - installer script improved on regsiter-ip"
+- v0.0.36 - 2026-09-02
+  - improved logging
+  - use SRV targets by RTT rank and failover;  
 
+## Installation
 You can install the package from PyPI:
 
 ```bash
