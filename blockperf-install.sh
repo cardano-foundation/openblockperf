@@ -1217,11 +1217,23 @@ resolve_api_key() {
             prompt_read_secret API_KEY_TO_INSTALL "Enter api_key value (input hidden): " || true
             ;;
         *)
+            local ip_ans=""
             echo
-            info "After this install finishes, register your pool and obtain an API key with:"
-            echo "    blockperf register"
-            info "Registration requires a Calidus key; see:  ${OBP_DOC_REGISTER_URL}"
-            info "Then set api_key in ${CONFIG_FILE} and start the service."
+            prompt_read ip_ans "Register an IP-address bound API key for this node now? [y/N]: " || true
+            case "${ip_ans}" in
+                y|Y|yes|YES)
+                    API_KEY_MODE_EFFECTIVE="relay"
+                    info "Will register an IP-bound API key after the package is installed and store it in ${CONFIG_FILE}."
+                    ;;
+                *)
+                    echo
+                    info "After this install finishes, register and obtain an API key with:"
+                    echo "    ${INSTALL_DIR}/venv/bin/blockperf --config ${CONFIG_FILE} register-ip"
+                    echo "    ${INSTALL_DIR}/venv/bin/blockperf --config ${CONFIG_FILE} register-calidus --help"
+                    info "Calidus registration requires a Calidus key; see:  ${OBP_DOC_REGISTER_URL}"
+                    info "Then set api_key in ${CONFIG_FILE} and start the service."
+                    ;;
+            esac
             ;;
     esac
 }
@@ -1233,19 +1245,30 @@ maybe_register_relay_api_key() {
 
     info "Registering API key in relay mode (public IP based: IPv4/IPv6 probes as available)..."
     local reg_out="" parsed_key="" relay_v4="" relay_v6=""
-    if ! reg_out="$(run_as_service_user "${VENV_DIR}/bin/blockperf" register --relay-ip 2>&1)"; then
+    local register_cmd=("${VENV_DIR}/bin/blockperf")
+    if [[ -n "${NETWORK}" ]]; then
+        register_cmd+=(--network "${NETWORK}")
+    fi
+    register_cmd+=(register-ip)
+    if ! reg_out="$(run_as_service_user "${register_cmd[@]}" 2>&1)"; then
         warn "Relay API key registration failed."
         warn "${reg_out}"
         if [[ "${ASSUME_YES}" == "true" ]]; then
             die "Relay API key auto-registration failed in --yes mode. Provide --api-key/--api-key-file or use --api-key-mode calidus."
         fi
-        warn "Continuing without API key. You can register manually later with: ${VENV_DIR}/bin/blockperf register"
+        warn "Continuing without API key. You can register manually later with: ${VENV_DIR}/bin/blockperf --config ${CONFIG_FILE} register-ip"
         return 0
     fi
 
-    parsed_key="$(printf '%s\n' "${reg_out}" | sed -nE 's/^API_KEY=([^[:space:]]+)$/\1/p' | tail -n1)"
+    # Strip ANSI color codes that rich/typer may emit on a TTY.
+    local reg_plain
+    reg_plain="$(printf '%s\n' "${reg_out}" | sed -E $'s/\033\\[[0-9;]*[A-Za-z]//g')"
+    parsed_key="$(printf '%s\n' "${reg_plain}" | sed -nE 's/^API_KEY=([^[:space:]]+)$/\1/p' | tail -n1)"
     if [[ -z "${parsed_key}" ]]; then
-        parsed_key="$(printf '%s\n' "${reg_out}" | sed -nE 's/^Your new Api key is[[:space:]]+(.+)$/\1/p' | tail -n1)"
+        parsed_key="$(printf '%s\n' "${reg_plain}" | sed -nE 's/^ApiKey:[[:space:]]+(.+)$/\1/p' | tail -n1)"
+    fi
+    if [[ -z "${parsed_key}" ]]; then
+        parsed_key="$(printf '%s\n' "${reg_plain}" | sed -nE 's/^Your new Api key is[[:space:]]+(.+)$/\1/p' | tail -n1)"
     fi
     if [[ -z "${parsed_key}" ]]; then
         warn "Relay API key registration succeeded, but no key could be parsed from output."
@@ -1257,8 +1280,8 @@ maybe_register_relay_api_key() {
     fi
 
     API_KEY_TO_INSTALL="${parsed_key}"
-    relay_v4="$(printf '%s\n' "${reg_out}" | sed -nE 's/^RELAY_IP_V4=(.+)$/\1/p' | tail -n1)"
-    relay_v6="$(printf '%s\n' "${reg_out}" | sed -nE 's/^RELAY_IP_V6=(.+)$/\1/p' | tail -n1)"
+    relay_v4="$(printf '%s\n' "${reg_plain}" | sed -nE 's/^RELAY_IP_V4=(.+)$/\1/p' | tail -n1)"
+    relay_v6="$(printf '%s\n' "${reg_plain}" | sed -nE 's/^RELAY_IP_V6=(.+)$/\1/p' | tail -n1)"
     if [[ -n "${relay_v4}" || -n "${relay_v6}" ]]; then
         local scoped=()
         if [[ -n "${relay_v4}" ]]; then
@@ -1819,9 +1842,9 @@ print_post_install_summary() {
         echo "  3. Logs:     journalctl -fu ${UNIT_NAME}"
     else
         echo "Next steps (API key not set in this run):"
-        echo "  1. Register and obtain an API key bei either using your stake pool calidus key or your fixed public IP address"
-        echo "       ${INSTALL_DIR}/venv/bin/blockperf register-ip"
-        echo "       ${INSTALL_DIR}/venv/bin/blockperf register-calidus --help"
+        echo "  1. Register and obtain an API key using your stake pool Calidus key or this node's public IP:"
+        echo "       ${INSTALL_DIR}/venv/bin/blockperf --config ${CONFIG_FILE} register-ip"
+        echo "       ${INSTALL_DIR}/venv/bin/blockperf --config ${CONFIG_FILE} register-calidus --help"
         echo "  2. Set \"api_key\" in ${CONFIG_FILE}"
         echo "  3. Start the service:  systemctl start ${UNIT_NAME}"
         echo "  4. Status:  systemctl status ${UNIT_NAME}"
@@ -1835,6 +1858,9 @@ print_post_install_summary() {
         warn "  \"node_name\":     \"${NODE_NAME}\""
         warn "  \"node_config\":   \"${NODE_CONFIG_PATH}\""
         warn "  \"node_unit_name\": \"${NODE_UNIT_NAME}\""
+        if [[ -n "${API_KEY_TO_INSTALL}" ]]; then
+            warn "  \"api_key\":       (registered in this run; not written because the existing file was kept)"
+        fi
     fi
     echo
 }

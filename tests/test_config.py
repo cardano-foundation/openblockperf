@@ -62,14 +62,17 @@ class TestSettingsDefaults:
     def test_api_url_default_is_none(self, default_settings):
         assert default_settings.api_url is None
 
-    def test_default_api_request_timeout_is_1000ms(self, default_settings):
-        assert default_settings.api_request_timeout_ms == 1000
+    def test_default_api_request_timeout_is_5000ms(self, default_settings):
+        assert default_settings.api_request_timeout_ms == 5000
 
     def test_default_api_request_retries_is_two(self, default_settings):
         assert default_settings.api_request_retries == 2
 
     def test_default_peer_count_stats_interval_is_300(self, default_settings):
         assert default_settings.peer_count_stats_interval == 300
+
+    def test_default_obfuscate_ips_is_empty(self, default_settings):
+        assert default_settings.obfuscate_ips == []
 
 
 class TestSettingsOverrides:
@@ -126,3 +129,12 @@ class TestSettingsOverrides:
         config_file.write_text('{"peer_count_stats_interval": 0}', encoding="utf-8")
         s = AppSettings(_config_file=config_file)
         assert s.peer_count_stats_interval == 0
+
+    def test_obfuscate_ips_load_from_json_config(self, tmp_path):
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            '{"obfuscate_ips": ["10.1.2.3", "203.0.113.50"]}',
+            encoding="utf-8",
+        )
+        s = AppSettings(_config_file=config_file)
+        assert s.obfuscate_ips == ["10.1.2.3", "203.0.113.50"]

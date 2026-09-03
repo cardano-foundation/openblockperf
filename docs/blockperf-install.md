@@ -47,7 +47,12 @@ The installer also performs an online installer-version check and can offer a se
 
 - Preferred: `--api-key-file /path/to/keyfile`
 - Alternative: export `OPENBLOCKPERF_API_KEY` before install (written to `api_key` in the config file) and run with `sudo -E`
-- Interactive mode can prompt for the key with hidden input.
+- Interactive mode can prompt for the key with hidden input. If you do not
+  already have a key, it asks whether to register an IP-address bound key
+  for this node and, if confirmed, stores it in the config file after
+  package install.
+- `--yes` without an explicit key defaults to `--api-key-mode relay` and
+  runs `blockperf register-ip` after package install.
 - `--api-key-mode relay` triggers public-IP based auto-registration after package install.
 
 If no key is provided, register after install:
@@ -89,11 +94,14 @@ Optional keys you can add by hand (not written by the installer):
   name used to discover API edges
 - `api_url` to skip SRV discovery and use a full API base URL (for example a
   local backend)
-- `api_request_timeout_ms` (default `1000`) HTTP timeout per API request
+- `api_request_timeout_ms` (default `5000`) HTTP timeout per API request
 - `api_request_retries` (default `2`) extra retries on the same host after
   a timeout or connection error
 - `peer_count_stats_interval` (default `300`) seconds between `peerCountStats`
   log lines; `0` disables them
+- `obfuscate_ips` (default `[]`) extra IP addresses that must never be sent to
+  the backend. Private, loopback, and link-local addresses are always
+  obfuscated to `0.0.0.0` without listing them here.
 
 The client resolves SRV targets as FQDNs and calls
 `https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy

@@ -55,8 +55,15 @@ async def register_ip_cmd(
         response = await api.clientip_registration(force_renewal, update_ip)
     finally:
         await api.close()
+    if response is None:
+        console.print("[bold red]No registration response from API[/]")
+        sys.exit(1)
     if response.apikey:
+        # Machine-readable line for the installer; keep the human line for operators.
+        print(f"API_KEY={response.apikey}", flush=True)
         rich.print(f"ApiKey: {response.apikey}")
+    if response.ipaddress:
+        print(f"RELAY_IP={response.ipaddress}", flush=True)
 
     if response.status == IpRegistrationResponseStatus.REGISTERED:
         rich.print(

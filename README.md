@@ -125,9 +125,9 @@ Start openblockperf.service now (API key is configured)? [y/N]: y
 Installation complete.
 
 Next steps (API key not set in this run):
-  1. Register and obtain an API key:
-       /opt/cardano/openblockperf/venv/bin/blockperf register
-     A Calidus key is required;
+  1. Register and obtain an API key using your stake pool Calidus key or this node's public IP:
+       /opt/cardano/openblockperf/venv/bin/blockperf --config /opt/cardano/openblockperf/config.json register-ip
+       /opt/cardano/openblockperf/venv/bin/blockperf --config /opt/cardano/openblockperf/config.json register-calidus --help
   2. Set "api_key" in /opt/cardano/openblockperf/config.json
   3. Start the service:  systemctl start openblockperf.service
   4. Status:  systemctl status openblockperf.service
@@ -266,9 +266,11 @@ local_port: 3001
 
 Additional optional keys (not set by the installer) include `api_srv`,
 `api_url`, `ekg_url`, `sync_check_enabled`, `sync_check_threshold`,
-`api_request_timeout_ms` (default `1000`), `api_request_retries`
-(default `2`), and `peer_count_stats_interval` (default `300` seconds;
-set `0` to disable `peerCountStats` log lines).
+`api_request_timeout_ms` (default `5000`), `api_request_retries`
+(default `2`), `peer_count_stats_interval` (default `300` seconds;
+set `0` to disable `peerCountStats` log lines), and `obfuscate_ips`
+(extra addresses never sent to the backend; private/loopback/link-local
+ranges are always replaced with `0.0.0.0`).
 
 `api_srv` defaults to `_obpf._tcp.network.cardano.org`. Set it (or
 `OPENBLOCKPERF_API_SRV`) to resolve a different SRV name. `api_url` skips
@@ -286,7 +288,7 @@ The Cardano network is only a URL path:
 
 `blockperf run` (service mode) probes each target's health endpoint in parallel,
 ranks healthy edges by lowest RTT, and uses the fastest. The full ranked list
-is logged at INFO. If later API calls time out (1000ms by default, two extra
+is logged at INFO. If later API calls time out (5000ms by default, two extra
 retries; both are configurable via `api_request_timeout_ms` and
 `api_request_retries`), it fails over to the next ranked edge without probing
 health again. HTTP 4xx and 5xx do not fail over. When the list is exhausted it

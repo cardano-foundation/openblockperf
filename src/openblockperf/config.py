@@ -47,7 +47,7 @@ class AppSettings(BaseSettings):
     api_srv: str = DEFAULT_API_SRV
     api_key: str | None = None
     # Per-request HTTP timeout when talking to a ranked API edge (milliseconds)
-    api_request_timeout_ms: int = Field(default=1000, ge=1)
+    api_request_timeout_ms: int = Field(default=5000, ge=1)
     # Extra retries on the same host after the first failed attempt (timeouts/connection errors)
     api_request_retries: int = Field(default=2, ge=0)
     # How often to log peerCountStats (seconds). 0 disables that log line.
@@ -67,6 +67,9 @@ class AppSettings(BaseSettings):
 
     local_addr: str = "0.0.0.0"
     local_port: int = 3001
+    # Extra addresses never sent to the backend (always replaced with 0.0.0.0).
+    # Private/loopback/link-local ranges are obfuscated by default without listing them here.
+    obfuscate_ips: list[str] = Field(default_factory=list)
     # Using Field() to validate input values match one of the possible enum values
     network: Network = Field(default=Network.MAINNET, validation_alias="network")  # fmt: off
 
