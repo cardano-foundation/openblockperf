@@ -61,7 +61,7 @@ set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/26"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.2.1"
+INSTALLER_VERSION="0.2.2"
 INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
@@ -280,9 +280,11 @@ print_update_intro_and_confirm() {
     echo "  1) Check prerequisites on the host"
     echo "  2) Verify Python and compare installed vs latest PyPI version"
     echo "  3) Optionally upgrade openblockperf in the existing virtualenv"
+    echo "  4) Optionally restart openblockperf.service after a successful upgrade"
     echo
     info "Only the Python package in ${VENV_DIR} is updated."
     info "No systemd unit, config file, install folder layout, or node config is modified."
+    info "If the service is running after an upgrade, you can restart it to load the new package."
     if [[ "${DRY_RUN}" == "true" ]]; then
         info "Preview-only mode: package upgrade will be skipped."
     fi
@@ -1684,6 +1686,62 @@ update_package_only_mode() {
     local updated_version
     updated_version="$(get_current_installed_package_version || true)"
     ok "Updated ${PACKAGE_NAME} to ${updated_version:-unknown}."
+    maybe_restart_service_after_update
+}
+
+maybe_restart_service_after_update() {
+    # Offer a restart so the running service loads the newly installed package.
+    if ! command -v systemctl &>/dev/null; then
+        warn "systemctl not available; restart ${UNIT_NAME} manually if it is running."
+        return 0
+    fi
+    if ! systemctl cat "${UNIT_NAME}" &>/dev/null; then
+        info "No systemd unit ${UNIT_NAME} found; skip service restart."
+        return 0
+    fi
+
+    local active_state=""
+    active_state="$(systemctl is-active "${UNIT_NAME}" 2>/dev/null || true)"
+    if [[ "${active_state}" != "active" && "${active_state}" != "activating" ]]; then
+        info "${UNIT_NAME} is not running (${active_state:-unknown}). Start later with: systemctl start ${UNIT_NAME}"
+        return 0
+    fi
+
+    if [[ "${ASSUME_YES}" == "true" ]]; then
+        info "Restarting ${UNIT_NAME} (--yes after package update) ..."
+        local restart_out=""
+        if restart_out="$(systemctl restart "${UNIT_NAME}" 2>&1)"; then
+            ok "Restarted ${UNIT_NAME}."
+        else
+            warn "Could not restart ${UNIT_NAME}."
+            warn "${restart_out}"
+            warn "Fix issues and run: systemctl restart ${UNIT_NAME}"
+        fi
+        return 0
+    fi
+
+    has_prompt_tty || {
+        info "Non-interactive session: not restarting ${UNIT_NAME}. Run: systemctl restart ${UNIT_NAME}"
+        return 0
+    }
+
+    local ans=""
+    prompt_read ans "Restart ${UNIT_NAME} now to load the updated package? [y/N]: " || return 0
+    case "${ans}" in
+        y|Y|yes|YES)
+            local restart_out=""
+            if restart_out="$(systemctl restart "${UNIT_NAME}" 2>&1)"; then
+                ok "Restarted ${UNIT_NAME}."
+            else
+                warn "Could not restart ${UNIT_NAME}."
+                warn "${restart_out}"
+                warn "Run: systemctl restart ${UNIT_NAME}"
+            fi
+            ;;
+        *)
+            info "Skipped restart. When ready: systemctl restart ${UNIT_NAME}"
+            ;;
+    esac
 }
 
 assert_install_service_accounts() {

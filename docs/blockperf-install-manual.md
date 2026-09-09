@@ -196,8 +196,9 @@ Alternative (public relay IP based):
 ${INSTALL_DIR}/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-ip
 ```
 
-`register-ip` probes SRV targets for health, shuffles the healthy edges, and
-fails over on transport errors or HTTP 5xx. `blockperf run` (the systemd service)
+`register-ip` proves IPv4/IPv6 via `/registration/ip/proof` when available,
+submits the proof tokens to `/registration/ip`, and fails over on transport
+errors or HTTP 5xx while discovering edges. `blockperf run` (the systemd service)
 ranks healthy edges by RTT and fails over on transport errors or HTTP 5xx
 (for example 503 when an edge queue is full). HTTP 4xx do not fail over.
 

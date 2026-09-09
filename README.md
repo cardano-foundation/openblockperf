@@ -340,18 +340,23 @@ blockperf register-calidus --pool-id [your pools bech32 id] --calidus-skey [path
 
 ### IP based registration
 
-For public relay IP-bound registration (IPv4/IPv6 probes as available), use:
+For public relay IP-bound registration (IPv4/IPv6 proofs as available), use:
 
 ```bash
 blockperf --config /opt/cardano/openblockperf/config.json register-ip
 ```
 
-This will store the IP address of the machine that send the request. Only
-that IP will be able to use that ApiKey.
+On dual-stack hosts the client calls `/registration/ip/proof` once per address
+family (forcing AF_INET / AF_INET6), then POSTs both short-lived proof tokens to
+`/registration/ip` with the same `X-Hostname`. The resulting ApiKey is valid
+from any of the proven public IPs. If a proof fails, registration falls back to
+legacy single-stack binding (request source IP only) and warns that the other
+family may get `401` until you re-run with `--update-ip` and both proofs.
 
 `register-ip` also supports `--force-renewal` (issue a new API key, invalidating
-the old one) and `--update-ip` (rebind an existing API key to a new relay IP).
-These two flags are mutually exclusive.
+the old one) and `--update-ip` (replace all IP bindings on an existing API key
+with the newly proven set; requires `api_key` in config). These two flags are
+mutually exclusive.
 
 Relay-IP registration is intended for operators without stake-pool credentials
 who want to participate with a single relay node.

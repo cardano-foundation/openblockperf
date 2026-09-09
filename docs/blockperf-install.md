@@ -19,7 +19,10 @@ Piped or non-interactive runs (for example `curl ... | sudo bash`) have no termi
 - `--install` (default): install to a new target directory. Fails immediately if
   `${INSTALL_DIR}` already exists (before the configuration wizard).
 - `--reinstall`: replace install directory and reinstall artifacts.
-- `--update`: update only the installed `openblockperf` package in the existing venv.
+- `--update`: update only the installed `openblockperf` package in the existing
+  venv. After a successful upgrade, interactive mode asks whether to restart
+  `openblockperf.service` (with `--yes`, restart is automatic when the unit is
+  already active).
 - `--remove`: remove service, wrapper, and install directory.
 
 ## Common options
@@ -68,7 +71,10 @@ Relay/IP registration (for unattended relays):
 <INSTALL_DIR>/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-ip
 ```
 
-In relay mode, the client probes IPv4 and IPv6 separately (as available), then submits short-lived cookies to obtain one API key bound to the validated public IP(s).
+In relay mode, the client proves IPv4 and IPv6 separately (as available) via
+`/registration/ip/proof`, then submits short-lived proof tokens to
+`/registration/ip` so one API key is bound to the validated public IP(s). If a
+proof fails, it falls back to legacy single-stack registration.
 
 Calidus-key information:
 - https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/27

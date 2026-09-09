@@ -1,3 +1,4 @@
+import httpx
 import rich
 
 from openblockperf import __version__
@@ -14,6 +15,8 @@ from .models import (
     BlockSampleRequest,
     BlockSampleResponse,
     ClientInfoRequest,
+    IpProofResponse,
+    IpRegistrationRequest,
     IpRegistrationResponse,
     PeerEventRequest,
     RegistrationChallengeRequest,
@@ -76,20 +79,95 @@ class BlockperfApiClient:
         response = await self._api.post("/registration/calidus/challenge", rcr, RegistrationChallengeResponse)
         return response.challenge
 
-    async def clientip_registration(self, force: bool, update_ip: bool) -> IpRegistrationResponse | None:
-        """Register the client using the ip registration process.
+    async def request_ip_proof(self, family: str) -> IpProofResponse:
+        """Prove this host's public IP for one address family.
+
+        Forces AF_INET (``v4``) or AF_INET6 (``v6``) via the local bind address so
+        E records the source IP it actually sees. Uses the same selected edge and
+        ``X-Hostname`` as later ``/registration/ip``.
+        """
+        if family not in ("v4", "v6"):
+            raise ValueError("family must be 'v4' or 'v6'")
+        endpoint = await self.pool.ensure_ready()
+        local_address = "0.0.0.0" if family == "v4" else "::"
+        hostname = self.settings.node_name or ""
+        transport = httpx.AsyncHTTPTransport(local_address=local_address)
+        headers = {
+            "X-Hostname": hostname,
+            "X-Api-Key": "",
+        }
+        async with httpx.AsyncClient(
+            base_url=endpoint.base_url,
+            timeout=httpx.Timeout(self._api.timeout),
+            transport=transport,
+            headers=headers,
+        ) as client:
+            response = await client.post("registration/ip/proof")
+            response.raise_for_status()
+            return IpProofResponse.model_validate(response.json())
+
+    async def collect_ip_proofs(self) -> dict[str, IpProofResponse]:
+        """Try IPv4 and IPv6 proofs. Returns only families that succeeded."""
+        proofs: dict[str, IpProofResponse] = {}
+        for family in ("v4", "v6"):
+            try:
+                proof = await self.request_ip_proof(family)
+                proofs[family] = proof
+                logger.info("IP proof accepted", family=family, ip=proof.ip)
+            except Exception as exc:
+                logger.warning("IP proof unavailable", family=family, error=repr(exc))
+        return proofs
+
+    async def clientip_registration(
+        self,
+        force: bool,
+        update_ip: bool,
+        proof_tokens: list[str] | None = None,
+    ) -> IpRegistrationResponse | None:
+        """Register (or update) an ApiKey using IP proofs or legacy single-stack.
 
         Args:
-            force: Flag to force recreation of an ApiKey from a known Client.
-            update_ip: Flag to up the clients ip address of the provided (used) ApiKey
-
-        Returns:
-            A Tuple that holds full_api_key.
+            force: Issue a new ApiKey (invalidates the previous one for this host).
+            update_ip: Replace all IP bindings on an existing ApiKey with the proven set.
+            proof_tokens: Tokens from ``/registration/ip/proof``. Empty/None uses legacy
+                registration that binds only the request source IP.
         """
-        # The header must be a str value not a boolean.
         headers = {"X-Force-Renewal": str(force), "X-Update-Ip": str(update_ip)}
-        response = await self._api.post("/registration/ip", {}, IpRegistrationResponse, headers=headers)
+        body: IpRegistrationRequest | None
+        if proof_tokens:
+            body = IpRegistrationRequest(proof_tokens=proof_tokens)
+        else:
+            # Legacy: no body (backend binds the single observed source IP).
+            body = None
+        response = await self._api.post("/registration/ip", body, IpRegistrationResponse, headers=headers)
         return response
+
+    async def register_ip(
+        self,
+        *,
+        force: bool = False,
+        update_ip: bool = False,
+    ) -> tuple[IpRegistrationResponse | None, dict[str, IpProofResponse], bool]:
+        """Dual-stack register: collect proofs, then submit them.
+
+        Returns ``(response, proofs, used_legacy)``. If no proof succeeds, falls back
+        to legacy ``/registration/ip`` without tokens.
+        """
+        proofs = await self.collect_ip_proofs()
+        tokens = [proofs[family].token for family in ("v4", "v6") if family in proofs]
+        if not tokens:
+            logger.warning(
+                "No IP proofs collected; falling back to legacy single-stack registration"
+            )
+            response = await self.clientip_registration(force, update_ip, proof_tokens=None)
+            return response, proofs, True
+        if len(tokens) < 2:
+            logger.warning(
+                "Only one address family proved; the other family may get 401 until "
+                "update-ip is run with both proofs"
+            )
+        response = await self.clientip_registration(force, update_ip, proof_tokens=tokens)
+        return response, proofs, False
 
     async def submit_signed_challenge(
         self,
