@@ -16,9 +16,13 @@ Piped or non-interactive runs (for example `curl ... | sudo bash`) have no termi
 
 ## Modes
 
-- `--install` (default): install to a new target directory.
+- `--install` (default): install to a new target directory. Fails immediately if
+  `${INSTALL_DIR}` already exists (before the configuration wizard).
 - `--reinstall`: replace install directory and reinstall artifacts.
-- `--update`: update only the installed `openblockperf` package in the existing venv.
+- `--update`: update only the installed `openblockperf` package in the existing
+  venv. After a successful upgrade, interactive mode asks whether to restart
+  `openblockperf.service` (with `--yes`, restart is automatic when the unit is
+  already active).
 - `--remove`: remove service, wrapper, and install directory.
 
 ## Common options
@@ -67,7 +71,10 @@ Relay/IP registration (for unattended relays):
 <INSTALL_DIR>/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-ip
 ```
 
-In relay mode, the client probes IPv4 and IPv6 separately (as available), then submits short-lived cookies to obtain one API key bound to the validated public IP(s).
+In relay mode, the client proves IPv4 and IPv6 separately (as available) via
+`/registration/ip/proof`, then submits short-lived proof tokens to
+`/registration/ip` so one API key is bound to the validated public IP(s). If a
+proof fails, it falls back to legacy single-stack registration.
 
 Calidus-key information:
 - https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/27
@@ -88,24 +95,50 @@ When a new config file is written, the installer sets:
 - `local_addr` (default `0.0.0.0`)
 - `local_port` (default `3001`)
 
-Optional keys you can add by hand (not written by the installer):
+Optional keys you can add by hand (not written by the installer).
+All of these also accept matching `OPENBLOCKPERF_*` environment variables.
 
-- `api_srv` (default `_obpf._tcp.network.cardano.org`) to change the DNS SRV
-  name used to discover API edges
-- `api_url` to skip SRV discovery and use a full API base URL (for example a
+**API discovery and HTTP:**
+
+- `api_srv` (default `_obpf._tcp.network.cardano.org`) DNS SRV name used to
+  discover API edges
+- `api_url` skip SRV discovery and use a full API base URL (for example a
   local backend)
-- `api_request_timeout_ms` (default `5000`) HTTP timeout per API request
-- `api_request_retries` (default `2`) extra retries on the same host after
-  a timeout or connection error
-- `peer_count_stats_interval` (default `300`) seconds between `peerCountStats`
-  log lines; `0` disables them
+- `api_request_timeout_ms` (default `8000`) HTTP timeout per API request in
+  milliseconds (submit, registration, health probes)
+- `api_request_retries` (default `2`) extra retries on the same host after a
+  timeout or connection error; after those fail, service mode fails over to
+  the next ranked edge
+
+**Privacy:**
+
 - `obfuscate_ips` (default `[]`) extra IP addresses that must never be sent to
   the backend. Private, loopback, and link-local addresses are always
   obfuscated to `0.0.0.0` without listing them here.
 
+**Sync gate (EKG):**
+
+- `ekg_url` (default `http://localhost:12798/metrics`) EKG metrics endpoint
+  used to decide whether the node is synced
+- `sync_check_enabled` (default `true`) when `true`, the client waits until
+  sync progress reaches the threshold before submitting samples
+- `sync_check_interval` (default `15`) seconds between sync polls
+- `sync_check_threshold` (default `99.9`) minimum replay progress percent to
+  treat the node as synced
+
+**Sampling cadence:**
+
+- `block_sample_check_interval` (default `2`) seconds between checks for
+  complete block-sample groups
+- `min_age` (default `10`) seconds a complete sample group must age before
+  submit
+- `peer_count_stats_interval` (default `300`) seconds between `peerCountStats`
+  log lines; `0` disables them
+
 The client resolves SRV targets as FQDNs and calls
 `https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy
-edges by RTT; `register-ip` / `register-calidus` pick one SRV target at random.
+edges by RTT; `register-ip` / `register-calidus` probe health, shuffle healthy
+edges, and fail over on transport errors or HTTP 5xx.
 Always pass `--config` before those subcommands so the installed config file
 is loaded:
 

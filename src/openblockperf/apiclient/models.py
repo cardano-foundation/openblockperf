@@ -1,8 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from openblockperf.models.samples import BlockSample
 
@@ -65,12 +64,24 @@ class IpRegistrationResponseStatus(StrEnum):
     ERROR = "error"
 
 
+class IpProofResponse(BaseModel):
+    """Short-lived proof that E observed this client's source IP for X-Hostname."""
+
+    token: str
+    ip: str | None = None
+    hostname: str | None = None
+    expires_at: datetime | str | None = None
+
+
+class IpRegistrationRequest(BaseModel):
+    """Body for POST /registration/ip. Empty proof_tokens is legacy single-stack."""
+
+    proof_tokens: list[str] = Field(default_factory=list)
+
+
 class IpRegistrationResponse(BaseModel):
     status: IpRegistrationResponseStatus
     msg: str | None = None
     apikey: str | None = None  # The full apikey string
-    ipaddress: str | None = None  # the ip address this key is bound to
-
-
-class RelayIpSubmitResponse(BaseModel):
-    apikey: str
+    ipaddress: str | None = None  # primary / legacy single bound IP
+    ipaddresses: list[str] | None = None  # all bound IPs (prefer this when present)

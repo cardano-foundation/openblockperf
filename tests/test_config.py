@@ -62,8 +62,8 @@ class TestSettingsDefaults:
     def test_api_url_default_is_none(self, default_settings):
         assert default_settings.api_url is None
 
-    def test_default_api_request_timeout_is_5000ms(self, default_settings):
-        assert default_settings.api_request_timeout_ms == 5000
+    def test_default_api_request_timeout_is_8000ms(self, default_settings):
+        assert default_settings.api_request_timeout_ms == 8000
 
     def test_default_api_request_retries_is_two(self, default_settings):
         assert default_settings.api_request_retries == 2

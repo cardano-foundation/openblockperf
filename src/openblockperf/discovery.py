@@ -15,7 +15,7 @@ from openblockperf.config import DEFAULT_API_SRV, AppSettings
 from openblockperf.errors import DiscoveryError
 from openblockperf.logging import log_json_event, logger
 
-API_REQUEST_TIMEOUT = 5.0
+API_REQUEST_TIMEOUT = 8.0
 API_REQUEST_RETRIES = 2
 HEALTH_PROBE_TIMEOUT = 2.0
 ENDPOINT_LIST_EXHAUSTED_PAUSE = 30.0
@@ -41,6 +41,13 @@ class EdgeEndpoint:
     port: int | None = None
     rtt_ms: float | None = None
     override: bool = False
+
+    @property
+    def short_name(self) -> str:
+        """First DNS label of the edge host, e.g. ``ho-fr-1`` from an SRV target."""
+        if self.host:
+            return self.host.split(".", 1)[0]
+        return "override" if self.override else "unknown"
 
 
 def normalize_host(host: str) -> str:
@@ -125,8 +132,9 @@ async def rank_healthy_endpoints(targets: list[SrvTarget], network: str) -> list
 class EndpointPool:
     """Holds discovered API edges and advances through them on failover.
 
-    Service mode ranks by health RTT. CLI mode picks one SRV target at random
-    and does not walk a failover list.
+    Service mode ranks by health RTT and rediscovers after the list is exhausted.
+    CLI mode (register-ip / register-calidus) probes health, shuffles the healthy
+    edges for load balancing, and walks that list on failover without a rediscovery pause.
     """
 
     def __init__(self, settings: AppSettings, *, service_mode: bool) -> None:
@@ -175,7 +183,7 @@ class EndpointPool:
             return self.current
 
     async def failover_from(self, failed: EdgeEndpoint) -> EdgeEndpoint:
-        """Move to the next ranked edge. Rebuild the list if it is exhausted."""
+        """Move to the next ranked edge. Service mode rediscovers when exhausted."""
         async with self._lock:
             if self.current is not None and self.current != failed:
                 return self.current
@@ -188,6 +196,8 @@ class EndpointPool:
                     port=self.current.port,
                 )
                 return self.current
+            if not self.service_mode:
+                raise DiscoveryError("No more healthy API edges to try")
             logger.warning(
                 "API edge list exhausted, pausing before rediscovery",
                 pause_seconds=ENDPOINT_LIST_EXHAUSTED_PAUSE,
@@ -235,20 +245,22 @@ class EndpointPool:
 
         if not self.service_mode:
             targets = await resolve_srv_records(srv_name)
-            chosen = random.choice(targets)
-            endpoint = EdgeEndpoint(
-                base_url=api_base_url(chosen.host, chosen.port, network),
-                host=chosen.host,
-                port=chosen.port,
-            )
-            self.ranked = [endpoint]
+            healthy = await rank_healthy_endpoints(targets, network)
+            if not healthy:
+                raise DiscoveryError(f"No healthy API edges for {srv_name}")
+            # Shuffle so registration load is spread across healthy edges.
+            random.shuffle(healthy)
+            self.ranked = healthy
             self.index = 0
+            chosen = healthy[0]
             logger.info(
-                "CLI picked random API edge from SRV",
+                "CLI picked healthy API edge from SRV",
                 srv=srv_name,
                 host=chosen.host,
                 port=chosen.port,
-                url=endpoint.base_url,
+                url=chosen.base_url,
+                healthy=len(healthy),
+                probed=len(targets),
             )
             return
 

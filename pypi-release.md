@@ -10,6 +10,14 @@ producer and the rest of the network. Running it on a producer is possible
 but not recommended. In normal operation it runs as a systemd service.
 
 ## Release notes
+- v0.0.39 - 2026-09-09
+  - dual-stack IP registration: prove IPv4/IPv6 via `/registration/ip/proof`, submit proof tokens
+  - service mode fails over on HTTP 5xx (e.g. 503 queue full) to the next edge
+  - installer checks for an existing install directory before the wizard
+  - installer retries relay API key registration up to three times
+  - compact blocksample journal lines: short hash, block number, edge name
+  - compact peer-event journal lines: remote IP and old > new status
+  - register-ip / register-calidus probe healthy SRV edges and fail over on HTTP 5xx
 - v0.0.37 - 2026-09-03
   - increased submit timouts
   - filter private IPs

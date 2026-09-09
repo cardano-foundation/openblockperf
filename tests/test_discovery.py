@@ -21,6 +21,16 @@ from openblockperf.discovery import (
 from openblockperf.logging import logger
 
 
+def test_edge_endpoint_short_name_uses_first_dns_label():
+    edge = EdgeEndpoint(
+        base_url="https://ho-fr-1.network.cardano.org:443/mainnet/api/v0/",
+        host="ho-fr-1.network.cardano.org",
+        port=443,
+    )
+    assert edge.short_name == "ho-fr-1"
+    assert EdgeEndpoint(base_url="http://localhost/api/v0/", override=True).short_name == "override"
+
+
 def test_normalize_host_strips_trailing_dot():
     assert normalize_host("ho-de-1.network.cardano.org.") == "ho-de-1.network.cardano.org"
 
@@ -96,23 +106,73 @@ async def test_rank_healthy_endpoints_sorts_by_rtt():
 
 
 @pytest.mark.asyncio
-async def test_cli_mode_picks_one_random_srv_target_without_health():
+async def test_cli_mode_probes_health_and_shuffles_healthy_edges():
     settings = AppSettings(network=Network.MAINNET)
     pool = EndpointPool(settings, service_mode=False)
-    targets = [SrvTarget("a.example.test", 443), SrvTarget("b.example.test", 8443)]
+    targets = [SrvTarget("a.example.test", 443), SrvTarget("b.example.test", 8443), SrvTarget("c.example.test", 443)]
+    healthy = [
+        EdgeEndpoint(
+            base_url="https://a.example.test:443/mainnet/api/v0/",
+            host="a.example.test",
+            port=443,
+            rtt_ms=10.0,
+        ),
+        EdgeEndpoint(
+            base_url="https://b.example.test:8443/mainnet/api/v0/",
+            host="b.example.test",
+            port=8443,
+            rtt_ms=5.0,
+        ),
+    ]
 
     with (
         patch("openblockperf.discovery.resolve_srv_records", AsyncMock(return_value=targets)),
-        patch("openblockperf.discovery.random.choice", return_value=targets[1]),
-        patch("openblockperf.discovery.rank_healthy_endpoints", AsyncMock()) as rank,
+        patch("openblockperf.discovery.rank_healthy_endpoints", AsyncMock(return_value=list(healthy))) as rank,
+        patch("openblockperf.discovery.random.shuffle", side_effect=lambda items: items.reverse()),
     ):
         endpoint = await pool.ensure_ready()
 
-    rank.assert_not_awaited()
+    rank.assert_awaited_once()
     assert endpoint.host == "b.example.test"
     assert endpoint.port == 8443
-    assert endpoint.base_url == "https://b.example.test:8443/mainnet/api/v0/"
-    assert len(pool.ranked) == 1
+    assert [e.host for e in pool.ranked] == ["b.example.test", "a.example.test"]
+
+
+@pytest.mark.asyncio
+async def test_cli_mode_raises_when_no_healthy_edges():
+    from openblockperf.errors import DiscoveryError
+
+    settings = AppSettings(network=Network.MAINNET)
+    pool = EndpointPool(settings, service_mode=False)
+    targets = [SrvTarget("down.example.test", 443)]
+
+    with (
+        patch("openblockperf.discovery.resolve_srv_records", AsyncMock(return_value=targets)),
+        patch("openblockperf.discovery.rank_healthy_endpoints", AsyncMock(return_value=[])),
+        pytest.raises(DiscoveryError, match="No healthy API edges"),
+    ):
+        await pool.ensure_ready()
+
+
+@pytest.mark.asyncio
+async def test_cli_failover_exhaustion_does_not_rediscover():
+    from openblockperf.errors import DiscoveryError
+
+    settings = AppSettings()
+    pool = EndpointPool(settings, service_mode=False)
+    only = EdgeEndpoint(base_url="https://a:443/mainnet/api/v0/", host="a", port=443, rtt_ms=1.0)
+    pool.ranked = [only]
+    pool.index = 0
+
+    with (
+        patch("openblockperf.discovery.asyncio.sleep", AsyncMock()) as sleep,
+        patch("openblockperf.discovery.rank_healthy_endpoints", AsyncMock()) as rank,
+        pytest.raises(DiscoveryError, match="No more healthy API edges"),
+    ):
+        await pool.failover_from(only)
+
+    sleep.assert_not_awaited()
+    rank.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -250,7 +310,7 @@ async def test_refresh_keeps_previous_list_on_failure():
 
 
 @pytest.mark.asyncio
-async def test_make_request_does_not_failover_on_http_error():
+async def test_make_request_does_not_failover_on_http_4xx_in_service_mode():
     from openblockperf.apiclient.base import BlockperfApiBase
     from openblockperf.errors import ApiError
 
@@ -260,8 +320,8 @@ async def test_make_request_does_not_failover_on_http_error():
 
     request = MagicMock()
     response = MagicMock()
-    response.status_code = 503
-    response.reason_phrase = "Service Unavailable"
+    response.status_code = 400
+    response.reason_phrase = "Bad Request"
     response.url = "http://localhost:8000/mainnet/api/v0/submit/blocksample"
     error = httpx.HTTPStatusError("boom", request=request, response=response)
 
@@ -277,6 +337,80 @@ async def test_make_request_does_not_failover_on_http_error():
 
     assert pool.index == 0
     assert client.request.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_service_make_request_failsover_on_http_503():
+    from openblockperf.apiclient.base import BlockperfApiBase
+
+    settings = AppSettings()
+    pool = EndpointPool(settings, service_mode=True)
+    first = EdgeEndpoint(base_url="https://a:443/mainnet/api/v0/", host="a", port=443, rtt_ms=1.0)
+    second = EdgeEndpoint(base_url="https://b:443/mainnet/api/v0/", host="b", port=443, rtt_ms=2.0)
+    pool.ranked = [first, second]
+    pool.index = 0
+
+    request = MagicMock()
+    bad_response = MagicMock()
+    bad_response.status_code = 503
+    bad_response.reason_phrase = "Service Unavailable"
+    bad_response.url = "https://a:443/mainnet/api/v0/submit/blocksample"
+    bad_error = httpx.HTTPStatusError("boom", request=request, response=bad_response)
+
+    ok_response = MagicMock()
+    ok_response.raise_for_status = MagicMock()
+
+    client = AsyncMock()
+    client.request = AsyncMock(side_effect=[bad_error, ok_response])
+    client.aclose = AsyncMock()
+
+    api = BlockperfApiBase(pool=pool, api_key="pk_test")
+    api._client = client
+    api._client_base = first.base_url
+
+    with patch.object(api, "_ensure_client", AsyncMock(return_value=client)):
+        response = await api._make_request("POST", "/submit/blocksample")
+
+    assert response is ok_response
+    assert pool.index == 1
+    assert client.request.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_cli_make_request_failsover_on_http_5xx():
+    from openblockperf.apiclient.base import BlockperfApiBase
+
+    settings = AppSettings()
+    pool = EndpointPool(settings, service_mode=False)
+    first = EdgeEndpoint(base_url="https://a:443/mainnet/api/v0/", host="a", port=443, rtt_ms=1.0)
+    second = EdgeEndpoint(base_url="https://b:443/mainnet/api/v0/", host="b", port=443, rtt_ms=2.0)
+    pool.ranked = [first, second]
+    pool.index = 0
+
+    request = MagicMock()
+    bad_response = MagicMock()
+    bad_response.status_code = 502
+    bad_response.reason_phrase = "Bad Gateway"
+    bad_response.url = "https://a:443/mainnet/api/v0/registration/ip"
+    bad_error = httpx.HTTPStatusError("boom", request=request, response=bad_response)
+
+    ok_response = MagicMock()
+    ok_response.raise_for_status = MagicMock()
+
+    client = AsyncMock()
+    client.request = AsyncMock(side_effect=[bad_error, ok_response])
+    client.aclose = AsyncMock()
+
+    api = BlockperfApiBase(pool=pool, api_key="")
+    api._client = client
+    api._client_base = first.base_url
+
+    with patch.object(api, "_ensure_client", AsyncMock(return_value=client)):
+        response = await api._make_request("POST", "/registration/ip")
+
+    assert response is ok_response
+    assert pool.index == 1
+    assert client.request.await_count == 2
 
 
 def test_api_client_uses_timeout_and_retries_from_settings():

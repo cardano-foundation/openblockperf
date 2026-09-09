@@ -61,7 +61,7 @@ set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/26"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.2.0"
+INSTALLER_VERSION="0.2.2"
 INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
@@ -280,9 +280,11 @@ print_update_intro_and_confirm() {
     echo "  1) Check prerequisites on the host"
     echo "  2) Verify Python and compare installed vs latest PyPI version"
     echo "  3) Optionally upgrade openblockperf in the existing virtualenv"
+    echo "  4) Optionally restart openblockperf.service after a successful upgrade"
     echo
     info "Only the Python package in ${VENV_DIR} is updated."
     info "No systemd unit, config file, install folder layout, or node config is modified."
+    info "If the service is running after an upgrade, you can restart it to load the new package."
     if [[ "${DRY_RUN}" == "true" ]]; then
         info "Preview-only mode: package upgrade will be skipped."
     fi
@@ -1250,9 +1252,23 @@ maybe_register_relay_api_key() {
         register_cmd+=(--network "${NETWORK}")
     fi
     register_cmd+=(register-ip)
-    if ! reg_out="$(run_as_service_user "${register_cmd[@]}" 2>&1)"; then
-        warn "Relay API key registration failed."
+    local attempt=1
+    local max_attempts=3
+    local registered="false"
+    while (( attempt <= max_attempts )); do
+        if reg_out="$(run_as_service_user "${register_cmd[@]}" 2>&1)"; then
+            registered="true"
+            break
+        fi
+        warn "Relay API key registration failed (attempt ${attempt}/${max_attempts})."
         warn "${reg_out}"
+        if (( attempt < max_attempts )); then
+            info "Retrying registration against another API edge..."
+            sleep 1
+        fi
+        attempt=$((attempt + 1))
+    done
+    if [[ "${registered}" != "true" ]]; then
         if [[ "${ASSUME_YES}" == "true" ]]; then
             die "Relay API key auto-registration failed in --yes mode. Provide --api-key/--api-key-file or use --api-key-mode calidus."
         fi
@@ -1532,11 +1548,24 @@ check_network_value() {
 # ---------------------------------------------------------------------------
 # Installation steps
 # ---------------------------------------------------------------------------
+check_install_target_early() {
+    # Fail fast before the interactive wizard asks for user/node/network details.
+    if [[ "${MODE}" == "install" && -d "${INSTALL_DIR}" ]]; then
+        die "Install directory already exists: ${INSTALL_DIR}. Use --reinstall to replace it, --update to upgrade the package only, or --remove first."
+    fi
+    if [[ "${MODE}" == "update" && ! -d "${INSTALL_DIR}" ]]; then
+        die "Install directory not found: ${INSTALL_DIR}. Run a full install first."
+    fi
+    if [[ "${MODE}" == "update" && ! -x "${VENV_DIR}/bin/blockperf" && ! -x "${VENV_DIR}/bin/pip" ]]; then
+        die "No OpenBlockPerf virtualenv found at ${VENV_DIR}. Run a full install or --reinstall first."
+    fi
+}
+
 create_install_dir() {
     [[ -d "${INSTALL_DIR}" ]] && INSTALL_DIR_EXISTED_BEFORE="true"
     if [[ -d "${INSTALL_DIR}" ]]; then
         if [[ "${MODE}" == "install" ]]; then
-            die "Install directory already exists: ${INSTALL_DIR}. Use --reinstall to replace it."
+            die "Install directory already exists: ${INSTALL_DIR}. Use --reinstall to replace it, --update to upgrade the package only, or --remove first."
         fi
         # In reinstall mode we keep INSTALL_DIR and replace only VENV_DIR.
         # If cwd is inside VENV_DIR, removing it will break later os.getcwd()
@@ -1657,6 +1686,62 @@ update_package_only_mode() {
     local updated_version
     updated_version="$(get_current_installed_package_version || true)"
     ok "Updated ${PACKAGE_NAME} to ${updated_version:-unknown}."
+    maybe_restart_service_after_update
+}
+
+maybe_restart_service_after_update() {
+    # Offer a restart so the running service loads the newly installed package.
+    if ! command -v systemctl &>/dev/null; then
+        warn "systemctl not available; restart ${UNIT_NAME} manually if it is running."
+        return 0
+    fi
+    if ! systemctl cat "${UNIT_NAME}" &>/dev/null; then
+        info "No systemd unit ${UNIT_NAME} found; skip service restart."
+        return 0
+    fi
+
+    local active_state=""
+    active_state="$(systemctl is-active "${UNIT_NAME}" 2>/dev/null || true)"
+    if [[ "${active_state}" != "active" && "${active_state}" != "activating" ]]; then
+        info "${UNIT_NAME} is not running (${active_state:-unknown}). Start later with: systemctl start ${UNIT_NAME}"
+        return 0
+    fi
+
+    if [[ "${ASSUME_YES}" == "true" ]]; then
+        info "Restarting ${UNIT_NAME} (--yes after package update) ..."
+        local restart_out=""
+        if restart_out="$(systemctl restart "${UNIT_NAME}" 2>&1)"; then
+            ok "Restarted ${UNIT_NAME}."
+        else
+            warn "Could not restart ${UNIT_NAME}."
+            warn "${restart_out}"
+            warn "Fix issues and run: systemctl restart ${UNIT_NAME}"
+        fi
+        return 0
+    fi
+
+    has_prompt_tty || {
+        info "Non-interactive session: not restarting ${UNIT_NAME}. Run: systemctl restart ${UNIT_NAME}"
+        return 0
+    }
+
+    local ans=""
+    prompt_read ans "Restart ${UNIT_NAME} now to load the updated package? [y/N]: " || return 0
+    case "${ans}" in
+        y|Y|yes|YES)
+            local restart_out=""
+            if restart_out="$(systemctl restart "${UNIT_NAME}" 2>&1)"; then
+                ok "Restarted ${UNIT_NAME}."
+            else
+                warn "Could not restart ${UNIT_NAME}."
+                warn "${restart_out}"
+                warn "Run: systemctl restart ${UNIT_NAME}"
+            fi
+            ;;
+        *)
+            info "Skipped restart. When ready: systemctl restart ${UNIT_NAME}"
+            ;;
+    esac
 }
 
 assert_install_service_accounts() {
@@ -1974,6 +2059,11 @@ main() {
     # Always check for newer installer before any intro/wizard output.
     if [[ "${MODE}" != "remove" ]]; then
         check_installer_update_online
+    fi
+
+    # Fail fast on conflicting install targets before the interactive wizard.
+    if [[ "${MODE}" == "install" || "${MODE}" == "reinstall" || "${MODE}" == "update" ]]; then
+        check_install_target_early
     fi
 
     # Show interactive overview before any package-install prompts.
