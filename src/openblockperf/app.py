@@ -340,8 +340,12 @@ class Blockperf:
                     if not group.is_ok():
                         continue
                     sample = group.get_sample()
-                    log_json_event("blockSample", **sample.model_dump())
                     await self.api.submit_block_sample(sample)
+                    edge = self.api.pool.current
+                    edge_name = edge.short_name if edge is not None else "unknown"
+                    short_hash = f"{sample.block_hash[:8]}.."
+                    # Compact journal line without datetime/level/module prefix.
+                    logger.opt(raw=True).info(f"{short_hash} {sample.block_number} {edge_name}\n")
                     # Delete group
                     del self.block_sample_groups[k]
             except ApiError as e:

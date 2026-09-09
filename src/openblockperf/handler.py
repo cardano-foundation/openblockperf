@@ -161,10 +161,20 @@ class EventHandler:
             peer.state_outbound = PeerState(event.state)
 
         peer.last_updated = datetime.now()
+        self._log_peer_status_change(event)
         logger.debug(f"Dispatching peer event, runtime type: {type(event).__name__}, ns: {event.ns}", event=event)
         # Make sure the event is the first argument for singledispatch to be able to
         # properly distinguish between the types.
         await self.dispatch_peer_event(event, peer)  # → Level 2
+
+    def _log_peer_status_change(self, event: PeerEvent) -> None:
+        """Compact journal line: remote IP and old > new status."""
+        transition = event.change_type.value.split("_to_", 1)
+        if len(transition) != 2:
+            return
+        old_state, new_state = transition
+        # Compact journal line without datetime/level/module prefix.
+        logger.opt(raw=True).info(f"{event.remote_addr} {old_state} > {new_state}\n")
 
     @dispatch_event.register
     async def _on_inbound_governor_counters(self, event: InboundGovernorCountersEvent):

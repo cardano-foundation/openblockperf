@@ -25,9 +25,9 @@ Backend hosts are discovered at runtime from the DNS SRV record
 the hostname: `https://{fqdn}:{port}/{network}/api/v0/...`. The long-running
 `run` service probes each edge health endpoint, uses the lowest-RTT healthy
 host, and fails over down a ranked list if that host stops responding.
-One-shot CLI commands pick one SRV target at random. See the README
-"API endpoint discovery" section for timeouts, failover, and `--api-url`
-overrides.
+One-shot CLI commands probe healthy SRV edges and can fail over on HTTP 5xx.
+See the README "API endpoint discovery" section for timeouts, failover, and
+`--api-url` overrides.
 
 OpenBlockPerf is intended to run on relay nodes, which act as the gateway
 between a stake pool's producer node and the rest of the global Cardano

@@ -47,7 +47,7 @@ class AppSettings(BaseSettings):
     api_srv: str = DEFAULT_API_SRV
     api_key: str | None = None
     # Per-request HTTP timeout when talking to a ranked API edge (milliseconds)
-    api_request_timeout_ms: int = Field(default=5000, ge=1)
+    api_request_timeout_ms: int = Field(default=8000, ge=1)
     # Extra retries on the same host after the first failed attempt (timeouts/connection errors)
     api_request_retries: int = Field(default=2, ge=0)
     # How often to log peerCountStats (seconds). 0 disables that log line.

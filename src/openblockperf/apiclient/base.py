@@ -31,7 +31,7 @@ import httpx
 from pydantic import BaseModel
 
 from openblockperf.discovery import API_REQUEST_RETRIES, API_REQUEST_TIMEOUT, EndpointPool
-from openblockperf.errors import ApiConnectionError, ApiError
+from openblockperf.errors import ApiConnectionError, ApiError, DiscoveryError
 from openblockperf.logging import logger
 
 
@@ -125,7 +125,9 @@ class BlockperfApiBase:
         """Make an authenticated request to the API.
 
         Transport timeouts and connection errors are retried on the same host,
-        then the service-mode pool fails over. HTTP 4xx and 5xx never fail over.
+        then the pool fails over to the next edge. HTTP 4xx never fail over.
+        HTTP 5xx (for example 503 when an edge queue is full) fail over to the
+        next ranked edge in both service and CLI mode.
         """
         headers = kwargs.pop("headers", {})
         if not self.api_key:
@@ -156,10 +158,20 @@ class BlockperfApiBase:
                 return response
 
             except httpx.HTTPStatusError as e:
+                status = e.response.status_code
                 logger.error(
-                    f"API request failed: {e.response.status_code} {e.response.reason_phrase}",
+                    f"API request failed: {status} {e.response.reason_phrase}",
                     url=str(e.response.url),
                 )
+                if status >= HTTPStatus.INTERNAL_SERVER_ERROR and current is not None:
+                    try:
+                        await self.close()
+                        await self.pool.failover_from(current)
+                        attempts_on_host = 0
+                        continue
+                    except DiscoveryError:
+                        # No more edges; raise the original HTTP error.
+                        pass
                 raise ApiError(f"The API returned an error: {e}") from e
 
             except httpx.RequestError as e:
@@ -173,13 +185,14 @@ class BlockperfApiBase:
                 )
                 if attempts_on_host < self.attempts_per_host:
                     continue
-                if not self.pool.service_mode:
-                    raise ApiConnectionError(f"Failed to connect to API: {e}") from e
                 if current is None:
                     raise ApiConnectionError(f"Failed to connect to API: {e}") from e
-                await self.close()
-                await self.pool.failover_from(current)
-                attempts_on_host = 0
+                try:
+                    await self.close()
+                    await self.pool.failover_from(current)
+                    attempts_on_host = 0
+                except DiscoveryError as failover_exc:
+                    raise ApiConnectionError(f"Failed to connect to API: {e}") from failover_exc
 
     def _parse_response[T](
         self,

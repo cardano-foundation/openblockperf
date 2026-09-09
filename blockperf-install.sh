@@ -61,7 +61,7 @@ set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/26"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.2.0"
+INSTALLER_VERSION="0.2.1"
 INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
@@ -1250,9 +1250,23 @@ maybe_register_relay_api_key() {
         register_cmd+=(--network "${NETWORK}")
     fi
     register_cmd+=(register-ip)
-    if ! reg_out="$(run_as_service_user "${register_cmd[@]}" 2>&1)"; then
-        warn "Relay API key registration failed."
+    local attempt=1
+    local max_attempts=3
+    local registered="false"
+    while (( attempt <= max_attempts )); do
+        if reg_out="$(run_as_service_user "${register_cmd[@]}" 2>&1)"; then
+            registered="true"
+            break
+        fi
+        warn "Relay API key registration failed (attempt ${attempt}/${max_attempts})."
         warn "${reg_out}"
+        if (( attempt < max_attempts )); then
+            info "Retrying registration against another API edge..."
+            sleep 1
+        fi
+        attempt=$((attempt + 1))
+    done
+    if [[ "${registered}" != "true" ]]; then
         if [[ "${ASSUME_YES}" == "true" ]]; then
             die "Relay API key auto-registration failed in --yes mode. Provide --api-key/--api-key-file or use --api-key-mode calidus."
         fi
@@ -1532,11 +1546,24 @@ check_network_value() {
 # ---------------------------------------------------------------------------
 # Installation steps
 # ---------------------------------------------------------------------------
+check_install_target_early() {
+    # Fail fast before the interactive wizard asks for user/node/network details.
+    if [[ "${MODE}" == "install" && -d "${INSTALL_DIR}" ]]; then
+        die "Install directory already exists: ${INSTALL_DIR}. Use --reinstall to replace it, --update to upgrade the package only, or --remove first."
+    fi
+    if [[ "${MODE}" == "update" && ! -d "${INSTALL_DIR}" ]]; then
+        die "Install directory not found: ${INSTALL_DIR}. Run a full install first."
+    fi
+    if [[ "${MODE}" == "update" && ! -x "${VENV_DIR}/bin/blockperf" && ! -x "${VENV_DIR}/bin/pip" ]]; then
+        die "No OpenBlockPerf virtualenv found at ${VENV_DIR}. Run a full install or --reinstall first."
+    fi
+}
+
 create_install_dir() {
     [[ -d "${INSTALL_DIR}" ]] && INSTALL_DIR_EXISTED_BEFORE="true"
     if [[ -d "${INSTALL_DIR}" ]]; then
         if [[ "${MODE}" == "install" ]]; then
-            die "Install directory already exists: ${INSTALL_DIR}. Use --reinstall to replace it."
+            die "Install directory already exists: ${INSTALL_DIR}. Use --reinstall to replace it, --update to upgrade the package only, or --remove first."
         fi
         # In reinstall mode we keep INSTALL_DIR and replace only VENV_DIR.
         # If cwd is inside VENV_DIR, removing it will break later os.getcwd()
@@ -1974,6 +2001,11 @@ main() {
     # Always check for newer installer before any intro/wizard output.
     if [[ "${MODE}" != "remove" ]]; then
         check_installer_update_online
+    fi
+
+    # Fail fast on conflicting install targets before the interactive wizard.
+    if [[ "${MODE}" == "install" || "${MODE}" == "reinstall" || "${MODE}" == "update" ]]; then
+        check_install_target_early
     fi
 
     # Show interactive overview before any package-install prompts.

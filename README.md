@@ -266,7 +266,7 @@ local_port: 3001
 
 Additional optional keys (not set by the installer) include `api_srv`,
 `api_url`, `ekg_url`, `sync_check_enabled`, `sync_check_threshold`,
-`api_request_timeout_ms` (default `5000`), `api_request_retries`
+`api_request_timeout_ms` (default `8000`), `api_request_retries`
 (default `2`), `peer_count_stats_interval` (default `300` seconds;
 set `0` to disable `peerCountStats` log lines), and `obfuscate_ips`
 (extra addresses never sent to the backend; private/loopback/link-local
@@ -288,15 +288,17 @@ The Cardano network is only a URL path:
 
 `blockperf run` (service mode) probes each target's health endpoint in parallel,
 ranks healthy edges by lowest RTT, and uses the fastest. The full ranked list
-is logged at INFO. If later API calls time out (5000ms by default, two extra
+is logged at INFO. If later API calls time out (8000ms by default, two extra
 retries; both are configurable via `api_request_timeout_ms` and
-`api_request_retries`), it fails over to the next ranked edge without probing
-health again. HTTP 4xx and 5xx do not fail over. When the list is exhausted it
-waits 30 seconds, re-resolves SRV, re-ranks, and starts again with the fastest.
-The ranked list is also refreshed once a day.
+`api_request_retries`), or an edge returns HTTP 5xx (for example 503 when its
+queue is full), it fails over to the next ranked edge without probing health
+again. HTTP 4xx do not fail over. When the list is exhausted it waits 30
+seconds, re-resolves SRV, re-ranks, and starts again with the fastest. The
+ranked list is also refreshed once a day.
 
-One-shot commands (`register-ip`, `register-calidus`) pick a single SRV target
-at random and do not fail over.
+One-shot commands (`register-ip`, `register-calidus`) probe SRV targets for
+health, shuffle the healthy edges for load balancing, and fail over to the next
+healthy edge on transport errors or HTTP 5xx.
 
 The `--config` flag must appear before the subcommand. `register-ip` does not
 load `/opt/cardano/openblockperf/config.json` unless you pass `--config`.

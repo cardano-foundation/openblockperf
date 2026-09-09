@@ -93,11 +93,40 @@ EOF
 sudo chmod 664 "${INSTALL_DIR}/config.json"
 ```
 
-Optional: set `"api_srv": "_obpf._tcp.network.cardano.org"` (the client default) or
-point it at your own SRV name. Set `"api_url"` only when you want to skip SRV
-discovery and use a full base URL such as `http://localhost:8000/mainnet/api/v0`.
-Private/loopback/link-local peer addresses are always sent as `0.0.0.0`; add
-extra addresses to hide with `"obfuscate_ips": ["203.0.113.10"]`.
+Optional keys (not written above; defaults apply if omitted). Matching
+`OPENBLOCKPERF_*` environment variables also work.
+
+**API discovery and HTTP:**
+
+- `api_srv` (default `_obpf._tcp.network.cardano.org`) DNS SRV name for API
+  edge discovery
+- `api_url` skip SRV and use a full base URL such as
+  `http://localhost:8000/mainnet/api/v0`
+- `api_request_timeout_ms` (default `8000`) HTTP timeout per API request in
+  milliseconds
+- `api_request_retries` (default `2`) extra same-host retries after timeout or
+  connection errors; then service mode fails over to the next ranked edge
+
+**Privacy:**
+
+- `obfuscate_ips` (default `[]`) extra IPs never sent to the backend.
+  Private/loopback/link-local addresses are always replaced with `0.0.0.0`.
+
+**Sync gate (EKG):**
+
+- `ekg_url` (default `http://localhost:12798/metrics`)
+- `sync_check_enabled` (default `true`)
+- `sync_check_interval` (default `15`) seconds between sync polls
+- `sync_check_threshold` (default `99.9`) minimum replay progress percent
+
+**Sampling cadence:**
+
+- `block_sample_check_interval` (default `2`) seconds between block-sample
+  group checks
+- `min_age` (default `10`) seconds a complete sample group must age before
+  submit
+- `peer_count_stats_interval` (default `300`) seconds between
+  `peerCountStats` log lines; `0` disables them
 
 ## 7) Write systemd service unit
 
@@ -167,8 +196,10 @@ Alternative (public relay IP based):
 ${INSTALL_DIR}/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-ip
 ```
 
-`register-ip` picks one SRV target at random. `blockperf run` (the systemd service)
-ranks healthy edges by RTT and fails over if the selected host times out.
+`register-ip` probes SRV targets for health, shuffles the healthy edges, and
+fails over on transport errors or HTTP 5xx. `blockperf run` (the systemd service)
+ranks healthy edges by RTT and fails over on transport errors or HTTP 5xx
+(for example 503 when an edge queue is full). HTTP 4xx do not fail over.
 
 After receiving your API key, set it in `${INSTALL_DIR}/config.json`:
 
