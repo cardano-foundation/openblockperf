@@ -20,6 +20,7 @@ import rich
 import typer
 from rich.console import Console
 
+from openblockperf import __version__
 from openblockperf.commands import register_calidus_cmd, register_ip_cmd, run_cmd, version_cmd
 from openblockperf.commands._utils import SharedOptions
 from openblockperf.errors import ApiError, ConfigurationError
@@ -57,9 +58,30 @@ def resolve_config_path(cli_config: Path | None) -> tuple[Path | None, str | Non
     return env_path, "env"
 
 
+def _print_version_and_exit() -> None:
+    """Print a short version line and exit (used by ``--version`` / ``-V``)."""
+    typer.echo(f"openblockperf {__version__}")
+    raise typer.Exit()
+
+
+def version_option_callback(value: bool) -> None:
+    if value:
+        _print_version_and_exit()
+
+
 @BlockperfCli.callback()
 def main(
     ctx: typer.Context,
+    version: Annotated[
+        bool | None,
+        typer.Option(
+            "--version",
+            "-V",
+            help="Show the installed openblockperf version and exit.",
+            callback=version_option_callback,
+            is_eager=True,
+        ),
+    ] = None,
     network: Annotated[
         str | None,
         typer.Option(
@@ -119,7 +141,8 @@ _console = Console(file=sys.stdout, force_terminal=True)
 
 # Entry point for blockperf script as defined in pyproject.toml
 def cli():
-    if sys.platform != "linux":
+    # Allow version checks on any platform (useful for local/dev installs).
+    if sys.platform != "linux" and not {"--version", "-V"} & set(sys.argv[1:]):
         sys.exit("Only Linux is supported at this time")
     setup_logging(os.getenv("OPENBLOCKPERF_LOG_LEVEL", "INFO"))
     try:
