@@ -22,11 +22,27 @@ This traceOptions are optimized for a relay node.
 
 OpenBlockperf supports two ingestion modes:
 
-- journald mode (default): cardano-node writes tracer JSON to stdout and systemd/journald is used as source.
-- logfile mode (optional): cardano-tracer writes JSON files; set `tracer_log_file` in blockperf config to the active logfile path.
+- journald mode (default): cardano-node writes tracer JSON to stdout and systemd/journald is used as source. Config `node_unit_name` is the systemd unit passed to `journalctl --unit`.
+- logfile mode (optional): set `tracer_log_file` in the blockperf config to the active JSON logfile path (cardano-tracer or node file backend). Openblockperf follows that path across log rotation.
 
-In logfile mode openblockperf follows the configured path and continues after log rotation.
-The configured `node_unit_name` is still used to select the relevant node stream when multiple nodes are written into the same tracer logfile.
+### Logfile mode and `node_unit_name`
+
+In logfile mode, `node_unit_name` is a **content filter**, not the systemd unit name:
+
+- Prefer the JSON `host` field from a sample log line (for example `"host":"hh-hongkong"`).
+- Or set `node_unit_name` to `""` to accept all lines (typical for a dedicated single-node logfile).
+- Do not leave a systemd unit such as `cnode.service` as the filter unless that string appears in each log line. The reader will otherwise skip every message.
+
+Example config keys:
+
+```json
+"tracer_log_file": "/opt/cardano/cnode/logs/cnode/node.json",
+"node_unit_name": "hh-hongkong"
+```
+
+See also [Installer Guide](blockperf-install.md#switching-an-existing-install-to-logfile-mode) for switching an existing deployment.
+
+## Recommended TraceOptions
 
 ```json
   "TraceOptions": {

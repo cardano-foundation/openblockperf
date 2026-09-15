@@ -51,8 +51,15 @@
 #                     Written to config.json as node_name.
 #   NODE_UNIT_NAME    systemd unit for cardano-node (e.g. cardano-node.service).
 #                     Default: auto-discover; use --node-unit-name to set explicitly.
-#   TRACER_LOG_FILE   Optional absolute path to cardano-tracer logfile. When set,
-#                     openblockperf reads this file instead of journald.
+#                     Also used as config node_unit_name in journald mode.
+#   TRACER_LOG_FILE   Optional absolute path to a cardano-tracer / node JSON logfile.
+#                     When set, openblockperf reads this file instead of journald.
+#                     In logfile mode, config node_unit_name is a line filter (prefer
+#                     the JSON "host" field, or empty to accept all lines).
+#   CONFIG_NODE_UNIT_NAME
+#                     Optional override for the value written to config.json as
+#                     node_unit_name (logfile filter). If unset in logfile mode,
+#                     the installer proposes the JSON host field or empty.
 #   NODE_CONFIG_PATH  Absolute path to cardano-node config.json (TraceOptions).
 #                     Default: derived from the node unit ExecStart; use --node-config.
 #   OPENBLOCKPERF_API_KEY  If set before install, written to the env file (same as --api-key).
@@ -61,7 +68,7 @@ set -euo pipefail
 
 OBP_DOC_REGISTER_URL="https://forum.cardano.org/t/new-calidus-pool-key-for-spos-and-services-interacting-with-pools/143812/26"
 # Internal installer version (reserved for future remote update checks).
-INSTALLER_VERSION="0.2.2"
+INSTALLER_VERSION="0.2.4"
 INSTALLER_REMOTE_URL="https://raw.githubusercontent.com/cardano-foundation/openblockperf/main/blockperf-install.sh"
 
 # ---------------------------------------------------------------------------
@@ -79,6 +86,8 @@ NETWORK="${NETWORK:-}"
 NODE_NAME="${NODE_NAME:-}"
 NODE_UNIT_NAME="${NODE_UNIT_NAME:-}"
 TRACER_LOG_FILE="${TRACER_LOG_FILE:-}"
+# Value written to config.json as node_unit_name (journald unit or logfile filter).
+CONFIG_NODE_UNIT_NAME="${CONFIG_NODE_UNIT_NAME:-}"
 NODE_CONFIG_PATH="${NODE_CONFIG_PATH:-}"
 MODE="install"        # install | reinstall | update | remove
 ASSUME_YES="false"    # true to skip interactive confirmations
@@ -374,8 +383,10 @@ Options:
                  Path to cardano-node config.json (TraceOptions). Skips discovery
                  from the unit ExecStart. Same as NODE_CONFIG_PATH=...
   --tracer-log-file <path>
-                 Optional path to a cardano-tracer logfile. If set, openblockperf
-                 reads this file (with rotation follow) instead of journald.
+                 Optional path to a cardano-tracer / node JSON logfile. If set,
+                 openblockperf reads this file (with rotation follow) instead of
+                 journald. In logfile mode, config node_unit_name becomes a line
+                 filter (installer proposes the JSON "host" field, or empty).
                  Same as TRACER_LOG_FILE=...
   --network mainnet|preprod|preview
                  Cardano network. Skips genesis-based detection. Same as NETWORK=...
@@ -819,16 +830,54 @@ Set NODE_UNIT_NAME= or --node-unit-name to choose one."
 }
 
 # Step 4 — Choose journald vs logfile source
+validate_tracer_log_file_path() {
+    local p="$1"
+    [[ -n "${p}" ]] || die "No tracer logfile path given."
+    [[ "${p}" = /* ]] || die "Tracer logfile path must be absolute."
+    local d
+    d="$(dirname "${p}")"
+    [[ -d "${d}" ]] || die "Directory for tracer logfile does not exist: ${d}"
+}
+
+# Read a recent JSON line from the logfile and extract the "host" field if present.
+# Prints the host on stdout and returns 0 on success; returns 1 otherwise.
+probe_tracer_logfile_host() {
+    local path="$1"
+    local line host=""
+    [[ -f "${path}" ]] || return 1
+
+    # Prefer a recent non-empty line; files can be large.
+    line="$(tail -n 200 "${path}" 2>/dev/null | awk 'NF { line=$0 } END { print line }' || true)"
+    [[ -n "${line}" ]] || return 1
+
+    if command -v jq >/dev/null 2>&1; then
+        host="$(printf '%s\n' "${line}" | jq -r 'if type=="object" then (.host // empty) else empty end' 2>/dev/null || true)"
+    elif [[ -n "${PYTHON}" ]] && command -v "${PYTHON}" >/dev/null 2>&1; then
+        host="$(
+            printf '%s\n' "${line}" | "${PYTHON}" -c '
+import json, sys
+try:
+    obj = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+host = obj.get("host") if isinstance(obj, dict) else None
+if host:
+    print(host)
+' 2>/dev/null || true
+        )"
+    fi
+
+    [[ -n "${host}" ]] || return 1
+    printf '%s' "${host}"
+}
+
 resolve_log_source() {
     if [[ -n "${CLI_TRACER_LOG_FILE}" ]]; then
         TRACER_LOG_FILE="${CLI_TRACER_LOG_FILE}"
     fi
 
     if [[ -n "${TRACER_LOG_FILE}" ]]; then
-        [[ "${TRACER_LOG_FILE}" = /* ]] || die "TRACER_LOG_FILE must be an absolute path."
-        local d
-        d="$(dirname "${TRACER_LOG_FILE}")"
-        [[ -d "${d}" ]] || die "Directory for TRACER_LOG_FILE does not exist: ${d}"
+        validate_tracer_log_file_path "${TRACER_LOG_FILE}"
         if [[ ! -e "${TRACER_LOG_FILE}" ]]; then
             warn "Tracer logfile does not exist yet: ${TRACER_LOG_FILE}"
             warn "Installation continues, but blockperf will fail to start until the file exists."
@@ -848,16 +897,12 @@ resolve_log_source() {
     case "${ans}" in
         n|N|no|NO)
             local p=""
-            prompt_read p "Absolute path to tracer logfile (e.g. /var/log/cardano/tracer.log): " || die "No tracer logfile path given."
-            [[ -n "${p}" ]] || die "No tracer logfile path given."
-            [[ "${p}" = /* ]] || die "Tracer logfile path must be absolute."
-            local d
-            d="$(dirname "${p}")"
-            [[ -d "${d}" ]] || die "Directory does not exist: ${d}"
+            prompt_read p "Absolute path to tracer/node JSON logfile (e.g. /opt/cardano/cnode/logs/cnode/node.json): " || die "No tracer logfile path given."
+            validate_tracer_log_file_path "${p}"
             TRACER_LOG_FILE="${p}"
             if [[ ! -e "${TRACER_LOG_FILE}" ]]; then
                 warn "Tracer logfile does not exist yet: ${TRACER_LOG_FILE}"
-                warn "blockperf will follow this path once cardano-tracer creates it."
+                warn "blockperf will follow this path once the node/tracer creates it."
             fi
             info "Log source: logfile (${TRACER_LOG_FILE})"
             ;;
@@ -866,6 +911,54 @@ resolve_log_source() {
             info "Log source: journald"
             ;;
     esac
+}
+
+# Step 4b — Value written to config.json as node_unit_name
+# journald: systemd unit filter (same as NODE_UNIT_NAME)
+# logfile: content filter; propose JSON "host" field, or empty to accept all lines
+resolve_config_node_unit_name() {
+    if [[ -z "${TRACER_LOG_FILE}" ]]; then
+        CONFIG_NODE_UNIT_NAME="${NODE_UNIT_NAME}"
+        info "Config node_unit_name: ${CONFIG_NODE_UNIT_NAME} (journald unit filter)"
+        return 0
+    fi
+
+    local suggested=""
+    if suggested="$(probe_tracer_logfile_host "${TRACER_LOG_FILE}")"; then
+        info "Detected host field in logfile: ${suggested}"
+    else
+        suggested=""
+        if [[ -e "${TRACER_LOG_FILE}" ]]; then
+            warn "Could not read a host field from ${TRACER_LOG_FILE}; defaulting filter to empty (accept all lines)."
+        else
+            warn "Logfile not present yet; defaulting node_unit_name filter to empty (accept all lines)."
+        fi
+    fi
+
+    if [[ -n "${CONFIG_NODE_UNIT_NAME}" ]]; then
+        info "Config node_unit_name: '${CONFIG_NODE_UNIT_NAME}' (explicit logfile filter; systemd unit remains ${NODE_UNIT_NAME})"
+        return 0
+    fi
+
+    if [[ "${ASSUME_YES}" == "true" ]] || ! has_prompt_tty; then
+        CONFIG_NODE_UNIT_NAME="${suggested}"
+        info "Config node_unit_name: '${CONFIG_NODE_UNIT_NAME}' (logfile filter; systemd unit remains ${NODE_UNIT_NAME})"
+        return 0
+    fi
+
+    echo
+    echo "In logfile mode, config node_unit_name filters JSON lines (substring / field match)."
+    echo "Prefer the tracer JSON \"host\" field, or leave empty to accept all lines."
+    echo "Do not use the systemd unit name (${NODE_UNIT_NAME}) unless that string appears in each log line."
+    local in_filter=""
+    if [[ -n "${suggested}" ]]; then
+        prompt_read in_filter "node_unit_name filter for logfile [${suggested}]: " || true
+        CONFIG_NODE_UNIT_NAME="${in_filter:-${suggested}}"
+    else
+        prompt_read in_filter "node_unit_name filter for logfile (empty = accept all lines): " || true
+        CONFIG_NODE_UNIT_NAME="${in_filter}"
+    fi
+    info "Config node_unit_name: '${CONFIG_NODE_UNIT_NAME}' (logfile filter)"
 }
 
 # Step 5 — Node config.json path (TraceOptions backend validation is skipped for now)
@@ -1834,7 +1927,7 @@ write_config_file() {
   "log_level": "WARNING",
   "node_name": $(json_string "${NODE_NAME}"),
   "node_config": $(json_string "${NODE_CONFIG_PATH}"),
-  "node_unit_name": $(json_string "${NODE_UNIT_NAME}"),
+  "node_unit_name": $(json_string "${CONFIG_NODE_UNIT_NAME}"),
 ${tracer_log_file_line}
   "local_addr": "0.0.0.0",
   "local_port": 3001
@@ -1867,6 +1960,7 @@ install_core() {
     write_config_file
     write_service_file
     write_wrappercommand_file
+    ensure_service_user_config_env
     enable_service
 }
 
@@ -1911,6 +2005,7 @@ print_post_install_summary() {
     echo "  • Virtual env:      ${VENV_DIR}"
     echo "  • CLI wrapper:      ${WRAPPER_COMMAND}"
     echo "  • Config file:      ${CONFIG_FILE}"
+    echo "  • Config env:       OPENBLOCKPERF_CONFIG (wrapper exports it; optional shell profile)"
     case "${CONFIG_FILE_RESULT}" in
         new)                    echo "  • Config action:    created new" ;;
         kept)                   echo "  • Config action:    kept existing (not overwritten)" ;;
@@ -1942,7 +2037,10 @@ print_post_install_summary() {
         warn "  \"network\":       \"${NETWORK}\""
         warn "  \"node_name\":     \"${NODE_NAME}\""
         warn "  \"node_config\":   \"${NODE_CONFIG_PATH}\""
-        warn "  \"node_unit_name\": \"${NODE_UNIT_NAME}\""
+        warn "  \"node_unit_name\": \"${CONFIG_NODE_UNIT_NAME}\""
+        if [[ -n "${TRACER_LOG_FILE}" ]]; then
+            warn "  \"tracer_log_file\": \"${TRACER_LOG_FILE}\""
+        fi
         if [[ -n "${API_KEY_TO_INSTALL}" ]]; then
             warn "  \"api_key\":       (registered in this run; not written because the existing file was kept)"
         fi
@@ -1989,11 +2087,75 @@ write_wrappercommand_file() {
     mkdir -p "$(dirname "${WRAPPER_COMMAND}")"
     cat > "${WRAPPER_COMMAND}" <<EOF
 #!/usr/bin/env bash
+# Default config for CLI convenience; explicit --config still overrides.
+export OPENBLOCKPERF_CONFIG="${CONFIG_FILE}"
 exec ${INSTALL_DIR}/venv/bin/blockperf "\$@"
 EOF
 
     chmod 755 "${WRAPPER_COMMAND}"
     CREATED_WRAPPER_FILE="true"
+}
+
+ensure_service_user_config_env() {
+    # Offer OPENBLOCKPERF_CONFIG in the service user's shell profile so CLI
+    # usage works without --config (wrapper also exports it).
+    local home_dir=""
+    home_dir="$(getent passwd "${SERVICE_USER}" | cut -d: -f6 2>/dev/null || true)"
+    if [[ -z "${home_dir}" || ! -d "${home_dir}" ]]; then
+        warn "Could not resolve home directory for ${SERVICE_USER}; skip OPENBLOCKPERF_CONFIG shell setup."
+        return 0
+    fi
+
+    local export_line="export OPENBLOCKPERF_CONFIG=\"${CONFIG_FILE}\""
+    local already_file=""
+    local candidate=""
+    for candidate in "${home_dir}/.bashrc" "${home_dir}/.profile" "${home_dir}/.bash_profile"; do
+        if [[ -f "${candidate}" ]] && grep -Eq '^[[:space:]]*(export[[:space:]]+)?OPENBLOCKPERF_CONFIG=' "${candidate}"; then
+            already_file="${candidate}"
+            break
+        fi
+    done
+    if [[ -n "${already_file}" ]]; then
+        info "OPENBLOCKPERF_CONFIG already defined in ${already_file}; leaving shell profiles unchanged."
+        return 0
+    fi
+
+    local target="${home_dir}/.bashrc"
+    if [[ ! -f "${target}" && -f "${home_dir}/.profile" ]]; then
+        target="${home_dir}/.profile"
+    fi
+
+    local do_write="false"
+    if [[ "${ASSUME_YES}" == "true" ]]; then
+        do_write="true"
+    elif has_prompt_tty; then
+        local ans=""
+        prompt_read ans "Add OPENBLOCKPERF_CONFIG=${CONFIG_FILE} to ${SERVICE_USER}'s $(basename "${target}") for easier CLI use? [Y/n]: " || true
+        case "${ans}" in
+            n|N|no|NO) do_write="false" ;;
+            *) do_write="true" ;;
+        esac
+    else
+        info "Non-interactive session: not modifying ${target}. Wrapper still exports OPENBLOCKPERF_CONFIG."
+        return 0
+    fi
+
+    if [[ "${do_write}" != "true" ]]; then
+        info "Skipped adding OPENBLOCKPERF_CONFIG to ${target}."
+        return 0
+    fi
+
+    if [[ ! -e "${target}" ]]; then
+        touch "${target}"
+        chown "${SERVICE_USER}:${SERVICE_GROUP}" "${target}" 2>/dev/null || true
+    fi
+    {
+        echo ""
+        echo "# OpenBlockPerf: default config for blockperf CLI (added by installer)"
+        echo "${export_line}"
+    } >> "${target}"
+    chown "${SERVICE_USER}:${SERVICE_GROUP}" "${target}" 2>/dev/null || true
+    ok "Added OPENBLOCKPERF_CONFIG to ${target} (open a new shell or: source ${target})"
 }
 
 enable_service() {
@@ -2117,6 +2279,7 @@ main() {
     resolve_node_name
     resolve_cardano_node_unit
     resolve_log_source
+    resolve_config_node_unit_name
     resolve_node_config_path
 
     installer_step_banner 3 5 "Configure network and API key..."
@@ -2135,11 +2298,10 @@ main() {
     printf "  %-14s %s\n" "Node unit:"    "${NODE_UNIT_NAME}"
     if [[ -n "${TRACER_LOG_FILE}" ]]; then
         printf "  %-14s %s\n" "Log source:" "logfile"
+        printf "  %-14s %s\n" "Log file:" "${TRACER_LOG_FILE}"
+        printf "  %-14s %s\n" "Log filter:" "${CONFIG_NODE_UNIT_NAME:-(empty; accept all lines)}"
     else
         printf "  %-14s %s\n" "Log source:" "journald"
-    fi
-    if [[ -n "${TRACER_LOG_FILE}" ]]; then
-        printf "  %-14s %s\n" "Log file:" "${TRACER_LOG_FILE}"
     fi
     printf "  %-14s %s\n" "Node config:"  "${NODE_CONFIG_PATH}"
     printf "  %-14s %s\n" "Network:"      "${NETWORK}"

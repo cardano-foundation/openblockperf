@@ -22,7 +22,7 @@ from rich.console import Console
 
 from openblockperf.commands import register_calidus_cmd, register_ip_cmd, run_cmd, version_cmd
 from openblockperf.commands._utils import SharedOptions
-from openblockperf.errors import ConfigurationError
+from openblockperf.errors import ApiError, ConfigurationError
 from openblockperf.logging import logger, setup_logging
 
 # Initialize the Typer application
@@ -32,6 +32,29 @@ BlockperfCli = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+
+CONFIG_ENV_VAR = "OPENBLOCKPERF_CONFIG"
+
+
+def resolve_config_path(cli_config: Path | None) -> tuple[Path | None, str | None]:
+    """Resolve config path from ``--config`` or ``OPENBLOCKPERF_CONFIG``.
+
+    Returns ``(path, source)`` where source is ``\"flag\"``, ``\"env\"``, or ``None``.
+    """
+    if cli_config is not None:
+        return cli_config, "flag"
+    env_config = os.getenv(CONFIG_ENV_VAR, "").strip()
+    if not env_config:
+        return None, None
+    env_path = Path(env_config).expanduser()
+    if not env_path.is_file():
+        raise ConfigurationError(
+            f"{CONFIG_ENV_VAR} is set to {env_path} but that file does not exist "
+            "or is not a regular file"
+        )
+    if not os.access(env_path, os.R_OK):
+        raise ConfigurationError(f"{CONFIG_ENV_VAR} file is not readable: {env_path}")
+    return env_path, "env"
 
 
 @BlockperfCli.callback()
@@ -61,10 +84,13 @@ def main(
         typer.Option(
             "--config",
             "-c",
-            help="""Path to a JSON or YAML configuration file (extension must be .json, .yaml or .yml).
+            help=f"""Path to a JSON or YAML configuration file (extension must be .json, .yaml or .yml).
 
             Values from the file populate AppSettings. Environment variables and other
             CLI flags still take precedence over the file.
+
+            When omitted, {CONFIG_ENV_VAR} is used if set (installer/wrapper typically
+            points this at the installed config.json).
         """,
             exists=True,
             dir_okay=False,
@@ -73,9 +99,13 @@ def main(
     ] = None,
 ) -> None:
     """Callback implements global flags that are shared to all subcommands via typer.Context."""
-    ctx.obj = SharedOptions(network=network, api_url=api_url, config=config)
-    if config:
-        rich.print(f"Config loaded {config.absolute()}")
+    resolved_config, config_source = resolve_config_path(config)
+    ctx.obj = SharedOptions(network=network, api_url=api_url, config=resolved_config)
+    if resolved_config is not None:
+        if config_source == "env":
+            rich.print(f"Using config file from {CONFIG_ENV_VAR}: {resolved_config.absolute()}")
+        else:
+            rich.print(f"Config loaded {resolved_config.absolute()}")
 
 
 # Add commands directly to the app
@@ -99,6 +129,11 @@ def cli():
         sys.exit(0)
     except ConfigurationError as e:
         _console.print(f"[bold red]Configuration error:[/] {e}")
+        if os.getenv("OPENBLOCKPERF_LOG_LEVEL", "INFO") == "DEBUG":
+            logger.exception(e)
+        sys.exit(1)
+    except ApiError as e:
+        _console.print(f"[bold red]API error:[/] {e}")
         if os.getenv("OPENBLOCKPERF_LOG_LEVEL", "INFO") == "DEBUG":
             logger.exception(e)
         sys.exit(1)

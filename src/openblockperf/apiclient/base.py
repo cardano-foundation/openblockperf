@@ -35,6 +35,37 @@ from openblockperf.errors import ApiConnectionError, ApiError, DiscoveryError
 from openblockperf.logging import logger
 
 
+def _api_error_detail(response: httpx.Response) -> str | None:
+    """Extract a human-readable backend error detail from an HTTP response body."""
+    try:
+        payload = response.json()
+    except ValueError:
+        text = (response.text or "").strip()
+        return text[:500] if text else None
+
+    if isinstance(payload, Mapping):
+        detail = payload.get("detail", payload.get("msg", payload.get("message")))
+        if detail is None:
+            return None
+        if isinstance(detail, str):
+            return detail.strip() or None
+        if isinstance(detail, list):
+            parts: list[str] = []
+            for item in detail:
+                if isinstance(item, Mapping):
+                    msg = item.get("msg") or item.get("message") or str(item)
+                    loc = item.get("loc")
+                    parts.append(f"{loc}: {msg}" if loc else str(msg))
+                else:
+                    parts.append(str(item))
+            joined = "; ".join(parts).strip()
+            return joined or None
+        return str(detail)
+    if isinstance(payload, str):
+        return payload.strip() or None
+    return None
+
+
 class BlockperfApiBase:
     """
     An async client for the openblockperf backend.
@@ -159,9 +190,11 @@ class BlockperfApiBase:
 
             except httpx.HTTPStatusError as e:
                 status = e.response.status_code
+                detail = _api_error_detail(e.response)
                 logger.error(
                     f"API request failed: {status} {e.response.reason_phrase}",
                     url=str(e.response.url),
+                    detail=detail,
                 )
                 if status >= HTTPStatus.INTERNAL_SERVER_ERROR and current is not None:
                     try:
@@ -172,6 +205,10 @@ class BlockperfApiBase:
                     except DiscoveryError:
                         # No more edges; raise the original HTTP error.
                         pass
+                if detail:
+                    raise ApiError(
+                        f"The API returned an error: {status} {e.response.reason_phrase} - {detail}"
+                    ) from e
                 raise ApiError(f"The API returned an error: {e}") from e
 
             except httpx.RequestError as e:

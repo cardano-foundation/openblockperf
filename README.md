@@ -190,14 +190,14 @@ by every subcommand.
 | --- | --- | --- |
 | `-n, --network {mainnet,preprod,preview}` | `mainnet` (or `network` in config file) | Cardano network. Selects chain magic and the `/{network}/` path on discovered API edges. |
 | `--api-url URL` | unset (SRV discovery) | Skip SRV discovery and use this full API base URL (including port and path, e.g. `http://localhost:8000/mainnet/api/v0`). |
-| `-c, --config FILE` | unset | Path to a JSON or YAML configuration file (`.json`, `.yaml`, `.yml`) used to seed settings. |
+| `-c, --config FILE` | `OPENBLOCKPERF_CONFIG` | Path to a JSON or YAML configuration file (`.json`, `.yaml`, `.yml`) used to seed settings. When omitted, the env var is used if set (installer wrapper exports it). |
 
 ### Subcommands
 
 | Command | Purpose | Command-specific options |
 | --- | --- | --- |
 | `version` | Print client version | (none) |
-| `run` | Start the metrics collector (long-running) | `--node-unit-name TEXT` — systemd unit to read from journald (default `cardano-tracer`). |
+| `run` | Start the metrics collector (long-running) | `--node-unit-name TEXT`: journald systemd unit to follow; in logfile mode a line filter (JSON `host` or empty). Prefer `tracer_log_file` in the config file for logfile mode. |
 | `register-ip` | Register for an API key bound to this relay's public IP | `--force-renewal`, `--update-ip` (mutually exclusive). |
 | `register-calidus` | Register for an API key via Calidus challenge/response | `-p, --pool-id BECH32`, `--calidus-skey FILE`. |
 
@@ -251,6 +251,12 @@ Example `config.json` (as written by the installer):
 }
 ```
 
+For logfile mode instead of journald, also set `tracer_log_file` to the absolute
+JSON logfile path and set `node_unit_name` to the tracer JSON `host` field (or
+`""` to accept all lines). Do not use the systemd unit name as the logfile
+filter unless that string appears in each log line. See
+[Installer Guide](docs/blockperf-install.md#switching-an-existing-install-to-logfile-mode).
+
 The equivalent YAML:
 
 ```yaml
@@ -300,8 +306,12 @@ One-shot commands (`register-ip`, `register-calidus`) probe SRV targets for
 health, shuffle the healthy edges for load balancing, and fail over to the next
 healthy edge on transport errors or HTTP 5xx.
 
-The `--config` flag must appear before the subcommand. `register-ip` does not
-load `/opt/cardano/openblockperf/config.json` unless you pass `--config`.
+The `--config` flag must appear before the subcommand. After an installer
+setup, `blockperf` (the `/usr/local/bin` wrapper) exports `OPENBLOCKPERF_CONFIG`
+to the installed `config.json`, so most CLI commands work without `--config`.
+You can still pass `--config` explicitly to override. The installer can also
+add `OPENBLOCKPERF_CONFIG` to the service user's shell profile if it is not
+already defined.
 
 ### Service activity and common file locations
 

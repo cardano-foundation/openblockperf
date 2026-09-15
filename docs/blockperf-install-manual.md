@@ -15,7 +15,9 @@ export SERVICE_USER="<non-root-user>"
 export SERVICE_GROUP="$(id -gn "${SERVICE_USER}")"
 export NODE_NAME="$(hostname)"
 export NODE_UNIT_NAME="cnode.service"
-export TRACER_LOG_FILE=""  # optional, e.g. /var/log/cardano/tracer.log
+export TRACER_LOG_FILE=""  # optional logfile mode, e.g. /opt/cardano/cnode/logs/cnode/node.json
+# In logfile mode, config node_unit_name should be the JSON "host" field (or empty),
+# not the systemd unit. Example: export CONFIG_NODE_UNIT_NAME="hh-hongkong"
 export NODE_CONFIG_PATH="/opt/cardano/cnode/files/config.json"
 export NETWORK="mainnet"  # mainnet | preprod | preview
 ```
@@ -73,9 +75,17 @@ sudo chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}"
 ## 6) Write config file
 
 Create `${INSTALL_DIR}/config.json` with the same keys written by the installer.
-Leave `tracer_log_file` empty/omitted for journald mode; set it to use file mode.
+
+- Journald mode: omit `tracer_log_file` (or leave it empty) and set `node_unit_name` to the cardano-node systemd unit (for example `cnode.service`).
+- Logfile mode: set `tracer_log_file` to the absolute JSON logfile path. Set `node_unit_name` to the tracer JSON `host` field, or to `""` to accept all lines. Do not use the systemd unit name as the logfile filter unless that string appears in each log line.
 
 ```bash
+# Journald example uses NODE_UNIT_NAME.
+# Logfile example: set TRACER_LOG_FILE and use host filter, e.g.
+#   CONFIG_NODE_UNIT_NAME="$(jq -r '.host' <(tail -n 1 "${TRACER_LOG_FILE}"))"
+#   or CONFIG_NODE_UNIT_NAME=""
+CONFIG_NODE_UNIT_NAME="${CONFIG_NODE_UNIT_NAME:-${NODE_UNIT_NAME}}"
+
 sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
 {
   "_comment": "OpenBlockPerf client configuration",
@@ -84,7 +94,7 @@ sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
   "log_level": "WARNING",
   "node_name": "${NODE_NAME}",
   "node_config": "${NODE_CONFIG_PATH}",
-  "node_unit_name": "${NODE_UNIT_NAME}",
+  "node_unit_name": "${CONFIG_NODE_UNIT_NAME}",
   "tracer_log_file": "${TRACER_LOG_FILE}",
   "local_addr": "0.0.0.0",
   "local_port": 3001
@@ -92,6 +102,8 @@ sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
 EOF
 sudo chmod 664 "${INSTALL_DIR}/config.json"
 ```
+
+If `TRACER_LOG_FILE` is empty, remove the `tracer_log_file` key (or leave it empty) so blockperf stays in journald mode.
 
 Optional keys (not written above; defaults apply if omitted). Matching
 `OPENBLOCKPERF_*` environment variables also work.

@@ -31,7 +31,7 @@ Piped or non-interactive runs (for example `curl ... | sudo bash`) have no termi
 - `--version`: print installer script version and exit.
 - `--user-context <username>`: service user.
 - `--node-unit-name <unit>`: cardano-node systemd unit.
-- `--tracer-log-file <path>`: optional path to a cardano-tracer logfile. When set, blockperf reads this file instead of journald.
+- `--tracer-log-file <path>`: optional path to a cardano-tracer / node JSON logfile. When set, blockperf reads this file instead of journald. In logfile mode the installer also sets config `node_unit_name` to a line filter (JSON `host` when detectable, otherwise empty).
 - `--node-name <name>`: operator node label (defaults to OS hostname).
 - `--node-config <path>`: path to node `config.json`.
 - `--network mainnet|preprod|preview`: network override.
@@ -46,6 +46,42 @@ The installer also performs an online installer-version check and can offer a se
 **Node config path:** the script derives `config.json` from the unit’s `ExecStart` and expands variables such as `$CONFIG` using the unit’s merged `Environment` and `EnvironmentFiles`. If the path is still wrong or missing, interactive mode asks for the absolute path; an empty answer exits the installer.
 
 **Log source selection:** interactive installs ask whether blockperf should read tracer messages from journald (default) or a logfile path. If logfile mode is selected, the installer stores `tracer_log_file` in config and blockperf follows rotation on that file path.
+
+In logfile mode, config `node_unit_name` is **not** the systemd unit. It is a content filter used to select lines from (possibly mixed) JSON logfiles:
+
+- The installer tries to read a recent line from the logfile and proposes the JSON `host` field (for example `hh-hongkong`).
+- You can also leave `node_unit_name` empty (`""`) to accept every line (typical for a single-node dedicated file such as `/opt/cardano/cnode/logs/cnode/node.json`).
+- Do **not** keep a systemd unit name like `cnode.service` as the logfile filter unless that exact string appears in each log line. Otherwise every line is skipped and no peer/block events are processed.
+
+The systemd unit discovered as `NODE_UNIT_NAME` is still used for `After=` ordering and for deriving the cardano-node `config.json` path. Only the value written into config as `node_unit_name` changes meaning in logfile mode.
+
+### Switching an existing install to logfile mode
+
+Edit `${INSTALL_DIR}/config.json` (default `/opt/cardano/openblockperf/config.json`):
+
+1. Set `tracer_log_file` to the absolute path of the active JSON logfile.
+2. Set `node_unit_name` to the tracer JSON `host` value, or to `""` to accept all lines.
+3. Restart the service: `sudo systemctl restart openblockperf.service`
+
+Example:
+
+```json
+{
+  "tracer_log_file": "/opt/cardano/cnode/logs/cnode/node.json",
+  "node_unit_name": "hh-hongkong"
+}
+```
+
+Or, for a dedicated single-node logfile:
+
+```json
+{
+  "tracer_log_file": "/opt/cardano/cnode/logs/cnode/node.json",
+  "node_unit_name": ""
+}
+```
+
+Confirm startup prints `Tracer Log File: ...` and that peer/header events appear shortly after new lines are written. The periodic `peerCountStats` line alone does not prove log parsing is working.
 
 ## API key flow
 
@@ -90,13 +126,19 @@ When a new config file is written, the installer sets:
 - `log_level` (default `WARNING`; valid values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `EXCEPTION`)
 - `node_name`
 - `node_config` (path to cardano-node `config.json`)
-- `node_unit_name` (used to select the cardano-node stream in journald or logfile mode)
+- `node_unit_name` (journald: systemd unit to follow; logfile: line filter, usually JSON `host` or empty)
 - `tracer_log_file` (optional; if set, read tracer JSON from this file and follow rotations)
 - `local_addr` (default `0.0.0.0`)
 - `local_port` (default `3001`)
 
 Optional keys you can add by hand (not written by the installer).
 All of these also accept matching `OPENBLOCKPERF_*` environment variables.
+
+**Shell / CLI convenience:**
+
+- `OPENBLOCKPERF_CONFIG` path to the client config file. Used when `--config`
+  is omitted. The installer wrapper always exports this; the installer can also
+  add it to the service user's `.bashrc` / `.profile` if not already set.
 
 **API discovery and HTTP:**
 
@@ -139,10 +181,13 @@ The client resolves SRV targets as FQDNs and calls
 `https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy
 edges by RTT; `register-ip` / `register-calidus` probe health, shuffle healthy
 edges, and fail over on transport errors or HTTP 5xx.
-Always pass `--config` before those subcommands so the installed config file
-is loaded:
+The installer wrapper exports `OPENBLOCKPERF_CONFIG` to the installed config
+file, so `--config` is optional for CLI use. You can still pass `--config`
+before a subcommand to override:
 
 ```bash
+blockperf register-ip
+# or explicitly:
 <INSTALL_DIR>/venv/bin/blockperf --config ${INSTALL_DIR}/config.json register-ip
 ```
 

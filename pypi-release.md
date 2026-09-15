@@ -12,6 +12,8 @@ but not recommended. In normal operation it runs as a systemd service.
 ## Release notes
 - v0.0.39 - 2026-09-09
   - dual-stack IP registration: prove IPv4/IPv6 via `/registration/ip/proof`, submit proof tokens
+  - CLI uses `OPENBLOCKPERF_CONFIG` when `--config` is omitted (installer wrapper/profile sets it)
+  - API HTTP errors print backend `detail` text (e.g. expressive 400s on register-ip)
   - service mode fails over on HTTP 5xx (e.g. 503 queue full) to the next edge
   - installer checks for an existing install directory before the wizard
   - installer retries relay API key registration up to three times
@@ -47,6 +49,15 @@ curl -fsSL https://raw.githubusercontent.com/cardano-foundation/openblockperf/ma
 chmod +x blockperf-install.sh
 sudo ./blockperf-install.sh
 ```
+
+After the initial install, the best way to pick up new PyPI releases is:
+
+```bash
+sudo ./blockperf-install.sh --update
+```
+
+That upgrades only the `openblockperf` package in the existing virtualenv and
+can restart the systemd service so the running client loads the new version.
 
 ## Documentation
 

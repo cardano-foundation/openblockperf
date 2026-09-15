@@ -323,6 +323,8 @@ async def test_make_request_does_not_failover_on_http_4xx_in_service_mode():
     response.status_code = 400
     response.reason_phrase = "Bad Request"
     response.url = "http://localhost:8000/mainnet/api/v0/submit/blocksample"
+    response.json.return_value = {"detail": "proof hostname mismatch"}
+    response.text = '{"detail":"proof hostname mismatch"}'
     error = httpx.HTTPStatusError("boom", request=request, response=response)
 
     client = AsyncMock()
@@ -332,11 +334,31 @@ async def test_make_request_does_not_failover_on_http_4xx_in_service_mode():
     api._client = client
     api._client_base = pool.current.base_url
 
-    with pytest.raises(ApiError):
+    with pytest.raises(ApiError, match="proof hostname mismatch") as exc_info:
         await api._make_request("POST", "/submit/blocksample")
 
+    assert "400" in str(exc_info.value)
     assert pool.index == 0
     assert client.request.await_count == 1
+
+
+def test_api_error_detail_reads_fastapi_detail_string():
+    from openblockperf.apiclient.base import _api_error_detail
+
+    response = MagicMock()
+    response.json.return_value = {
+        "detail": "IPv4 already registered to another key; cannot merge into dual-stack"
+    }
+    assert "IPv4 already registered" in (_api_error_detail(response) or "")
+
+
+def test_api_error_detail_falls_back_to_text():
+    from openblockperf.apiclient.base import _api_error_detail
+
+    response = MagicMock()
+    response.json.side_effect = ValueError("not json")
+    response.text = "plain backend error"
+    assert _api_error_detail(response) == "plain backend error"
 
 
 @pytest.mark.asyncio
