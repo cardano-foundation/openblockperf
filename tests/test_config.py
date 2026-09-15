@@ -71,6 +71,14 @@ class TestSettingsDefaults:
     def test_default_peer_count_stats_interval_is_300(self, default_settings):
         assert default_settings.peer_count_stats_interval == 300
 
+    def test_default_peer_events_level_is_mid(self, default_settings):
+        from openblockperf.peer_tracker import PeerEventsLevel
+
+        assert default_settings.peer_events_level == PeerEventsLevel.MID
+
+    def test_default_peer_event_stable_seconds_is_15(self, default_settings):
+        assert default_settings.peer_event_stable_seconds == 15
+
     def test_default_obfuscate_ips_is_empty(self, default_settings):
         assert default_settings.obfuscate_ips == []
 
@@ -129,6 +137,18 @@ class TestSettingsOverrides:
         config_file.write_text('{"peer_count_stats_interval": 0}', encoding="utf-8")
         s = AppSettings(_config_file=config_file)
         assert s.peer_count_stats_interval == 0
+
+    def test_peer_events_level_loads_from_json_config(self, tmp_path):
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            '{"peer_events_level": "high", "peer_event_stable_seconds": 30}',
+            encoding="utf-8",
+        )
+        s = AppSettings(_config_file=config_file)
+        from openblockperf.peer_tracker import PeerEventsLevel
+
+        assert s.peer_events_level == PeerEventsLevel.HIGH
+        assert s.peer_event_stable_seconds == 30
 
     def test_obfuscate_ips_load_from_json_config(self, tmp_path):
         config_file = tmp_path / "config.json"

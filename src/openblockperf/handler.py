@@ -21,7 +21,8 @@ from openblockperf.models.events import (
     StatusChangedEvent,
     SwitchedToAForkEvent,
 )
-from openblockperf.models.peer import Peer, PeerDirection, PeerState
+from openblockperf.models.peer import Peer
+from openblockperf.peer_tracker import PeerReport, PeerTracker
 
 # ---------------------------------------------------------------------------
 # How dispatch works in this class
@@ -41,9 +42,8 @@ from openblockperf.models.peer import Peer, PeerDirection, PeerState
 #           PromotedPeerEvent   → _on_peer_promoted
 #           DemotedPeerEvent    → _on_peer_demoted
 #
-# To add a new event type:
-#   1. Add its namespace → model mapping to REGISTERED_NAMESPACES
-#   2. Register a handler with @dispatch_event.register or @dispatch_peer_event.register
+# Peer API submits are decided by PeerTracker (debounce / level / cooling collapse),
+# not by immediate submit on every log line.
 # ---------------------------------------------------------------------------
 
 
@@ -72,13 +72,14 @@ class EventHandler:
     }
 
     block_sample_groups: dict[str, BlockSampleGroup]
-    peers: dict[tuple, Peer]
+    peers: dict[str, Peer]
     api: BlockperfApiClient
+    peer_tracker: PeerTracker
 
     def __init__(
         self,
         block_sample_groups: dict[str, BlockSampleGroup],
-        peers: dict[tuple, Peer],
+        peers: dict[str, Peer],
         api: BlockperfApiClient,
         settings: AppSettings,
     ):
@@ -87,6 +88,12 @@ class EventHandler:
         self.peers = peers
         self.api = api
         self.settings = settings
+        self.peer_tracker = PeerTracker(
+            peers,
+            level=settings.peer_events_level,
+            stable_seconds=settings.peer_event_stable_seconds,
+            traceroute_enabled=settings.peer_traceroute_enabled,
+        )
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -96,6 +103,16 @@ class EventHandler:
         """Parse a raw log dict and dispatch it to the appropriate handler."""
         event = self._make_event_from_message(raw_message)
         return await self.dispatch_event(event)
+
+    async def flush_peer_reports(self) -> int:
+        """Flush debounced peer enters that have remained stable. Returns submit count."""
+        reports = self.peer_tracker.flush_stable()
+        for report in reports:
+            await self._submit_report(report)
+        pruned = self.peer_tracker.prune_cold(self.settings.peer_prune_idle_seconds)
+        if pruned:
+            logger.debug("Pruned idle cold peers", count=pruned)
+        return len(reports)
 
     # ------------------------------------------------------------------
     # Internal: parsing
@@ -142,30 +159,38 @@ class EventHandler:
 
     @dispatch_event.register
     async def _on_peer_event(self, event: PeerEvent):
-        """Update peer state, then forward to the Level 2 peer-event dispatcher."""
+        """Update peer state via PeerTracker, then run subtype logging hooks."""
+        if not self.peer_tracker.enabled():
+            return
 
-        if event.key not in self.peers:
-            self.peers[event.key] = Peer(
-                ns=event.ns,
-                remote_addr=event.remote_addr,
-                remote_port=event.remote_port,
-                local_addr=event.local_addr,
-                local_port=event.local_port,
-            )
-        peer = self.peers[event.key]
-
-        direction = PeerDirection(event.direction)
-        if direction == PeerDirection.INBOUND:
-            peer.state_inbound = PeerState(event.state)
-        if direction == PeerDirection.OUTBOUND:
-            peer.state_outbound = PeerState(event.state)
-
-        peer.last_updated = datetime.now()
         self._log_peer_status_change(event)
-        logger.debug(f"Dispatching peer event, runtime type: {type(event).__name__}, ns: {event.ns}", event=event)
-        # Make sure the event is the first argument for singledispatch to be able to
-        # properly distinguish between the types.
-        await self.dispatch_peer_event(event, peer)  # → Level 2
+        reports = self.peer_tracker.apply_event(event)
+        for report in reports:
+            await self._submit_report(report)
+
+        peer = self.peers.get(event.key)
+        if peer is not None:
+            logger.debug(
+                f"Dispatching peer event, runtime type: {type(event).__name__}, ns: {event.ns}",
+                event=event,
+            )
+            await self.dispatch_peer_event(event, peer)
+
+    async def _submit_report(self, report: PeerReport) -> None:
+        if not report.change_type.is_reportable():
+            return
+        logger.opt(raw=True).info(
+            f"{report.peer.remote_addr} {report.direction.value} "
+            f"{report.change_type.value} duplex={report.peer.duplex}\n"
+        )
+        await self.api.submit_peer_report(
+            peer=report.peer,
+            at=report.at,
+            direction=report.direction.value,
+            change_type=report.change_type.value,
+            last_state=report.state,
+            remote_port=report.remote_port,
+        )
 
     def _log_peer_status_change(self, event: PeerEvent) -> None:
         """Compact journal line: remote IP and old > new status."""
@@ -181,7 +206,7 @@ class EventHandler:
         logger.debug("InboundGovernorCountersEvent", event=event)
 
     # ------------------------------------------------------------------
-    # Level 2 dispatch — routes PeerEvent subtypes after state update
+    # Level 2 dispatch — subtype hooks after tracker update (no direct submit)
     # ------------------------------------------------------------------
 
     @singledispatchmethod
@@ -192,16 +217,11 @@ class EventHandler:
     @dispatch_peer_event.register
     async def _on_peer_status_changed(self, event: StatusChangedEvent, peer: Peer):
         logger.debug("Peer status changed", event=event, peer=peer)
-        await self.api.submit_peer_event(peer, event)
 
     @dispatch_peer_event.register
     async def _on_peer_promoted(self, event: PromotedPeerEvent, peer: Peer):
         logger.debug("Peer promoted", event=event, peer=peer)
-        assert isinstance(event, PromotedPeerEvent), "Event must be PromotedPeerEvent"
-        await self.api.submit_peer_event(peer, event)
 
     @dispatch_peer_event.register
     async def _on_peer_demoted(self, event: DemotedPeerEvent, peer: Peer):
         logger.debug("Peer demoted", event=event, peer=peer)
-        assert isinstance(event, DemotedPeerEvent), "Event must be DemotedPeerEvent"
-        await self.api.submit_peer_event(peer, event)

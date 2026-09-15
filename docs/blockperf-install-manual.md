@@ -140,6 +140,15 @@ Optional keys (not written above; defaults apply if omitted). Matching
 - `peer_count_stats_interval` (default `300`) seconds between
   `peerCountStats` log lines; `0` disables them
 
+**Peer events:**
+
+- `peer_events_level` (default `mid`) `off` | `low` | `mid` | `high`
+- `peer_event_stable_seconds` (default `15`)
+- `peer_traceroute_enabled` (default `false`)
+- `peer_prune_idle_seconds` (default `600`)
+
+See peers.md for what each level means.
+
 ## 7) Write systemd service unit
 
 Create the same service unit the installer generates.

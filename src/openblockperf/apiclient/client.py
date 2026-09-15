@@ -184,16 +184,37 @@ class BlockperfApiClient:
 
         Needs to create the 'PeerEventRequest' form the backend.
         """
-        per = PeerEventRequest(
+        await self.submit_peer_report(
+            peer=peer,
             at=event.at,
             direction=event.direction,
+            change_type=event.change_type.value,
+            last_state=event.state,
+            remote_port=peer.remote_port,
+        )
+
+    async def submit_peer_report(
+        self,
+        *,
+        peer: Peer,
+        at,
+        direction: str,
+        change_type: str,
+        last_state: str,
+        remote_port: int,
+    ):
+        """Submit a debounced/collapsed peer report to the backend."""
+        per = PeerEventRequest(
+            at=at,
+            direction=direction if isinstance(direction, str) else direction.value,
             local_addr=self._obfuscate(peer.local_addr),
             local_port=peer.local_port,
             remote_addr=self._obfuscate(peer.remote_addr),
-            remote_port=peer.remote_port,
-            change_type=event.change_type.value,
-            last_seen=event.at.isoformat(),
-            last_state=event.state,
+            remote_port=remote_port,
+            change_type=change_type,
+            last_seen=at,
+            last_state=last_state,
+            duplex=peer.duplex,
         )
         logger.debug("Sending PeerEvent", request=per)
         await self._api.post("/submit/peerevent", per)

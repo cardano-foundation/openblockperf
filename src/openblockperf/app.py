@@ -55,7 +55,7 @@ class Blockperf:
     tasks: dict[str, asyncio.Task]  # Holds all apps tasks
     since_hours: int
     block_sample_groups: dict[str, BlockSampleGroup]  # Groups of block samples
-    peers: dict[tuple, Peer]  # The nodes peer list (actually a dictionary)
+    peers: dict[str, Peer]  # The nodes peer list keyed by remote IP
     replaying: bool
     node_synced_event: asyncio.Event
     clientinfo_sent: bool  # Use asyncio.Event if another task is waiting for this
@@ -105,6 +105,7 @@ class Blockperf:
                 # self.create_task(self.testapi_task, tg)
                 self.create_task(self.send_block_samples_task, tg)
                 self.create_task(self.print_peer_statistics_task, tg)
+                self.create_task(self.flush_peer_reports_task, tg)
                 self.create_task(self.monitor_sync_state_task, tg)
                 self.create_task(self.refresh_api_endpoints_task, tg)
 
@@ -351,6 +352,17 @@ class Blockperf:
             except ApiError as e:
                 logger.error(f"Error sending blocksamples: {e!r}")
 
+    async def flush_peer_reports_task(self) -> None:
+        """Flush debounced stable peer enters and prune idle cold peers."""
+        if self.settings.peer_events_level.value == "off":
+            return
+        while True:
+            await asyncio.sleep(1)
+            try:
+                await self.handler.flush_peer_reports()
+            except ApiError as e:
+                logger.error(f"Error flushing peer reports: {e!r}")
+
     async def print_peer_statistics_task(self):
         """Log peerCountStats periodically. Disabled when the interval is 0."""
         interval = self.settings.peer_count_stats_interval
@@ -370,6 +382,7 @@ class Blockperf:
             out_cooling = [p for p in peers if p.state_outbound == PeerState.COOLING]  # fmt: off
             in_unknown = [p for p in peers if p.state_inbound == PeerState.UNKNOWN]  # fmt: off
             out_unknown = [p for p in peers if p.state_outbound == PeerState.UNKNOWN]
+            duplex = [p for p in peers if p.duplex]
             log_json_event(
                 "peerCountStats",
                 in_cold=len(in_cold),
@@ -382,7 +395,9 @@ class Blockperf:
                 out_cooling=len(out_cooling),
                 in_unknown=len(in_unknown),
                 out_unknown=len(out_unknown),
+                duplex=len(duplex),
                 total_peers=len(self.peers),
+                peer_events_level=self.settings.peer_events_level.value,
             )
 
     async def testapi_task(self):

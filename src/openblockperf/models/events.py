@@ -342,10 +342,29 @@ class StartedEvent(BaseEvent):
 
 
 class PeerEventChangeType(enum.Enum):
+    """Temperature transitions.
+
+    Cooling variants are parsed and tracked client-side only. They are never
+    submitted to the backend; the peer tracker collapses them into leave
+    reports using the four reportable values below.
+    """
+
     COLD_WARM = "cold_to_warm"
     WARM_HOT = "warm_to_hot"
     HOT_WARM = "hot_to_warm"
     WARM_COLD = "warm_to_cold"
+    # Client-internal only (StatusChanged Cooling path)
+    HOT_COOLING = "hot_to_cooling"
+    WARM_COOLING = "warm_to_cooling"
+    COOLING_COLD = "cooling_to_cold"
+
+    def is_reportable(self) -> bool:
+        return self in {
+            PeerEventChangeType.COLD_WARM,
+            PeerEventChangeType.WARM_HOT,
+            PeerEventChangeType.HOT_WARM,
+            PeerEventChangeType.WARM_COLD,
+        }
 
 
 class PeerEvent(BaseEvent):
@@ -520,13 +539,14 @@ class PeerEvent(BaseEvent):
         except ValueError as e:
             raise ValueError(f"Invalid IP address in connection string: {e}") from e
 
-        # Assuming the StatusChange is alwasy from the local peer
+        # PeerSelection StatusChanged is the outbound governor view.
         direction = "outbound"
 
-        # Change Type
-        #
-
-        data["change_type"] = PeerEventChangeType(f"{from_state.lower()}_to_{to_state.lower()}")
+        change_key = f"{from_state.lower()}_to_{to_state.lower()}"
+        try:
+            data["change_type"] = PeerEventChangeType(change_key)
+        except ValueError as e:
+            raise ValueError(f"Unsupported peer status transition: {change_key}") from e
 
         # Pack everything back into data and return
         data["state"] = to_state
@@ -538,9 +558,9 @@ class PeerEvent(BaseEvent):
         return data
 
     @property
-    def key(self):
-        """Returns the key for this peer whihc is a tuple of the remote addr and port."""
-        return (self.remote_addr, self.remote_port)
+    def key(self) -> str:
+        """Peer identity is the remote IP (inbound ephemeral ports are ignored)."""
+        return self.remote_addr
 
     def __repr__(self):
         # Shouldn't this be better be the namespace? instead of just generic PeerEvent?

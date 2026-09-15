@@ -16,10 +16,13 @@ class PeerEventRequest(BaseModel):
     local_addr: str
     local_port: int
     remote_addr: str
-    remote_port: int
-    change_type: str  # Any of app.models.PeerStatusChangeType
+    # 0 = unknown / not applicable. Inbound peers intentionally omit ephemeral ports.
+    remote_port: int = 0
+    change_type: str  # Any of app.models.PeerStatusChangeType (reportable four only)
     last_seen: datetime
     last_state: str
+    # True when this remote IP is Warm/Hot on both inbound and outbound at once.
+    duplex: bool = False
 
 
 class PeerEventResponse(BaseModel):

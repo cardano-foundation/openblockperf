@@ -6,8 +6,9 @@ can be categorize into three main parts.
 
 * **Block timings** is about measuring different times regarding to a specific block.
     See blocksamples.md
-* **Node Peers** is about monitoring the peers a node is connected to.
-    See peers.md
+* **Node Peers** is about monitoring the peers a node is connected to
+    (debounced Hot/Warm reporting levels). See peers.md.
+    Backend ingest notes: backend-peer-events.md
 * **Transactions** is about the transactions this node sees and has seen.
     Transactions have not been implemented yet
 

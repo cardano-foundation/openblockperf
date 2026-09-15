@@ -13,6 +13,8 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from openblockperf.peer_tracker import PeerEventsLevel
+
 DEFAULT_API_SRV = "_obpf._tcp.network.cardano.org"
 
 
@@ -52,6 +54,14 @@ class AppSettings(BaseSettings):
     api_request_retries: int = Field(default=2, ge=0)
     # How often to log peerCountStats (seconds). 0 disables that log line.
     peer_count_stats_interval: int = Field(default=300, ge=0)
+    # Peer event reporting detail: off | low | mid | high (default mid = stable hot only).
+    peer_events_level: PeerEventsLevel = Field(default=PeerEventsLevel.MID)
+    # Seconds a Warm/Hot state must remain before it is reported (enter debounce).
+    peer_event_stable_seconds: int = Field(default=15, ge=0)
+    # Optional traceroute on new established peers (orthogonal to peer_events_level).
+    peer_traceroute_enabled: bool = False
+    # Drop fully inactive peers from the local list after this many idle seconds.
+    peer_prune_idle_seconds: int = Field(default=600, ge=60)
     block_sample_check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
     node_name: str = socket.gethostname()  # This clients hostname

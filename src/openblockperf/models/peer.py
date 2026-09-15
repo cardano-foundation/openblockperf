@@ -56,9 +56,11 @@ class Peer(BaseModel):
     local_addr: str
     local_port: int
     remote_addr: str  # IP address of the remote
-    remote_port: int  # Port number of remote
+    remote_port: int  # Outbound service port when known; 0 if inbound-only / unknown
     state_inbound: PeerState = PeerState.UNCONNECTED
     state_outbound: PeerState = PeerState.UNCONNECTED
+    # True when inbound and outbound temperatures are both Warm or Hot at once.
+    duplex: bool = False
     last_updated: datetime = field(default_factory=datetime.now)
     geo_info: dict | None = None
     probe_results: dict | None = None

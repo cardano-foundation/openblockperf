@@ -1,56 +1,65 @@
 # Tracking peers
 
-The client tracks the nodes peers by reading through the nodes logs.
-We are interested in all the peers the node is connected to. But also
-when these peers change their states. That is
+The client watches cardano-node tracer logs for peer temperature changes
+(Cold / Warm / Hot) and reports a **debounced** view of who this node is
+actually connected to.
 
+Cardano peer temperatures (simplified):
 
+* **Cold** – known peer, no useful connection yet (not reported as an “active” peer)
+* **Warm** – TCP + handshake / established connection, not fully active
+* **Hot** – active mini-protocols (ChainSync, BlockFetch, …) – this is what
+  block samples are correlated against
+* **Cooling** – short teardown state inside the node; tracked only inside the
+  client, never sent to the backend
 
-## Peer status changes
+## Reporting levels (`peer_events_level`)
 
+| Level | Meaning |
+|-------|---------|
+| `off` | Do not parse or submit peer temperature events |
+| `low` | Keep a local peer picture for stats; do not submit temperature changes |
+| `mid` (default) | Submit **stable Hot** enters (after debounce) and Hot leaves immediately |
+| `high` | Like `mid`, plus **stable Warm** enters |
 
+`peer_traceroute_enabled` is a separate switch (any level except when peer
+events are off). Traceroute enrichment is optional and not required for
+normal operation.
 
-* Every peer can be in one of many states. See `openblockperf.models:PeerState`
-* A peer is either outbound or inbound. That is either the node connected
-    to the peer or the peer connected to the node. See `openblockperf.models:PeerDirection`
+### Debounce (`peer_event_stable_seconds`, default `15`)
 
+A Warm/Hot **enter** is submitted only if that temperature stays in place for
+N seconds. Short Cold→Warm→Hot flickers collapse to a single Hot enter when
+possible. **Leaves** are submitted immediately once a previously reported
+temperature is gone.
 
-## Peers from the OS
+## Inbound vs outbound
 
-When the client starts, the node will probably already run. The client
-looks at the current active network connections of the node. It then adds
-peers for each connection (if not already in peers list) with the state "UNKNOWN".
+* **Outbound** – this node initiated toward a remote relay (service port kept)
+* **Inbound** – remote side toward this node (ephemeral remote ports are **not**
+  used as identity; reports use `remote_port = 0`)
+* **Duplex** – same remote IP is Warm/Hot on both directions at once
+  (`duplex: true` on the peer event)
 
-Only when a peer sees a status change (or for some other reasons shows up in the
-event logs) the status can be set. Therfor i think we need to implement a
-mechanism that goes through the old logs and searches for that peer. To then
-set the peers state accordingly. https://github.com/cardano-foundation/openblockperf/issues/5
+Peers are keyed by **remote IP**, not by ephemeral `ip:port`.
 
-The above is implemented in a task `task_update_peers` which is running
-every 30 seconds. But it should also check that the peers in the client
-somewhat match the connections seen on the host. Thus it removes those
-peers from the peers list for which it can not find any established(!)
-connection.
+## Local stats
 
+`peerCountStats` (interval `peer_count_stats_interval`) logs current in/out
+Warm/Hot/Cold/Cooling counts plus duplex and the active `peer_events_level`.
+Idle fully-inactive peers are pruned after `peer_prune_idle_seconds`.
 
-## Peer Messages
+## Operator config (examples)
 
-There are the following messages in the logs. Many of the are self explanatory.
-The StatusChanged needs more explanation
+```json
+{
+  "peer_events_level": "mid",
+  "peer_event_stable_seconds": 15,
+  "peer_traceroute_enabled": false,
+  "peer_count_stats_interval": 300,
+  "peer_prune_idle_seconds": 600
+}
+```
 
-### StatusChangedEvent
-
-* The status change is encoded in the message of the `peerStatusChangeType` field.
-* Represents state changes for existing connections and new connections.
-* Holds a state transition which can be on of the possible Transitions
-
-### PromotedToWarmRemoteEvent
-
-### PromotedToHotRemoteEvent
-
-### DemotedToColdRemoteEvent
-
-### DemotedToWarmRemoteEvent
-
-### InboundGovernorCountersEvent
-
+Environment variables use the `OPENBLOCKPERF_` prefix, for example
+`OPENBLOCKPERF_PEER_EVENTS_LEVEL=high`.

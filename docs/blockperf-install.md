@@ -177,6 +177,17 @@ All of these also accept matching `OPENBLOCKPERF_*` environment variables.
 - `peer_count_stats_interval` (default `300`) seconds between `peerCountStats`
   log lines; `0` disables them
 
+**Peer events:**
+
+- `peer_events_level` (default `mid`) `off` | `low` | `mid` | `high`.
+  Default `mid` reports stable Hot peers only. `high` also reports stable Warm.
+  See [peers.md](peers.md).
+- `peer_event_stable_seconds` (default `15`) how long Warm/Hot must last before
+  an enter is submitted
+- `peer_traceroute_enabled` (default `false`) optional traceroute enrichment
+- `peer_prune_idle_seconds` (default `600`) drop fully inactive peers from the
+  local list after this idle time
+
 The client resolves SRV targets as FQDNs and calls
 `https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy
 edges by RTT; `register-ip` / `register-calidus` probe health, shuffle healthy
