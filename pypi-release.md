@@ -10,6 +10,15 @@ producer and the rest of the network. Running it on a producer is possible
 but not recommended. In normal operation it runs as a systemd service.
 
 ## Release notes
+- v0.0.40 - 2026-09-15
+  - peer events: debounced reporting by level (`off` / `low` / `mid` / `high`, default `mid` = stable Hot)
+  - peer enters wait `peer_event_stable_seconds` (default 15); leaves reported immediately
+  - Cooling tracked client-side only; not submitted to the backend
+  - peers keyed by remote IP; inbound reports `remote_port=0` (no ephemeral ports)
+  - peer submit payload adds optional `duplex` when both directions are Warm/Hot
+  - journal: only submitted peer lines (`IP direction change_type duplex=...`), no parse spam
+  - `peerCountStats` logs after counters settle (`peer_count_stats_interval` default 5s); `0` disables
+  - CLI: global `--version` / `-V` in addition to `blockperf version`
 - v0.0.39 - 2026-09-09
   - dual-stack IP registration: prove IPv4/IPv6 via `/registration/ip/proof`, submit proof tokens
   - CLI uses `OPENBLOCKPERF_CONFIG` when `--config` is omitted (installer wrapper/profile sets it)
