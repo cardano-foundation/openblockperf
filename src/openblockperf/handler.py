@@ -163,7 +163,6 @@ class EventHandler:
         if not self.peer_tracker.enabled():
             return
 
-        self._log_peer_status_change(event)
         reports = self.peer_tracker.apply_event(event)
         for report in reports:
             await self._submit_report(report)
@@ -191,15 +190,6 @@ class EventHandler:
             last_state=report.state,
             remote_port=report.remote_port,
         )
-
-    def _log_peer_status_change(self, event: PeerEvent) -> None:
-        """Compact journal line: remote IP and old > new status."""
-        transition = event.change_type.value.split("_to_", 1)
-        if len(transition) != 2:
-            return
-        old_state, new_state = transition
-        # Compact journal line without datetime/level/module prefix.
-        logger.opt(raw=True).info(f"{event.remote_addr} {old_state} > {new_state}\n")
 
     @dispatch_event.register
     async def _on_inbound_governor_counters(self, event: InboundGovernorCountersEvent):

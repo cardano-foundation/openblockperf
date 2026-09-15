@@ -81,7 +81,9 @@ Or, for a dedicated single-node logfile:
 }
 ```
 
-Confirm startup prints `Tracer Log File: ...` and that peer/header events appear shortly after new lines are written. The periodic `peerCountStats` line alone does not prove log parsing is working.
+Confirm startup prints `Tracer Log File: ...` and that header/blocksample
+or peer submit lines (`outbound`/`inbound` … `duplex=`) appear shortly after
+new tracer activity. A quiet journal alone does not prove log parsing is working.
 
 ## API key flow
 
@@ -174,8 +176,8 @@ All of these also accept matching `OPENBLOCKPERF_*` environment variables.
   complete block-sample groups
 - `min_age` (default `10`) seconds a complete sample group must age before
   submit
-- `peer_count_stats_interval` (default `300`) seconds between `peerCountStats`
-  log lines; `0` disables them
+- `peer_count_stats_interval` (default `5`) seconds to wait after peer
+  counters change before logging `peerCountStats` (debounce); `0` disables
 
 **Peer events:**
 

@@ -45,9 +45,10 @@ Peers are keyed by **remote IP**, not by ephemeral `ip:port`.
 
 ## Local stats
 
-`peerCountStats` (interval `peer_count_stats_interval`) logs current in/out
-Warm/Hot/Cold/Cooling counts plus duplex and the active `peer_events_level`.
-Idle fully-inactive peers are pruned after `peer_prune_idle_seconds`.
+`peerCountStats` is logged a few seconds after the local peer counters
+change (`peer_count_stats_interval` is that settle/debounce delay; default
+`5`, `0` disables). Idle fully-inactive peers are pruned after
+`peer_prune_idle_seconds`.
 
 ## Operator config (examples)
 
@@ -56,7 +57,7 @@ Idle fully-inactive peers are pruned after `peer_prune_idle_seconds`.
   "peer_events_level": "mid",
   "peer_event_stable_seconds": 15,
   "peer_traceroute_enabled": false,
-  "peer_count_stats_interval": 300,
+  "peer_count_stats_interval": 5,
   "peer_prune_idle_seconds": 600
 }
 ```

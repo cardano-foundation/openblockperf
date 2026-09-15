@@ -273,8 +273,8 @@ local_port: 3001
 Additional optional keys (not set by the installer) include `api_srv`,
 `api_url`, `ekg_url`, `sync_check_enabled`, `sync_check_threshold`,
 `api_request_timeout_ms` (default `8000`), `api_request_retries`
-(default `2`), `peer_count_stats_interval` (default `300` seconds;
-set `0` to disable `peerCountStats` log lines), and `obfuscate_ips`
+(default `2`), `peer_count_stats_interval` (default `5` seconds settle
+delay after peer counters change; set `0` to disable `peerCountStats` log lines), and `obfuscate_ips`
 (extra addresses never sent to the backend; private/loopback/link-local
 ranges are always replaced with `0.0.0.0`).
 

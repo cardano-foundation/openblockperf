@@ -364,41 +364,102 @@ class Blockperf:
                 logger.error(f"Error flushing peer reports: {e!r}")
 
     async def print_peer_statistics_task(self):
-        """Log peerCountStats periodically. Disabled when the interval is 0."""
-        interval = self.settings.peer_count_stats_interval
-        if interval <= 0:
-            return
-        while True:
-            await asyncio.sleep(interval)
-            peers = self.peers.values()
+        """Log peerCountStats a few seconds after counters change (debounced).
 
-            in_cold = [p for p in peers if p.state_inbound == PeerState.COLD]
-            out_cold = [p for p in peers if p.state_outbound == PeerState.COLD]
-            in_warm = [p for p in peers if p.state_inbound == PeerState.WARM]
-            out_warm = [p for p in peers if p.state_outbound == PeerState.WARM]
-            in_hot = [p for p in peers if p.state_inbound == PeerState.HOT]
-            out_hot = [p for p in peers if p.state_outbound == PeerState.HOT]
-            in_cooling = [p for p in peers if p.state_inbound == PeerState.COOLING]
-            out_cooling = [p for p in peers if p.state_outbound == PeerState.COOLING]  # fmt: off
-            in_unknown = [p for p in peers if p.state_inbound == PeerState.UNKNOWN]  # fmt: off
-            out_unknown = [p for p in peers if p.state_outbound == PeerState.UNKNOWN]
-            duplex = [p for p in peers if p.duplex]
-            log_json_event(
-                "peerCountStats",
-                in_cold=len(in_cold),
-                out_cold=len(out_cold),
-                in_warm=len(in_warm),
-                out_warm=len(out_warm),
-                in_hot=len(in_hot),
-                out_hot=len(out_hot),
-                in_cooling=len(in_cooling),
-                out_cooling=len(out_cooling),
-                in_unknown=len(in_unknown),
-                out_unknown=len(out_unknown),
-                duplex=len(duplex),
-                total_peers=len(self.peers),
-                peer_events_level=self.settings.peer_events_level.value,
-            )
+        Disabled when peer_count_stats_interval is 0. The setting is the settle
+        delay after the last change, not a fixed periodic interval.
+        """
+        settle = self.settings.peer_count_stats_interval
+        if settle <= 0:
+            return
+
+        last_emitted: tuple | None = None
+        pending: tuple | None = None
+        pending_since: float | None = None
+
+        while True:
+            await asyncio.sleep(1)
+            snapshot = self._peer_count_snapshot()
+            now = asyncio.get_running_loop().time()
+
+            # Baseline without logging so we only emit after a real change.
+            if last_emitted is None:
+                last_emitted = snapshot
+                continue
+
+            if snapshot != last_emitted:
+                if snapshot != pending:
+                    pending = snapshot
+                    pending_since = now
+                elif pending_since is not None and (now - pending_since) >= settle:
+                    self._log_peer_count_stats(snapshot)
+                    last_emitted = snapshot
+                    pending = None
+                    pending_since = None
+            else:
+                pending = None
+                pending_since = None
+
+    def _peer_count_snapshot(self) -> tuple:
+        """Hashable peer temperature counters for change detection."""
+        peers = self.peers.values()
+        in_cold = sum(1 for p in peers if p.state_inbound == PeerState.COLD)
+        out_cold = sum(1 for p in peers if p.state_outbound == PeerState.COLD)
+        in_warm = sum(1 for p in peers if p.state_inbound == PeerState.WARM)
+        out_warm = sum(1 for p in peers if p.state_outbound == PeerState.WARM)
+        in_hot = sum(1 for p in peers if p.state_inbound == PeerState.HOT)
+        out_hot = sum(1 for p in peers if p.state_outbound == PeerState.HOT)
+        in_cooling = sum(1 for p in peers if p.state_inbound == PeerState.COOLING)
+        out_cooling = sum(1 for p in peers if p.state_outbound == PeerState.COOLING)
+        in_unknown = sum(1 for p in peers if p.state_inbound == PeerState.UNKNOWN)
+        out_unknown = sum(1 for p in peers if p.state_outbound == PeerState.UNKNOWN)
+        duplex = sum(1 for p in peers if p.duplex)
+        return (
+            in_cold,
+            out_cold,
+            in_warm,
+            out_warm,
+            in_hot,
+            out_hot,
+            in_cooling,
+            out_cooling,
+            in_unknown,
+            out_unknown,
+            duplex,
+            len(self.peers),
+        )
+
+    def _log_peer_count_stats(self, snapshot: tuple) -> None:
+        (
+            in_cold,
+            out_cold,
+            in_warm,
+            out_warm,
+            in_hot,
+            out_hot,
+            in_cooling,
+            out_cooling,
+            in_unknown,
+            out_unknown,
+            duplex,
+            total_peers,
+        ) = snapshot
+        log_json_event(
+            "peerCountStats",
+            in_cold=in_cold,
+            out_cold=out_cold,
+            in_warm=in_warm,
+            out_warm=out_warm,
+            in_hot=in_hot,
+            out_hot=out_hot,
+            in_cooling=in_cooling,
+            out_cooling=out_cooling,
+            in_unknown=in_unknown,
+            out_unknown=out_unknown,
+            duplex=duplex,
+            total_peers=total_peers,
+            peer_events_level=self.settings.peer_events_level.value,
+        )
 
     async def testapi_task(self):
         while True:

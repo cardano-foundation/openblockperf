@@ -137,8 +137,8 @@ Optional keys (not written above; defaults apply if omitted). Matching
   group checks
 - `min_age` (default `10`) seconds a complete sample group must age before
   submit
-- `peer_count_stats_interval` (default `300`) seconds between
-  `peerCountStats` log lines; `0` disables them
+- `peer_count_stats_interval` (default `5`) settle delay in seconds after
+  peer counters change before logging `peerCountStats`; `0` disables them
 
 **Peer events:**
 

@@ -52,8 +52,9 @@ class AppSettings(BaseSettings):
     api_request_timeout_ms: int = Field(default=8000, ge=1)
     # Extra retries on the same host after the first failed attempt (timeouts/connection errors)
     api_request_retries: int = Field(default=2, ge=0)
-    # How often to log peerCountStats (seconds). 0 disables that log line.
-    peer_count_stats_interval: int = Field(default=300, ge=0)
+    # Seconds to wait after peerCountStats counters change before logging.
+    # Resets while counters keep changing (debounce). 0 disables peerCountStats.
+    peer_count_stats_interval: int = Field(default=5, ge=0)
     # Peer event reporting detail: off | low | mid | high (default mid = stable hot only).
     peer_events_level: PeerEventsLevel = Field(default=PeerEventsLevel.MID)
     # Seconds a Warm/Hot state must remain before it is reported (enter debounce).

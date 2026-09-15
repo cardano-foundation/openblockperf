@@ -68,8 +68,8 @@ class TestSettingsDefaults:
     def test_default_api_request_retries_is_two(self, default_settings):
         assert default_settings.api_request_retries == 2
 
-    def test_default_peer_count_stats_interval_is_300(self, default_settings):
-        assert default_settings.peer_count_stats_interval == 300
+    def test_default_peer_count_stats_interval_is_5(self, default_settings):
+        assert default_settings.peer_count_stats_interval == 5
 
     def test_default_peer_events_level_is_mid(self, default_settings):
         from openblockperf.peer_tracker import PeerEventsLevel
