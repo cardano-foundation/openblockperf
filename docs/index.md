@@ -9,6 +9,7 @@ can be categorize into three main parts.
 * **Node Peers** is about monitoring the peers a node is connected to
     (debounced Hot/Warm reporting levels). See peers.md.
     Backend ingest notes: backend-peer-events.md
+    Local metrics / gLiveView plans: local-peer-metrics.md
 * **Transactions** is about the transactions this node sees and has seen.
     Transactions have not been implemented yet
 

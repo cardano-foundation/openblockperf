@@ -63,6 +63,11 @@ class AppSettings(BaseSettings):
     peer_traceroute_enabled: bool = False
     # Drop fully inactive peers from the local list after this many idle seconds.
     peer_prune_idle_seconds: int = Field(default=600, ge=60)
+    # Local peer metrics HTTP (Prometheus + JSON). Off by default; bind localhost.
+    local_metrics_enabled: bool = False
+    local_metrics_bind: str = "127.0.0.1"
+    # 14041: avoid cardano-node 12798 and Prometheus default 9090.
+    local_metrics_port: int = Field(default=14041, ge=1, le=65535)
     block_sample_check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
     node_name: str = socket.gethostname()  # This clients hostname

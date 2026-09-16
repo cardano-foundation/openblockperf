@@ -79,6 +79,11 @@ class TestSettingsDefaults:
     def test_default_peer_event_stable_seconds_is_15(self, default_settings):
         assert default_settings.peer_event_stable_seconds == 15
 
+    def test_default_local_metrics_port_is_14041(self, default_settings):
+        assert default_settings.local_metrics_enabled is False
+        assert default_settings.local_metrics_bind == "127.0.0.1"
+        assert default_settings.local_metrics_port == 14041
+
     def test_default_obfuscate_ips_is_empty(self, default_settings):
         assert default_settings.obfuscate_ips == []
 

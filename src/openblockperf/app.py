@@ -413,7 +413,7 @@ class Blockperf:
         out_cooling = sum(1 for p in peers if p.state_outbound == PeerState.COOLING)
         in_unknown = sum(1 for p in peers if p.state_inbound == PeerState.UNKNOWN)
         out_unknown = sum(1 for p in peers if p.state_outbound == PeerState.UNKNOWN)
-        duplex = sum(1 for p in peers if p.duplex)
+        diag = self.handler.peer_tracker.diagnostic_counts()
         return (
             in_cold,
             out_cold,
@@ -425,8 +425,17 @@ class Blockperf:
             out_cooling,
             in_unknown,
             out_unknown,
-            duplex,
+            diag["duplex_live"],
             len(self.peers),
+            diag["in_warm_reported"],
+            diag["out_warm_reported"],
+            diag["in_hot_reported"],
+            diag["out_hot_reported"],
+            diag["in_warm_pending"],
+            diag["out_warm_pending"],
+            diag["in_hot_pending"],
+            diag["out_hot_pending"],
+            diag["duplex_reported"],
         )
 
     def _log_peer_count_stats(self, snapshot: tuple) -> None:
@@ -443,7 +452,17 @@ class Blockperf:
             out_unknown,
             duplex,
             total_peers,
+            in_warm_reported,
+            out_warm_reported,
+            in_hot_reported,
+            out_hot_reported,
+            in_warm_pending,
+            out_warm_pending,
+            in_hot_pending,
+            out_hot_pending,
+            duplex_reported,
         ) = snapshot
+        # live_* aliases: in_warm/in_hot/... are the live FSM counts (nearer node/gLiveView).
         log_json_event(
             "peerCountStats",
             in_cold=in_cold,
@@ -458,6 +477,15 @@ class Blockperf:
             out_unknown=out_unknown,
             duplex=duplex,
             total_peers=total_peers,
+            in_warm_reported=in_warm_reported,
+            out_warm_reported=out_warm_reported,
+            in_hot_reported=in_hot_reported,
+            out_hot_reported=out_hot_reported,
+            in_warm_pending=in_warm_pending,
+            out_warm_pending=out_warm_pending,
+            in_hot_pending=in_hot_pending,
+            out_hot_pending=out_hot_pending,
+            duplex_reported=duplex_reported,
             peer_events_level=self.settings.peer_events_level.value,
         )
 

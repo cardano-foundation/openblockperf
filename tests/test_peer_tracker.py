@@ -163,6 +163,22 @@ class TestPeerTrackerDebounce:
         assert tracker.apply_event(hot) == []
         assert peers == {}
 
+    def test_diagnostic_counts_live_pending_reported(self):
+        peers = {}
+        tracker = PeerTracker(peers, level=PeerEventsLevel.MID, stable_seconds=15)
+        hot = _status_changed(at="2026-09-15T19:00:00.000000Z", transition="WarmToHot")
+        assert tracker.apply_event(hot) == []
+        diag = tracker.diagnostic_counts()
+        assert diag["out_hot_live"] == 1
+        assert diag["out_hot_pending"] == 1
+        assert diag["out_hot_reported"] == 0
+        reports = tracker.flush_stable(now=datetime(2026, 9, 15, 19, 0, 20, tzinfo=UTC))
+        assert len(reports) == 1
+        diag = tracker.diagnostic_counts()
+        assert diag["out_hot_live"] == 1
+        assert diag["out_hot_pending"] == 0
+        assert diag["out_hot_reported"] == 1
+
     def test_prune_removes_idle_cold(self):
         peers = {}
         tracker = PeerTracker(peers, level=PeerEventsLevel.MID, stable_seconds=0)

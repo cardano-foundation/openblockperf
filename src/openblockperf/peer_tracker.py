@@ -358,3 +358,55 @@ class PeerTracker:
             self._tracks.pop(key, None)
             removed += 1
         return removed
+
+    def diagnostic_counts(self) -> dict[str, int]:
+        """Live vs reported vs pending Warm/Hot counts for operator diagnostics.
+
+        * live_*     – current FSM temperature (every parsed event)
+        * reported_* – temperatures already submitted to the backend (debounce passed)
+        * pending_*  – waiting for peer_event_stable_seconds before submit
+        """
+        counts = {
+            "in_warm_live": 0,
+            "out_warm_live": 0,
+            "in_hot_live": 0,
+            "out_hot_live": 0,
+            "in_warm_reported": 0,
+            "out_warm_reported": 0,
+            "in_hot_reported": 0,
+            "out_hot_reported": 0,
+            "in_warm_pending": 0,
+            "out_warm_pending": 0,
+            "in_hot_pending": 0,
+            "out_hot_pending": 0,
+            "duplex_live": 0,
+            "duplex_reported": 0,
+        }
+        for key, peer in self.peers.items():
+            if peer.state_inbound == PeerState.WARM:
+                counts["in_warm_live"] += 1
+            elif peer.state_inbound == PeerState.HOT:
+                counts["in_hot_live"] += 1
+            if peer.state_outbound == PeerState.WARM:
+                counts["out_warm_live"] += 1
+            elif peer.state_outbound == PeerState.HOT:
+                counts["out_hot_live"] += 1
+            if peer.duplex:
+                counts["duplex_live"] += 1
+
+            track = self._tracks.get(key)
+            if track is None:
+                continue
+            for prefix, dtrack in (("in", track.inbound), ("out", track.outbound)):
+                if dtrack.reported == PeerState.WARM:
+                    counts[f"{prefix}_warm_reported"] += 1
+                elif dtrack.reported == PeerState.HOT:
+                    counts[f"{prefix}_hot_reported"] += 1
+                if dtrack.pending is not None:
+                    if dtrack.pending.target == PeerState.WARM:
+                        counts[f"{prefix}_warm_pending"] += 1
+                    elif dtrack.pending.target == PeerState.HOT:
+                        counts[f"{prefix}_hot_pending"] += 1
+            if track.inbound.reported in _ACTIVE and track.outbound.reported in _ACTIVE:
+                counts["duplex_reported"] += 1
+        return counts

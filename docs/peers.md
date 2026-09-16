@@ -43,12 +43,24 @@ temperature is gone.
 
 Peers are keyed by **remote IP**, not by ephemeral `ip:port`.
 
-## Local stats
+## Local stats (diagnostics)
 
-`peerCountStats` is logged a few seconds after the local peer counters
-change (`peer_count_stats_interval` is that settle/debounce delay; default
-`5`, `0` disables). Idle fully-inactive peers are pruned after
-`peer_prune_idle_seconds`.
+`peerCountStats` is logged a few seconds after counters change
+(`peer_count_stats_interval`, default `5`; `0` disables).
+
+Fields:
+
+* `in_warm` / `in_hot` / … – **live** FSM (every parsed event; nearer node/gLiveView)
+* `*_reported` – passed debounce and submitted (operator export / API truth)
+* `*_pending` – waiting for `peer_event_stable_seconds`
+* `duplex` / `duplex_reported` – live vs both sides reported active
+
+When comparing to gLiveView Warm/Hot, use **live**. When asking “what did we
+tell the backend?”, use **reported**. Large `live - reported` with high
+`pending` means debounce is still absorbing churn.
+
+See [local-peer-metrics.md](local-peer-metrics.md) for the planned localhost
+Prometheus/JSON endpoint (default port `14041`) and 30‑minute relevance window.
 
 ## Operator config (examples)
 
@@ -58,7 +70,10 @@ change (`peer_count_stats_interval` is that settle/debounce delay; default
   "peer_event_stable_seconds": 15,
   "peer_traceroute_enabled": false,
   "peer_count_stats_interval": 5,
-  "peer_prune_idle_seconds": 600
+  "peer_prune_idle_seconds": 600,
+  "local_metrics_enabled": false,
+  "local_metrics_bind": "127.0.0.1",
+  "local_metrics_port": 14041
 }
 ```
 
