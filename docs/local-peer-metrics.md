@@ -1,7 +1,7 @@
 # Local peer metrics and relevance (design)
 
-Status: decisions locked for implementation. Local HTTP export is not
-shipped yet; diagnostics in `peerCountStats` land first.
+Status: **A0 shipped** (optional localhost Prometheus + JSON). Relevance
+window (A1) and backend relevance POST are still planned.
 
 ## Goals
 
@@ -21,18 +21,26 @@ Operator-facing peer lists export **reported/debounced** peers only
 While developing, `peerCountStats` also logs **live** and **pending**
 counts so we can see what debounce cuts off versus cardano-node / gLiveView.
 
-### Local HTTP endpoint (planned)
+### Local HTTP endpoint
 
 | Setting | Default | Notes |
 |---------|---------|--------|
-| enabled | `false` | Opt-in |
-| bind | `127.0.0.1` | SPO may set any interface |
-| port | `14041` | Avoid node `12798` and Prometheus `9090` |
+| `local_metrics_enabled` | `false` | Opt-in |
+| `local_metrics_bind` | `127.0.0.1` | SPO may set any interface |
+| `local_metrics_port` | `14041` | Avoid node `12798` and Prometheus `9090` |
 
-Surfaces:
+Surfaces (when enabled):
 
-* Prometheus text exposition
-* JSON peer table (`?format=json` or `/peers.json`)
+* `GET /metrics` – Prometheus text (aggregate live/reported/pending gauges)
+* `GET /peers` or `/peers.json` – JSON peer table (**reported** peers only)
+* `GET /health` – `ok`
+
+```bash
+# on the relay, after enabling local_metrics_enabled
+curl -s http://127.0.0.1:14041/health
+curl -s http://127.0.0.1:14041/peers | jq .
+curl -s http://127.0.0.1:14041/metrics
+```
 
 ### Relevance window
 
@@ -74,8 +82,8 @@ full-Duplex counters in gLiveView.
 
 ## Implementation sequence
 
-1. **Diagnostics** – `peerCountStats` live / reported / pending (this change)
-2. **A0** – optional localhost server on `:14041`, JSON + Prom, reported peers
+1. **Diagnostics** – `peerCountStats` live / reported / pending (**done**)
+2. **A0** – optional localhost server on `:14041`, JSON + Prom, reported peers (**done**)
 3. **A1** – sliding 30m relevance; 2nd/3rd header parsing for local scores
 4. **A2** – Koios contract doc + backend relevance endpoint handoff
 5. **B** – geo enrich pull-back into local list

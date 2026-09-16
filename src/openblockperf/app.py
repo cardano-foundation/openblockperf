@@ -19,6 +19,7 @@ from openblockperf.errors import (
     UnknowEventNameSpaceError,
 )
 from openblockperf.handler import EventHandler
+from openblockperf.local_metrics import LocalMetricsServer
 from openblockperf.logging import log_json_event, logger
 from openblockperf.logreader import NodeLogReader, create_log_reader_from_settings
 from openblockperf.models.peer import Peer, PeerState
@@ -91,6 +92,7 @@ class Blockperf:
             self.settings,  # Pass settings for network-specific configuration
         )
         self.ekg = EkgClient(self.settings.ekg_url)
+        self._local_metrics: LocalMetricsServer | None = None
 
     async def start(self):
         """Run all application tasks with proper error handling and coordination."""
@@ -108,6 +110,8 @@ class Blockperf:
                 self.create_task(self.flush_peer_reports_task, tg)
                 self.create_task(self.monitor_sync_state_task, tg)
                 self.create_task(self.refresh_api_endpoints_task, tg)
+                if self.settings.local_metrics_enabled:
+                    self.create_task(self.local_metrics_task, tg)
 
         except* asyncio.CancelledError as eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
@@ -351,6 +355,26 @@ class Blockperf:
                     del self.block_sample_groups[k]
             except ApiError as e:
                 logger.error(f"Error sending blocksamples: {e!r}")
+
+    async def local_metrics_task(self) -> None:
+        """Serve Prometheus + JSON peer metrics on the configured bind/port."""
+        server = LocalMetricsServer(
+            self.handler.peer_tracker,
+            bind=self.settings.local_metrics_bind,
+            port=self.settings.local_metrics_port,
+            level=self.settings.peer_events_level.value,
+            get_level=lambda: self.settings.peer_events_level.value,
+        )
+        self._local_metrics = server
+        self.console.print(
+            f"[bold cyan]Local metrics:[/] http://{self.settings.local_metrics_bind}"
+            f":{self.settings.local_metrics_port}/peers"
+        )
+        try:
+            await server.start()
+        finally:
+            await server.stop()
+            self._local_metrics = None
 
     async def flush_peer_reports_task(self) -> None:
         """Flush debounced stable peer enters and prune idle cold peers."""

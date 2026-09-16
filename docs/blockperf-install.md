@@ -189,6 +189,9 @@ All of these also accept matching `OPENBLOCKPERF_*` environment variables.
 - `peer_traceroute_enabled` (default `false`) optional traceroute enrichment
 - `peer_prune_idle_seconds` (default `600`) drop fully inactive peers from the
   local list after this idle time
+- `local_metrics_enabled` (default `false`) serve Prometheus + JSON peer lists
+- `local_metrics_bind` (default `127.0.0.1`)
+- `local_metrics_port` (default `14041`) avoid node `12798` / Prometheus `9090`
 
 The client resolves SRV targets as FQDNs and calls
 `https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy

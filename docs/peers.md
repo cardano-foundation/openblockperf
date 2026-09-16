@@ -59,8 +59,22 @@ When comparing to gLiveView Warm/Hot, use **live**. When asking “what did we
 tell the backend?”, use **reported**. Large `live - reported` with high
 `pending` means debounce is still absorbing churn.
 
-See [local-peer-metrics.md](local-peer-metrics.md) for the planned localhost
-Prometheus/JSON endpoint (default port `14041`) and 30‑minute relevance window.
+See [local-peer-metrics.md](local-peer-metrics.md) for the localhost
+Prometheus/JSON endpoint (default port `14041`, opt-in) and the planned
+30‑minute relevance window.
+
+Enable locally:
+
+```json
+"local_metrics_enabled": true,
+"local_metrics_bind": "127.0.0.1",
+"local_metrics_port": 14041
+```
+
+```bash
+curl -s http://127.0.0.1:14041/peers
+curl -s http://127.0.0.1:14041/metrics
+```
 
 ## Operator config (examples)
 

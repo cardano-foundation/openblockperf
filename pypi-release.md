@@ -19,6 +19,8 @@ but not recommended. In normal operation it runs as a systemd service.
   - journal: only submitted peer lines (`IP direction change_type duplex=...`), no parse spam
   - `peerCountStats` logs after counters settle (`peer_count_stats_interval` default 5s); `0` disables
   - CLI: global `--version` / `-V` in addition to `blockperf version`
+  - optional local metrics HTTP (`local_metrics_enabled`, default port `14041`):
+    `/peers` JSON (reported peers) and `/metrics` Prometheus gauges
 - v0.0.39 - 2026-09-09
   - dual-stack IP registration: prove IPv4/IPv6 via `/registration/ip/proof`, submit proof tokens
   - CLI uses `OPENBLOCKPERF_CONFIG` when `--config` is omitted (installer wrapper/profile sets it)

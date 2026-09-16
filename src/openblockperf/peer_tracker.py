@@ -410,3 +410,34 @@ class PeerTracker:
             if track.inbound.reported in _ACTIVE and track.outbound.reported in _ACTIVE:
                 counts["duplex_reported"] += 1
         return counts
+
+    def reported_peer_rows(self) -> list[dict]:
+        """Peers with at least one direction still marked reported (export set)."""
+        rows: list[dict] = []
+        for key, peer in self.peers.items():
+            track = self._tracks.get(key)
+            if track is None:
+                continue
+            in_rep = track.inbound.reported
+            out_rep = track.outbound.reported
+            if in_rep not in _ACTIVE and out_rep not in _ACTIVE:
+                continue
+            directions: list[str] = []
+            if in_rep in _ACTIVE:
+                directions.append("inbound")
+            if out_rep in _ACTIVE:
+                directions.append("outbound")
+            duplex_reported = in_rep in _ACTIVE and out_rep in _ACTIVE
+            rows.append(
+                {
+                    "remote_addr": peer.remote_addr,
+                    "remote_port": peer.remote_port if out_rep in _ACTIVE else 0,
+                    "directions": directions,
+                    "state_inbound": in_rep.value if in_rep else None,
+                    "state_outbound": out_rep.value if out_rep else None,
+                    "duplex": duplex_reported,
+                    "last_updated": _as_aware(peer.last_updated).isoformat(),
+                }
+            )
+        rows.sort(key=lambda r: r["remote_addr"])
+        return rows
