@@ -60,8 +60,8 @@ tell the backend?”, use **reported**. Large `live - reported` with high
 `pending` means debounce is still absorbing churn.
 
 See [local-peer-metrics.md](local-peer-metrics.md) for the localhost
-Prometheus/JSON endpoint (default port `14041`, opt-in) and the planned
-30‑minute relevance window.
+Prometheus/JSON endpoint (default port `14041`, opt-in) and the sliding
+30‑minute relevance scores on `/peers`.
 
 Enable locally:
 

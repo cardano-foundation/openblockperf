@@ -12,16 +12,38 @@ from datetime import UTC, datetime
 from typing import Any
 
 from openblockperf.logging import logger
+from openblockperf.peer_relevance import PeerRelevanceTracker
 from openblockperf.peer_tracker import PeerTracker
 
 
-def build_peers_json(tracker: PeerTracker, *, level: str) -> dict[str, Any]:
-    """JSON document: reported peers + diagnostic counts."""
+def build_peers_json(
+    tracker: PeerTracker,
+    *,
+    level: str,
+    relevance: PeerRelevanceTracker | None = None,
+) -> dict[str, Any]:
+    """JSON document: reported peers + diagnostic counts + sliding relevance."""
     diag = tracker.diagnostic_counts()
+    rows = tracker.reported_peer_rows()
+    relevance_orphans: list[dict] = []
+    if relevance is not None:
+        reported_ips = {r["remote_addr"] for r in rows}
+        for row in rows:
+            row["relevance"] = relevance.score_dict(row["remote_addr"])
+        for score in relevance.all_scores():
+            if score.remote_addr not in reported_ips:
+                relevance_orphans.append(
+                    {
+                        "remote_addr": score.remote_addr,
+                        "seen_in_blocksample_only": True,
+                        "relevance": relevance.score_dict(score.remote_addr),
+                    }
+                )
     return {
         "at": datetime.now(UTC).isoformat(),
         "peer_events_level": level,
         "export": "reported",
+        "relevance_window_seconds": 1800 if relevance is not None else None,
         "counts": {
             "live": {
                 "in_warm": diag["in_warm_live"],
@@ -45,11 +67,17 @@ def build_peers_json(tracker: PeerTracker, *, level: str) -> dict[str, Any]:
             },
             "total_tracked": len(tracker.peers),
         },
-        "peers": tracker.reported_peer_rows(),
+        "peers": rows,
+        "relevance_orphans": relevance_orphans,
     }
 
 
-def build_prometheus_text(tracker: PeerTracker, *, level: str) -> str:
+def build_prometheus_text(
+    tracker: PeerTracker,
+    *,
+    level: str,
+    relevance: PeerRelevanceTracker | None = None,
+) -> str:
     """Prometheus exposition: aggregate gauges only (peer list is JSON)."""
     diag = tracker.diagnostic_counts()
     lines = [
@@ -84,6 +112,27 @@ def build_prometheus_text(tracker: PeerTracker, *, level: str) -> str:
     lines.append("# TYPE openblockperf_duplex gauge")
     lines.append(f'openblockperf_duplex{{view="live"}} {diag["duplex_live"]}')
     lines.append(f'openblockperf_duplex{{view="reported"}} {diag["duplex_reported"]}')
+    if relevance is not None:
+        scores = relevance.all_scores()
+        header_points = sum(s.header_points for s in scores)
+        body_points = sum(s.body_points for s in scores)
+        headers_count = sum(s.headers_count for s in scores)
+        bodies_count = sum(s.bodies_count for s in scores)
+        lines.append("# HELP openblockperf_relevance_header_points Sum of header points in 30m window.")
+        lines.append("# TYPE openblockperf_relevance_header_points gauge")
+        lines.append(f"openblockperf_relevance_header_points {header_points}")
+        lines.append("# HELP openblockperf_relevance_body_points Sum of body points in 30m window.")
+        lines.append("# TYPE openblockperf_relevance_body_points gauge")
+        lines.append(f"openblockperf_relevance_body_points {body_points}")
+        lines.append("# HELP openblockperf_relevance_headers_count Header announce credits in 30m window.")
+        lines.append("# TYPE openblockperf_relevance_headers_count gauge")
+        lines.append(f"openblockperf_relevance_headers_count {headers_count}")
+        lines.append("# HELP openblockperf_relevance_bodies_count Body serve credits in 30m window.")
+        lines.append("# TYPE openblockperf_relevance_bodies_count gauge")
+        lines.append(f"openblockperf_relevance_bodies_count {bodies_count}")
+        lines.append("# HELP openblockperf_relevance_peers IPs with relevance in the 30m window.")
+        lines.append("# TYPE openblockperf_relevance_peers gauge")
+        lines.append(f"openblockperf_relevance_peers {len(scores)}")
     lines.append("")
     return "\n".join(lines)
 
@@ -108,7 +157,6 @@ async def _read_request(reader) -> tuple[str, str]:
     if len(parts) < 2:
         return "", ""
     method, target = parts[0].upper(), parts[1]
-    # Drain headers
     while True:
         line = await reader.readline()
         if line in (b"\r\n", b"\n", b""):
@@ -118,7 +166,7 @@ async def _read_request(reader) -> tuple[str, str]:
 
 
 class LocalMetricsServer:
-    """Serves /metrics (Prometheus) and /peers (JSON) from a PeerTracker snapshot."""
+    """Serves /metrics (Prometheus) and /peers (JSON) from tracker + relevance."""
 
     def __init__(
         self,
@@ -128,8 +176,10 @@ class LocalMetricsServer:
         port: int,
         level: str,
         get_level: Callable[[], str] | None = None,
+        relevance: PeerRelevanceTracker | None = None,
     ):
         self.tracker = tracker
+        self.relevance = relevance
         self.bind = bind
         self.port = port
         self._level = level
@@ -149,12 +199,16 @@ class LocalMetricsServer:
             elif path in ("/", "/health"):
                 payload = _http_response(200, "OK", b"ok\n", "text/plain; charset=utf-8")
             elif path == "/metrics":
-                text = build_prometheus_text(self.tracker, level=self._level_value())
+                text = build_prometheus_text(
+                    self.tracker, level=self._level_value(), relevance=self.relevance
+                )
                 payload = _http_response(
                     200, "OK", text.encode("utf-8"), "text/plain; version=0.0.4; charset=utf-8"
                 )
             elif path in ("/peers", "/peers.json"):
-                doc = build_peers_json(self.tracker, level=self._level_value())
+                doc = build_peers_json(
+                    self.tracker, level=self._level_value(), relevance=self.relevance
+                )
                 body = (json.dumps(doc, indent=2) + "\n").encode("utf-8")
                 payload = _http_response(200, "OK", body, "application/json; charset=utf-8")
             else:

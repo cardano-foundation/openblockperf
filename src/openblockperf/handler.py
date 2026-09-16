@@ -22,6 +22,7 @@ from openblockperf.models.events import (
     SwitchedToAForkEvent,
 )
 from openblockperf.models.peer import Peer
+from openblockperf.peer_relevance import PeerRelevanceTracker
 from openblockperf.peer_tracker import PeerReport, PeerTracker
 
 # ---------------------------------------------------------------------------
@@ -75,6 +76,7 @@ class EventHandler:
     peers: dict[str, Peer]
     api: BlockperfApiClient
     peer_tracker: PeerTracker
+    peer_relevance: PeerRelevanceTracker
 
     def __init__(
         self,
@@ -94,6 +96,7 @@ class EventHandler:
             stable_seconds=settings.peer_event_stable_seconds,
             traceroute_enabled=settings.peer_traceroute_enabled,
         )
+        self.peer_relevance = PeerRelevanceTracker()
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -155,7 +158,20 @@ class EventHandler:
                 block_hash=block_hash,
                 settings=self.settings,
             )
-        self.block_sample_groups[block_hash].add_event(event)
+        group = self.block_sample_groups[block_hash]
+        before_headers = list(group.header_announcer_ips)
+        body_before = group.body_relevance_recorded
+        group.add_event(event)
+
+        if isinstance(event, DownloadedHeaderEvent):
+            if event.remote_addr not in before_headers and event.remote_addr in group.header_announcer_ips:
+                rank = group.header_announcer_rank(event.remote_addr)
+                if rank is not None:
+                    self.peer_relevance.record_header(event.remote_addr, rank, event.at)
+        elif isinstance(event, CompletedBlockFetchEvent):
+            if not body_before and group.block_completed is event:
+                group.body_relevance_recorded = True
+                self.peer_relevance.record_body(event.remote_addr, event.at)
 
     @dispatch_event.register
     async def _on_peer_event(self, event: PeerEvent):

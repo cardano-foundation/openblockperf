@@ -1,7 +1,7 @@
 # Local peer metrics and relevance (design)
 
-Status: **A0 shipped** (optional localhost Prometheus + JSON). Relevance
-window (A1) and backend relevance POST are still planned.
+Status: **A0 + A1 shipped** (local metrics HTTP + sliding 30m relevance).
+Backend relevance POST still pending (see backend-peer-relevance.md).
 
 ## Goals
 
@@ -84,8 +84,8 @@ full-Duplex counters in gLiveView.
 
 1. **Diagnostics** – `peerCountStats` live / reported / pending (**done**)
 2. **A0** – optional localhost server on `:14041`, JSON + Prom, reported peers (**done**)
-3. **A1** – sliding 30m relevance; 2nd/3rd header parsing for local scores
-4. **A2** – Koios contract doc + backend relevance endpoint handoff
+3. **A1** – sliding 30m relevance; 2nd/3rd header parsing for local scores (**done**)
+4. **A2** – Koios contract doc + backend relevance endpoint handoff (client journals snapshot; POST TBD)
 5. **B** – geo enrich pull-back into local list
 6. **C** – traceroute + Web UI (later)
 

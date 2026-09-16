@@ -10,6 +10,7 @@ can be categorize into three main parts.
     (debounced Hot/Warm reporting levels). See peers.md.
     Backend ingest notes: backend-peer-events.md
     Local metrics / gLiveView plans: local-peer-metrics.md
+    Relevance snapshot handoff: backend-peer-relevance.md
 * **Transactions** is about the transactions this node sees and has seen.
     Transactions have not been implemented yet
 

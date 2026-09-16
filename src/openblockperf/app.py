@@ -112,6 +112,7 @@ class Blockperf:
                 self.create_task(self.refresh_api_endpoints_task, tg)
                 if self.settings.local_metrics_enabled:
                     self.create_task(self.local_metrics_task, tg)
+                self.create_task(self.peer_relevance_snapshot_task, tg)
 
         except* asyncio.CancelledError as eg:
             # If the users sends SIGINT, SIGTERM (Ctrl-c) the taskgroup
@@ -356,6 +357,23 @@ class Blockperf:
             except ApiError as e:
                 logger.error(f"Error sending blocksamples: {e!r}")
 
+    async def peer_relevance_snapshot_task(self) -> None:
+        """Every 30 minutes log a sliding-window relevance snapshot (backend POST later)."""
+        from openblockperf.peer_relevance import RELEVANCE_REPORT_INTERVAL_SECONDS
+
+        while True:
+            await asyncio.sleep(RELEVANCE_REPORT_INTERVAL_SECONDS)
+            snap = self.handler.peer_relevance.snapshot()
+            log_json_event(
+                snap["kind"],
+                at=snap["at"],
+                window_seconds=snap["window_seconds"],
+                peer_count=len(snap["peers"]),
+                peers=snap["peers"],
+            )
+            # Backend relevance endpoint not wired yet; journal is the local record.
+            logger.debug("peerRelevanceSnapshot ready for future backend submit", peers=len(snap["peers"]))
+
     async def local_metrics_task(self) -> None:
         """Serve Prometheus + JSON peer metrics on the configured bind/port."""
         server = LocalMetricsServer(
@@ -364,6 +382,7 @@ class Blockperf:
             port=self.settings.local_metrics_port,
             level=self.settings.peer_events_level.value,
             get_level=lambda: self.settings.peer_events_level.value,
+            relevance=self.handler.peer_relevance,
         )
         self._local_metrics = server
         self.console.print(

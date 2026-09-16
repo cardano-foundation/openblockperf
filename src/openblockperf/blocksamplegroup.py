@@ -40,10 +40,14 @@ class BlockSampleGroup:
     # The following are key events we want to find in the logs
     # A block was first announced to the
     block_header: DownloadedHeaderEvent | None = None
+    # Unique header announcer IPs in first-seen order (max 3) for local relevance
+    header_announcer_ips: list[str] = field(default_factory=list)
     # A block was requested for download
     block_requested: SendFetchRequestEvent | None = None
     # A block finished download
     block_completed: CompletedBlockFetchEvent | None = None
+    # True once first body server was credited to relevance
+    body_relevance_recorded: bool = False
 
     events: list[BaseEvent] = field(default_factory=list)  # list of events
 
@@ -73,18 +77,19 @@ class BlockSampleGroup:
 
     @_handle_event.register
     def _(self, event: DownloadedHeaderEvent):
-        """Handles DownloadedHeaderEvent,
+        """Handles DownloadedHeaderEvent.
 
-        Stores the first header downloaded for this group/block_hash.
-        If there already is a header stored and a new event comes in
-        with a newer time, it will overwrite the existing stored event.
+        Keeps the earliest header for the blocksample. Also records up to three
+        unique announcer IPs in processing order for local relevance scoring.
         """
+        # Relevance: first time we see this remote IP for this block
+        if (
+            event.remote_addr not in self.header_announcer_ips
+            and len(self.header_announcer_ips) < 3  # noqa: PLR2004
+        ):
+            self.header_announcer_ips.append(event.remote_addr)
 
-        # logger.debug(
-        #    f"Header\t{event.block_hash[:8]} from {event.remote_addr}:{event.remote_port}"
-        # )
-
-        # If we dont already know any header assume its the the first
+        # Sample primary header: earliest by event timestamp
         if self.block_header:
             if event.at < self.block_header.at:
                 logger.warning(
@@ -97,13 +102,19 @@ class BlockSampleGroup:
             assert not self.block_header, "Header already set"
             self.block_header = event
 
-        # these should all be the same for all header events, no?
         if not self.slot:
             self.slot = event.slot
         if not self.slot_time:
             self.slot_time = datetime.fromtimestamp(self.settings.network_config.starttime + self.slot, tz=UTC)
         if not self.block_number:
             self.block_number = event.block_number
+
+    def header_announcer_rank(self, remote_addr: str) -> int | None:
+        """1-based rank among first three unique announcers, or None."""
+        try:
+            return self.header_announcer_ips.index(remote_addr) + 1
+        except ValueError:
+            return None
 
     @_handle_event.register
     def _(self, event: SendFetchRequestEvent):
