@@ -372,7 +372,7 @@ class Blockperf:
                 peers=snap["peers"],
             )
             # Backend relevance endpoint not wired yet; journal is the local record.
-            logger.debug("peerRelevanceSnapshot ready for future backend submit", peers=len(snap["peers"]))
+            logger.debug("peerRelevanceSnapshot local-only", peers=len(snap["peers"]))
 
     async def local_metrics_task(self) -> None:
         """Serve Prometheus + JSON peer metrics on the configured bind/port."""

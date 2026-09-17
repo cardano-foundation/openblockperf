@@ -1,8 +1,12 @@
 # Backend handoff: client peer-event reporting changes
 
-**Audience:** backend agent / API maintainers  
-**Client change area:** openblockperf peer temperature parsing and `/submit/peerevent`  
+**Audience:** backend agent / API maintainers
+**Client change area:** openblockperf peer temperature parsing and `/submit/peerevent`
 **Goal:** store and analyze how a relay sits in the network (especially **Hot** peers for block-sample correlation), without ingesting high-frequency Cold/Warm/Hot flicker or Cooling teardown noise.
+
+Related: 2nd/3rd header announcers go on **blocksamples**, not peerevents.
+See `docs/backend-blocksample.md` and `docs/peer-data-plan.md`.
+There is **no** peerrelevance submit endpoint.
 
 ---
 
@@ -83,7 +87,13 @@ Backend storage does **not** need near-realtime peer chatter. Prefer treating ea
 
 ## 4. How to use this with block samples
 
-Block samples already identify which peer delivered headers/blocks. Correlate samples with peers that have an open **Hot** interval (`warm_to_hot` … until `hot_to_warm` / `warm_to_cold`) for the same client and remote IP (and outbound port when present).
+Block samples identify which peer delivered headers/blocks. After
+`header2_*` / `header3_*` land (see `backend-blocksample.md`), you also
+get 2nd/3rd announcers per block.
+
+Correlate samples with peers that have an open **Hot** interval
+(`warm_to_hot` … until `hot_to_warm` / `warm_to_cold`) for the same
+client and remote IP (and outbound port when present).
 
 Inbound Hot peers: correlate by IP only.
 

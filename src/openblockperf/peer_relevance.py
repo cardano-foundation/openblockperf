@@ -128,7 +128,7 @@ class PeerRelevanceTracker:
         }
 
     def snapshot(self, now: datetime | None = None) -> dict:
-        """Payload shape for journal / future backend relevance POST."""
+        """Local snapshot shape for journal / /peers; not submitted upstream."""
         now = _as_aware(now or _now())
         peers = []
         for s in self.all_scores(now):

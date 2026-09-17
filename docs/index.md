@@ -8,9 +8,9 @@ can be categorize into three main parts.
     See blocksamples.md
 * **Node Peers** is about monitoring the peers a node is connected to
     (debounced Hot/Warm reporting levels). See peers.md.
-    Backend ingest notes: backend-peer-events.md
-    Local metrics / gLiveView plans: local-peer-metrics.md
-    Relevance snapshot handoff: backend-peer-relevance.md
+    Backend ingest notes: backend-peer-events.md, backend-blocksample.md
+    Plan: peer-data-plan.md
+    Local metrics: local-peer-metrics.md
 * **Transactions** is about the transactions this node sees and has seen.
     Transactions have not been implemented yet
 

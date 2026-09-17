@@ -22,7 +22,7 @@ but not recommended. In normal operation it runs as a systemd service.
   - optional local metrics HTTP (`local_metrics_enabled`, default port `14041`):
     `/peers` JSON (reported peers) and `/metrics` Prometheus gauges
   - sliding 30m peer relevance (header 1st/2nd/3rd points 10/5/3, body 10);
-    exposed on `/peers` and journaled as `peerRelevanceSnapshot` every 30m
+    local only (`/peers` + journal); not POSTed (backend uses blocksample 2nd/3rd later)
 - v0.0.39 - 2026-09-09
   - dual-stack IP registration: prove IPv4/IPv6 via `/registration/ip/proof`, submit proof tokens
   - CLI uses `OPENBLOCKPERF_CONFIG` when `--config` is omitted (installer wrapper/profile sets it)
