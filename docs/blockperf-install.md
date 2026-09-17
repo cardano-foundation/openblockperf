@@ -53,7 +53,7 @@ In logfile mode, config `node_unit_name` is **not** the systemd unit. It is a co
 - You can also leave `node_unit_name` empty (`""`) to accept every line (typical for a single-node dedicated file such as `/opt/cardano/cnode/logs/cnode/node.json`).
 - Do **not** keep a systemd unit name like `cnode.service` as the logfile filter unless that exact string appears in each log line. Otherwise every line is skipped and no peer/block events are processed.
 
-The systemd unit discovered as `NODE_UNIT_NAME` is still used for `After=` ordering and for deriving the cardano-node `config.json` path. Only the value written into config as `node_unit_name` changes meaning in logfile mode.
+The systemd unit discovered as `NODE_UNIT_NAME` is still used for `After=` / `PartOf=` (start after the node; stop/restart when the node unit is stopped or restarted) and for deriving the cardano-node `config.json` path. Only the value written into config as `node_unit_name` changes meaning in logfile mode.
 
 ### Switching an existing install to logfile mode
 
@@ -132,9 +132,17 @@ When a new config file is written, the installer sets:
 - `tracer_log_file` (optional; if set, read tracer JSON from this file and follow rotations)
 - `local_addr` (default `0.0.0.0`)
 - `local_port` (default `3001`)
+- `peer_events_level` (default `mid`)
+- `peer_event_stable_seconds` (default `15`)
+- `peer_traceroute_enabled` (default `false`)
+- `peer_count_stats_interval` (default `5`)
+- `peer_prune_idle_seconds` (default `600`)
+- `local_metrics_enabled` (default `false`)
+- `local_metrics_bind` (default `127.0.0.1`)
+- `local_metrics_port` (default `14041`)
 
-Optional keys you can add by hand (not written by the installer).
-All of these also accept matching `OPENBLOCKPERF_*` environment variables.
+Further optional keys (not written by the installer; defaults apply if omitted).
+All keys also accept matching `OPENBLOCKPERF_*` environment variables.
 
 **Shell / CLI convenience:**
 
@@ -176,17 +184,18 @@ All of these also accept matching `OPENBLOCKPERF_*` environment variables.
   complete block-sample groups
 - `min_age` (default `10`) seconds a complete sample group must age before
   submit
-- `peer_count_stats_interval` (default `5`) seconds to wait after peer
-  counters change before logging `peerCountStats` (debounce); `0` disables
 
-**Peer events:**
+**Peer events** (written by the installer with the defaults below; edit in
+place to change behaviour). See [peers.md](peers.md) and
+[local-peer-metrics.md](local-peer-metrics.md).
 
 - `peer_events_level` (default `mid`) `off` | `low` | `mid` | `high`.
   Default `mid` reports stable Hot peers only. `high` also reports stable Warm.
-  See [peers.md](peers.md).
 - `peer_event_stable_seconds` (default `15`) how long Warm/Hot must last before
   an enter is submitted
 - `peer_traceroute_enabled` (default `false`) optional traceroute enrichment
+- `peer_count_stats_interval` (default `5`) seconds to wait after peer
+  counters change before logging `peerCountStats` (debounce); `0` disables
 - `peer_prune_idle_seconds` (default `600`) drop fully inactive peers from the
   local list after this idle time
 - `local_metrics_enabled` (default `false`) serve Prometheus + JSON peer lists
@@ -223,8 +232,21 @@ If you choose to keep the existing config file, update these keys manually as ne
 - `node_unit_name`
 - `tracer_log_file`
 - `api_srv` / `api_url` (if you override backend discovery)
+- peer-event / local-metrics keys if you want the same defaults as a fresh install
+  (`peer_events_level`, `local_metrics_*`, …)
 
-## Reliability behavior
+## Systemd and cardano-node
+
+The generated `openblockperf.service` uses `After=` and `PartOf=` on the
+discovered cardano-node unit (for example `cnode.service`). That means:
+
+- openblockperf starts after the node at boot
+- `systemctl restart cnode.service` (or stop) also restarts (or stops) openblockperf
+
+This clears in-memory peer state so peer-event counts start fresh after a node
+restart. Package-only `--update` does not rewrite the unit file; use
+`--reinstall` (or edit the unit by hand) to pick up this dependency on an
+existing host.
 
 - Installer uses strict shell settings (`set -euo pipefail`).
 - On install failures, it prints the failing command and attempts limited rollback of artifacts created in the current run.

@@ -78,6 +78,9 @@ curl -s http://127.0.0.1:14041/metrics
 
 ## Operator config (examples)
 
+The installer writes these keys into `${INSTALL_DIR}/config.json` with the
+defaults below so you can edit them in place.
+
 ```json
 {
   "peer_events_level": "mid",

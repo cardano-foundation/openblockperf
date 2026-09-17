@@ -97,7 +97,15 @@ sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
   "node_unit_name": "${CONFIG_NODE_UNIT_NAME}",
   "tracer_log_file": "${TRACER_LOG_FILE}",
   "local_addr": "0.0.0.0",
-  "local_port": 3001
+  "local_port": 3001,
+  "peer_events_level": "mid",
+  "peer_event_stable_seconds": 15,
+  "peer_traceroute_enabled": false,
+  "peer_count_stats_interval": 5,
+  "peer_prune_idle_seconds": 600,
+  "local_metrics_enabled": false,
+  "local_metrics_bind": "127.0.0.1",
+  "local_metrics_port": 14041
 }
 EOF
 sudo chmod 664 "${INSTALL_DIR}/config.json"
@@ -105,7 +113,7 @@ sudo chmod 664 "${INSTALL_DIR}/config.json"
 
 If `TRACER_LOG_FILE` is empty, remove the `tracer_log_file` key (or leave it empty) so blockperf stays in journald mode.
 
-Optional keys (not written above; defaults apply if omitted). Matching
+Further optional keys (not written above; defaults apply if omitted). Matching
 `OPENBLOCKPERF_*` environment variables also work.
 
 **API discovery and HTTP:**
@@ -137,21 +145,25 @@ Optional keys (not written above; defaults apply if omitted). Matching
   group checks
 - `min_age` (default `10`) seconds a complete sample group must age before
   submit
-- `peer_count_stats_interval` (default `5`) settle delay in seconds after
-  peer counters change before logging `peerCountStats`; `0` disables them
 
-**Peer events:**
+**Peer events** (written above with defaults; edit in place). See peers.md and
+local-peer-metrics.md:
 
 - `peer_events_level` (default `mid`) `off` | `low` | `mid` | `high`
 - `peer_event_stable_seconds` (default `15`)
 - `peer_traceroute_enabled` (default `false`)
+- `peer_count_stats_interval` (default `5`); `0` disables `peerCountStats`
 - `peer_prune_idle_seconds` (default `600`)
-
-See peers.md for what each level means.
+- `local_metrics_enabled` (default `false`)
+- `local_metrics_bind` (default `127.0.0.1`)
+- `local_metrics_port` (default `14041`)
 
 ## 7) Write systemd service unit
 
 Create the same service unit the installer generates.
+
+`After=` starts openblockperf after the node. `PartOf=` propagates stop/restart
+from the node unit so peer-event state resets when cardano-node is restarted.
 
 ```bash
 sudo tee /etc/systemd/system/openblockperf.service >/dev/null <<EOF
@@ -161,6 +173,7 @@ Documentation=https://openblockperf.readthedocs.io
 After=network-online.target
 Wants=network-online.target
 After=${NODE_UNIT_NAME}
+PartOf=${NODE_UNIT_NAME}
 
 [Service]
 Type=simple

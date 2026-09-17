@@ -1919,6 +1919,8 @@ write_config_file() {
     fi
 
     # Build JSON using json_string() so special characters are safely escaped.
+    # Peer-event / local-metrics keys are written with AppSettings defaults so
+    # operators can flip them in place without looking up field names.
     cat > "${CONFIG_FILE}" <<EOF
 {
   "_comment": "OpenBlockPerf client configuration. Documentation: https://openblockperf.readthedocs.io",
@@ -1930,7 +1932,15 @@ write_config_file() {
   "node_unit_name": $(json_string "${CONFIG_NODE_UNIT_NAME}"),
 ${tracer_log_file_line}
   "local_addr": "0.0.0.0",
-  "local_port": 3001
+  "local_port": 3001,
+  "peer_events_level": "mid",
+  "peer_event_stable_seconds": 15,
+  "peer_traceroute_enabled": false,
+  "peer_count_stats_interval": 5,
+  "peer_prune_idle_seconds": 600,
+  "local_metrics_enabled": false,
+  "local_metrics_bind": "127.0.0.1",
+  "local_metrics_port": 14041
 }
 EOF
 
@@ -2052,6 +2062,8 @@ write_service_file() {
     local bin="${VENV_DIR}/bin/blockperf"
     ok "Writing systemd unit: ${SERVICE_FILE}"
     mkdir -p "$(dirname "${SERVICE_FILE}")"
+    # After= orders start after the node. PartOf= propagates stop/restart from
+    # the node unit so peer-event state resets when cardano-node is restarted.
     cat > "${SERVICE_FILE}" <<EOF
 [Unit]
 Description=OpenBlockPerf Client
@@ -2059,6 +2071,7 @@ Documentation=https://openblockperf.readthedocs.io
 After=network-online.target
 Wants=network-online.target
 ${NODE_UNIT_NAME:+After=${NODE_UNIT_NAME}}
+${NODE_UNIT_NAME:+PartOf=${NODE_UNIT_NAME}}
 
 [Service]
 Type=simple

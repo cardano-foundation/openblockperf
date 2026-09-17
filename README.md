@@ -155,8 +155,8 @@ You can force legacy behavior with `--api-key-mode calidus`.
 
 ### install result
 
-- systemd unit: `openblockperf.service`
-- config file: `/opt/cardano/openblockperf/config.json`
+- systemd unit: `openblockperf.service` (`After=` / `PartOf=` the cardano-node unit so a node restart also restarts openblockperf)
+- config file: `/opt/cardano/openblockperf/config.json` (includes peer-event and local-metrics defaults)
 - CLI wrapper: `/usr/local/bin/blockperf`
 - app install + venv: `/opt/cardano/openblockperf`
 - logs: `journalctl -fu openblockperf.service`
@@ -247,7 +247,15 @@ Example `config.json` (as written by the installer):
   "node_config": "/opt/cardano/cnode/files/config.json",
   "node_unit_name": "cnode.service",
   "local_addr": "0.0.0.0",
-  "local_port": 3001
+  "local_port": 3001,
+  "peer_events_level": "mid",
+  "peer_event_stable_seconds": 15,
+  "peer_traceroute_enabled": false,
+  "peer_count_stats_interval": 5,
+  "peer_prune_idle_seconds": 600,
+  "local_metrics_enabled": false,
+  "local_metrics_bind": "127.0.0.1",
+  "local_metrics_port": 14041
 }
 ```
 
@@ -268,15 +276,24 @@ node_config: /opt/cardano/cnode/files/config.json
 node_unit_name: cnode.service
 local_addr: 0.0.0.0
 local_port: 3001
+peer_events_level: mid
+peer_event_stable_seconds: 15
+peer_traceroute_enabled: false
+peer_count_stats_interval: 5
+peer_prune_idle_seconds: 600
+local_metrics_enabled: false
+local_metrics_bind: 127.0.0.1
+local_metrics_port: 14041
 ```
 
-Additional optional keys (not set by the installer) include `api_srv`,
+Further optional keys (not set by the installer) include `api_srv`,
 `api_url`, `ekg_url`, `sync_check_enabled`, `sync_check_threshold`,
 `api_request_timeout_ms` (default `8000`), `api_request_retries`
-(default `2`), `peer_count_stats_interval` (default `5` seconds settle
-delay after peer counters change; set `0` to disable `peerCountStats` log lines), and `obfuscate_ips`
-(extra addresses never sent to the backend; private/loopback/link-local
-ranges are always replaced with `0.0.0.0`).
+(default `2`), and `obfuscate_ips` (extra addresses never sent to the
+backend; private/loopback/link-local ranges are always replaced with
+`0.0.0.0`). Peer-event and local-metrics keys are written by the installer
+with defaults; see [peers.md](docs/peers.md) and
+[local-peer-metrics.md](docs/local-peer-metrics.md).
 
 `api_srv` defaults to `_obpf._tcp.network.cardano.org`. Set it (or
 `OPENBLOCKPERF_API_SRV`) to resolve a different SRV name. `api_url` skips

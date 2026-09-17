@@ -29,6 +29,10 @@ counts so we can see what debounce cuts off versus cardano-node / gLiveView.
 | `local_metrics_bind` | `127.0.0.1` | SPO may set any interface |
 | `local_metrics_port` | `14041` | Avoid node `12798` and Prometheus `9090` |
 
+The installer writes these three keys into `config.json` with the defaults
+above. Set `local_metrics_enabled` to `true` and restart the service to
+expose the endpoints.
+
 Surfaces (when enabled):
 
 * `GET /metrics` – Prometheus text (aggregate live/reported/pending gauges)
