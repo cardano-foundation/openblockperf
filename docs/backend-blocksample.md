@@ -95,9 +95,8 @@ Example (abbreviated):
 
 ## Client rollout note
 
-Client Phase 2 sends the four fields (defaults when missing announcers).
-Until the API accepts them, do not ship that client build to PyPI
-(would 422 on strict validators). Coordinate with backend Phase 3.
+Backend ingest + `block_prop` columns are ready (**2026-09-17**).
+Client v0.0.41+ sends the four fields (defaults when missing announcers).
 
 ## Suggested scoring (server-side, same as local)
 

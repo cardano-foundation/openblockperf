@@ -41,10 +41,11 @@ Living plan for peer events, local relevance, and what we send upstream.
 * Obfuscate `header2` / `header3` addrs like the 1st header.
 * Ship to PyPI only after backend accepts the optional fields (Phase 3).
 
-### Phase 3 – backend ingest + `block_prop`
+### Phase 3 – backend ingest + `block_prop` (**ready 2026-09-17**)
 
-* Optional fields on blocksample API.
+* Optional fields on blocksample API accepted.
 * Persist + two relay lookups → `header2_relay_id`, `header3_relay_id`.
+* Client may ship PyPI with header2/header3 (v0.0.41+).
 * Post-analyze relevance / size×peer as needed.
 
 ### Phase 4 – ConnectionManager light (optional, local first)
