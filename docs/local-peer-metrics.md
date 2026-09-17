@@ -87,8 +87,8 @@ full-Duplex counters in gLiveView.
 1. **Diagnostics** – `peerCountStats` live / reported / pending (**done**)
 2. **A0** – optional localhost server on `:14041`, JSON + Prom (**done**)
 3. **A1** – sliding 30m relevance; 2nd/3rd header parsing for local scores (**done**)
-4. **Blocksample 2nd/3rd** – client fields + backend `block_prop` lookups
-   (Phase 2/3 in `peer-data-plan.md`)
+4. **Blocksample 2nd/3rd** – client fields done; backend `block_prop`
+   lookups still Phase 3 (`peer-data-plan.md`)
 5. **B** – geo enrich pull-back into local list (later)
 6. **C** – traceroute + Web UI (later)
 7. **CM light** – ConnectionManagerCounters for local gauges (later)

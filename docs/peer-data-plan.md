@@ -34,13 +34,12 @@ Living plan for peer events, local relevance, and what we send upstream.
 * Mark peerrelevance handoff cancelled.
 * Align local-metrics docs (relevance local-only).
 
-### Phase 2 – client blocksample fields
+### Phase 2 – client blocksample fields (**done**)
 
-* Track 2nd/3rd announcer **addr+port** in `BlockSampleGroup`
-  (today we only keep IPs for local ranks).
-* Add four fields to `BlockSample` / submit payload.
+* Track 2nd/3rd announcer **addr+port** in `BlockSampleGroup`.
+* Four fields on `BlockSample` / submit payload with defaults `""` / `0`.
 * Obfuscate `header2` / `header3` addrs like the 1st header.
-* Ship only after backend accepts the optional fields.
+* Ship to PyPI only after backend accepts the optional fields (Phase 3).
 
 ### Phase 3 – backend ingest + `block_prop`
 

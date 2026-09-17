@@ -464,6 +464,10 @@ async def test_submit_block_sample_obfuscates_private_and_extra_ips():
         slot_time="2025-01-01T00:00:00+00:00",
         header_remote_addr="192.168.10.2",
         header_remote_port=3001,
+        header2_remote_addr="203.0.113.9",
+        header2_remote_port=6000,
+        header3_remote_addr="8.8.8.8",
+        header3_remote_port=7000,
         header_delta=1,
         block_remote_addr="203.0.113.9",
         block_remote_port=3001,
@@ -484,6 +488,8 @@ async def test_submit_block_sample_obfuscates_private_and_extra_ips():
     await api.submit_block_sample(sample)
 
     assert captured["data"].header_remote_addr == "0.0.0.0"
+    assert captured["data"].header2_remote_addr == "0.0.0.0"
+    assert captured["data"].header3_remote_addr == "8.8.8.8"
     assert captured["data"].block_remote_addr == "0.0.0.0"
     assert captured["data"].local_addr == "0.0.0.0"
 

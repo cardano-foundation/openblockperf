@@ -61,6 +61,8 @@ class BlockperfApiClient:
     async def submit_block_sample(self, sample: BlockSample) -> BlockSampleResponse:
         payload = sample.model_dump()
         payload["header_remote_addr"] = self._obfuscate(payload.get("header_remote_addr"))
+        payload["header2_remote_addr"] = self._obfuscate(payload.get("header2_remote_addr") or "")
+        payload["header3_remote_addr"] = self._obfuscate(payload.get("header3_remote_addr") or "")
         payload["block_remote_addr"] = self._obfuscate(payload.get("block_remote_addr"))
         payload["local_addr"] = self._obfuscate(payload.get("local_addr"))
         bsr = BlockSampleRequest(**payload)

@@ -204,3 +204,82 @@ class TestBlockAdopted:
         assert empty_group.block_adopted is None
 
     # TODO: test that SwitchedToAFork is also recognised as a valid adopt event
+
+
+class TestHeaderAnnouncers:
+    def test_tracks_up_to_three_unique_announcers(
+        self,
+        empty_group,
+        raw_downloaded_header,
+    ):
+        from copy import deepcopy
+        from datetime import timedelta
+
+        from openblockperf.models.events import DownloadedHeaderEvent
+
+        base = DownloadedHeaderEvent(**raw_downloaded_header)
+        peers = [
+            ("10.0.0.1", 3001),
+            ("10.0.0.2", 3002),
+            ("10.0.0.3", 3003),
+            ("10.0.0.4", 3004),
+        ]
+        for i, (addr, port) in enumerate(peers):
+            raw = deepcopy(raw_downloaded_header)
+            raw["at"] = (base.at + timedelta(milliseconds=i)).isoformat().replace("+00:00", "Z")
+            raw["data"] = dict(raw["data"])
+            raw["data"]["peer"] = {"connectionId": f"172.0.118.125:30002 {addr}:{port}"}
+            empty_group.add_event(DownloadedHeaderEvent(**raw))
+
+        assert len(empty_group.header_announcers) == 3
+        assert empty_group.header_announcer_ips == ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
+        assert empty_group.header_announcer_rank("10.0.0.2") == 2
+        assert empty_group.header_announcer_rank("10.0.0.4") is None
+
+    def test_get_sample_fills_header2_header3(
+        self,
+        empty_group,
+        raw_downloaded_header,
+        raw_send_fetch_request,
+        raw_completed_block_fetch,
+        raw_added_to_current_chain,
+    ):
+        from copy import deepcopy
+        from datetime import datetime, timedelta
+
+        from openblockperf.models.events import (
+            AddedToCurrentChainEvent,
+            CompletedBlockFetchEvent,
+            DownloadedHeaderEvent,
+            SendFetchRequestEvent,
+        )
+
+        def header_at(addr: str, port: int, ms: int) -> DownloadedHeaderEvent:
+            raw = deepcopy(raw_downloaded_header)
+            base_at = datetime.fromisoformat(raw_downloaded_header["at"].replace("Z", "+00:00"))
+            raw["at"] = (base_at + timedelta(milliseconds=ms)).isoformat().replace("+00:00", "Z")
+            raw["data"] = dict(raw["data"])
+            raw["data"]["peer"] = {"connectionId": f"172.0.118.125:30002 {addr}:{port}"}
+            return DownloadedHeaderEvent(**raw)
+
+        empty_group.add_event(header_at("203.0.113.1", 3001, 0))
+        empty_group.add_event(header_at("203.0.113.2", 6000, 1))
+        empty_group.add_event(header_at("203.0.113.3", 7000, 2))
+        empty_group.add_event(SendFetchRequestEvent(**raw_send_fetch_request))
+        empty_group.add_event(CompletedBlockFetchEvent(**raw_completed_block_fetch))
+        empty_group.add_event(AddedToCurrentChainEvent(**raw_added_to_current_chain))
+
+        sample = empty_group.get_sample()
+        assert sample.header_remote_addr == "203.0.113.1"
+        assert sample.header_remote_port == 3001
+        assert sample.header2_remote_addr == "203.0.113.2"
+        assert sample.header2_remote_port == 6000
+        assert sample.header3_remote_addr == "203.0.113.3"
+        assert sample.header3_remote_port == 7000
+
+    def test_get_sample_empty_header2_header3_when_single_announcer(self, complete_group):
+        sample = complete_group.get_sample()
+        assert sample.header2_remote_addr == ""
+        assert sample.header2_remote_port == 0
+        assert sample.header3_remote_addr == ""
+        assert sample.header3_remote_port == 0

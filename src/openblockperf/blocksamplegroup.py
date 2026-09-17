@@ -17,6 +17,14 @@ from openblockperf.models.events import (
 from openblockperf.models.samples import BlockSample
 
 
+@dataclass(frozen=True)
+class HeaderAnnouncer:
+    """Unique header announcer for local ranks and blocksample header2/3."""
+
+    remote_addr: str
+    remote_port: int
+
+
 @dataclass
 class BlockSampleGroup:
     """A group of log events for a given block hash.
@@ -40,8 +48,8 @@ class BlockSampleGroup:
     # The following are key events we want to find in the logs
     # A block was first announced to the
     block_header: DownloadedHeaderEvent | None = None
-    # Unique header announcer IPs in first-seen order (max 3) for local relevance
-    header_announcer_ips: list[str] = field(default_factory=list)
+    # Unique header announcers in first-seen order (max 3): local ranks + header2/3
+    header_announcers: list[HeaderAnnouncer] = field(default_factory=list)
     # A block was requested for download
     block_requested: SendFetchRequestEvent | None = None
     # A block finished download
@@ -53,6 +61,11 @@ class BlockSampleGroup:
 
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
+
+    @property
+    def header_announcer_ips(self) -> list[str]:
+        """Remote IPs of the first three unique announcers (processing order)."""
+        return [a.remote_addr for a in self.header_announcers]
 
     def add_event(self, event: BaseEvent):
         """Adds an event to this group.
@@ -80,14 +93,14 @@ class BlockSampleGroup:
         """Handles DownloadedHeaderEvent.
 
         Keeps the earliest header for the blocksample. Also records up to three
-        unique announcer IPs in processing order for local relevance scoring.
+        unique announcers (addr+port) in processing order for local relevance
+        and header2/header3 on the submitted sample.
         """
-        # Relevance: first time we see this remote IP for this block
-        if (
-            event.remote_addr not in self.header_announcer_ips
-            and len(self.header_announcer_ips) < 3  # noqa: PLR2004
-        ):
-            self.header_announcer_ips.append(event.remote_addr)
+        known = {a.remote_addr for a in self.header_announcers}
+        if event.remote_addr not in known and len(self.header_announcers) < 3:  # noqa: PLR2004
+            self.header_announcers.append(
+                HeaderAnnouncer(remote_addr=event.remote_addr, remote_port=event.remote_port)
+            )
 
         # Sample primary header: earliest by event timestamp
         if self.block_header:
@@ -111,10 +124,15 @@ class BlockSampleGroup:
 
     def header_announcer_rank(self, remote_addr: str) -> int | None:
         """1-based rank among first three unique announcers, or None."""
-        try:
-            return self.header_announcer_ips.index(remote_addr) + 1
-        except ValueError:
-            return None
+        for i, announcer in enumerate(self.header_announcers):
+            if announcer.remote_addr == remote_addr:
+                return i + 1
+        return None
+
+    def _announcer_at(self, index: int) -> HeaderAnnouncer | None:
+        if index < len(self.header_announcers):
+            return self.header_announcers[index]
+        return None
 
     @_handle_event.register
     def _(self, event: SendFetchRequestEvent):
@@ -262,6 +280,10 @@ class BlockSampleGroup:
 
     # fmt: off
     def get_sample(self):
+        # header2/3 = 2nd/3rd unique announcers in processing order (local ranks).
+        # Rank 1 sample fields stay earliest-by-timestamp block_header.
+        a2 = self._announcer_at(1)
+        a3 = self._announcer_at(2)
         return BlockSample(
             block_hash = self.block_hash,
             block_number = self.block_number,
@@ -271,6 +293,10 @@ class BlockSampleGroup:
             slot_time = self.slot_time.isoformat(),
             header_remote_addr = self.block_header.remote_addr,
             header_remote_port = self.block_header.remote_port,
+            header2_remote_addr = a2.remote_addr if a2 else "",
+            header2_remote_port = a2.remote_port if a2 else 0,
+            header3_remote_addr = a3.remote_addr if a3 else "",
+            header3_remote_port = a3.remote_port if a3 else 0,
             header_delta = int(self.header_delta.total_seconds() * 1000),
             block_remote_addr = self.block_completed.remote_addr,
             block_remote_port = self.block_completed.remote_port,
