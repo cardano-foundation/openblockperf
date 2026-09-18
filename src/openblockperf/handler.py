@@ -102,6 +102,7 @@ class EventHandler:
         self.peer_tracker = PeerTracker(
             peers,
             stable_seconds=settings.peer_event_stable_seconds,
+            signal_ttl_seconds=settings.peer_signal_ttl_seconds,
             traceroute_enabled=settings.peer_traceroute_enabled,
         )
         self.peer_relevance = PeerRelevanceTracker()
@@ -116,8 +117,9 @@ class EventHandler:
         return await self.dispatch_event(event)
 
     async def flush_peer_reports(self) -> int:
-        """Flush debounced peer enters that have remained stable. Returns submit count."""
+        """Flush debounced peer enters and soft-TTL demotes. Returns submit count."""
         reports = self.peer_tracker.flush_stable()
+        reports.extend(self.peer_tracker.expire_stale())
         for report in reports:
             await self._submit_report(report)
         pruned = self.peer_tracker.prune_cold(self.settings.peer_prune_idle_seconds)
@@ -174,6 +176,7 @@ class EventHandler:
         group.add_event(event)
 
         if isinstance(event, DownloadedHeaderEvent):
+            self.peer_tracker.touch_signal(event.remote_addr, event.at)
             if event.remote_addr not in before_headers and event.remote_addr in group.header_announcer_ips:
                 rank = group.header_announcer_rank(event.remote_addr)
                 if rank is not None:
@@ -190,6 +193,7 @@ class EventHandler:
                         f"{count_by_rank.get(rank, 0)}\n"
                     )
         elif isinstance(event, CompletedBlockFetchEvent):
+            self.peer_tracker.touch_signal(event.remote_addr, event.at)
             if not body_before and group.block_completed is event:
                 group.body_relevance_recorded = True
                 self.peer_relevance.record_body(event.remote_addr, event.at)

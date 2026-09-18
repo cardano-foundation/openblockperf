@@ -30,6 +30,15 @@ N seconds. Short Cold→Warm→Hot flickers collapse to a single Hot enter when
 possible. **Leaves** are submitted immediately once a previously reported
 temperature is gone.
 
+### Presence + soft TTL (`peer_signal_ttl_seconds`, default `1800`)
+
+Each peer keeps `first_seen` and `last_signal`. `last_signal` is bumped by
+temperature events, HandshakeSuccess, and blocksample header/body from that
+IP. After 30 minutes without a signal, Warm/Hot (inbound and outbound) are
+soft-demoted to Cold and a normal `warm_to_cold` is submitted if we had
+reported them. Set to `0` to disable. This covers missing Net.* leave lines
+(especially outbound) without chasing every CM error namespace.
+
 ### Traceroute (`peer_traceroute_enabled`, default `false`)
 
 Separate optional switch. Not implemented yet. Does not change temperature
@@ -98,9 +107,11 @@ Fields:
 * `*_pending` – waiting for `peer_event_stable_seconds`
 * `duplex` / `duplex_reported` – live vs both sides reported active
 * `handshakes_cached` – HandshakeSuccess cache size
+* `/peers` rows also expose `first_seen` and `last_signal`
 
-When comparing to gLiveView Warm/Hot, use **live**. When asking “what did we
-tell the backend?”, use **reported**.
+When comparing to gLiveView Warm/Hot, use **live** (approximate). Prefer the
+peer list + `last_signal` over matching gLiveView boxes exactly. When asking
+“what did we tell the backend?”, use **reported**.
 
 See [local-peer-metrics.md](local-peer-metrics.md) for the localhost
 Prometheus/JSON endpoint (default port `14041`, opt-in) and the sliding
@@ -127,6 +138,7 @@ defaults below so you can edit them in place.
 ```json
 {
   "peer_event_stable_seconds": 15,
+  "peer_signal_ttl_seconds": 1800,
   "peer_traceroute_enabled": false,
   "peer_count_stats_interval": 5,
   "peer_prune_idle_seconds": 600,
@@ -139,4 +151,5 @@ defaults below so you can edit them in place.
 Legacy `peer_events_level` in an old `config.json` is ignored (`extra=ignore`).
 
 Environment variables use the `OPENBLOCKPERF_` prefix, for example
-`OPENBLOCKPERF_PEER_EVENT_STABLE_SECONDS=30`.
+`OPENBLOCKPERF_PEER_EVENT_STABLE_SECONDS=30` or
+`OPENBLOCKPERF_PEER_SIGNAL_TTL_SECONDS=1800`.

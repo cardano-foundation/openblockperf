@@ -16,6 +16,9 @@ Living plan for peer events, local relevance, and what we send upstream.
 5. Backend conn-explore remains complementary (global vantage), not replaced
    by client handshakes.
 6. Backend peerevent ingest ready **2026-09-18**; client ships as **v0.0.42**.
+7. Presence + soft TTL (**2026-09-19**): `first_seen` / `last_signal`; demote
+   Warm/Hot after `peer_signal_ttl_seconds` (default 1800) without peerevent /
+   handshake / header / body signal.
 
 ## Decisions (2026-09-17)
 

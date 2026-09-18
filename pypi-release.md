@@ -19,6 +19,10 @@ but not recommended. In normal operation it runs as a systemd service.
   - abrupt connection loss (`MuxErrored`, `ConnectionHandler.Error`,
     `ResponderErrored`) counts as Cold leave so live peer counts track the node
   - CM / server shutdown wipes the peer FSM (no restart ghosts)
+  - peer presence: `first_seen` / `last_signal` on `/peers`; bumped by peerevent,
+    handshake, header, body
+  - soft TTL (`peer_signal_ttl_seconds`, default 1800): demote Warm/Hot after
+    30m without a signal (inbound + outbound); submits `warm_to_cold` if reported
   - still no dial-fail / PromoteColdFailed submits
 - v0.0.41 - 2026-09-17
   - blocksample submit adds optional 2nd/3rd header announcers:

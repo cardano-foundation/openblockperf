@@ -99,6 +99,7 @@ sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
   "local_addr": "0.0.0.0",
   "local_port": 3001,
   "peer_event_stable_seconds": 15,
+  "peer_signal_ttl_seconds": 1800,
   "peer_traceroute_enabled": false,
   "peer_count_stats_interval": 5,
   "peer_prune_idle_seconds": 600,
@@ -149,6 +150,7 @@ Further optional keys (not written above; defaults apply if omitted). Matching
 local-peer-metrics.md:
 
 - `peer_event_stable_seconds` (default `15`)
+- `peer_signal_ttl_seconds` (default `1800`); `0` disables soft demote
 - `peer_traceroute_enabled` (default `false`; not implemented yet)
 - `peer_count_stats_interval` (default `5`); `0` disables `peerCountStats`
 - `peer_prune_idle_seconds` (default `600`)

@@ -20,9 +20,13 @@ Upstream relevance / 2nd–3rd analysis: extend blocksamples
 
 Operator-facing peer lists export **reported/debounced** peers only
 (Warm/Hot that passed `peer_event_stable_seconds`, still held as reported).
+Each row includes `first_seen` and `last_signal` (peerevent / handshake /
+header / body). Soft TTL (`peer_signal_ttl_seconds`, default 30m) demotes
+stale Warm/Hot so the list does not grow without leave logs.
 
 While developing, `peerCountStats` also logs **live** and **pending**
 counts so we can see what debounce cuts off versus cardano-node / gLiveView.
+Prefer the peer list + `last_signal` over exact gLiveView Warm/Hot parity.
 
 ### Local HTTP endpoint
 

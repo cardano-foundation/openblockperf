@@ -66,6 +66,10 @@ class Peer(BaseModel):
     diffusion_mode: str | None = None
     peer_sharing: str | None = None
     peras_support: str | None = None
+    # Presence: first time we learned about this IP; last peerevent / HS / header / body.
+    first_seen: datetime | None = None
+    last_signal: datetime | None = None
+    # Alias bumped with last_signal (prune / diagnostics).
     last_updated: datetime = field(default_factory=datetime.now)
     geo_info: dict | None = None
     probe_results: dict | None = None

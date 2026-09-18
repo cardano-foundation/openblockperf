@@ -133,6 +133,7 @@ When a new config file is written, the installer sets:
 - `local_addr` (default `0.0.0.0`)
 - `local_port` (default `3001`)
 - `peer_event_stable_seconds` (default `15`)
+- `peer_signal_ttl_seconds` (default `1800`) soft-demote Warm/Hot after no signal
 - `peer_traceroute_enabled` (default `false`)
 - `peer_count_stats_interval` (default `5`)
 - `peer_prune_idle_seconds` (default `600`)
@@ -190,6 +191,9 @@ place to change behaviour). See [peers.md](peers.md) and
 
 - `peer_event_stable_seconds` (default `15`) how long Warm/Hot must last before
   an enter is submitted (all clients report cold_to_warm + warm_to_hot + leaves)
+- `peer_signal_ttl_seconds` (default `1800`) demote Warm/Hot to Cold when
+  `last_signal` is older than this (peerevent / handshake / header / body);
+  `0` disables
 - `peer_traceroute_enabled` (default `false`) optional traceroute enrichment
   (not implemented yet)
 - `peer_count_stats_interval` (default `5`) seconds to wait after peer

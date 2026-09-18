@@ -218,7 +218,9 @@ class TestPeerTrackerDebounce:
         ev_cold = _status_changed(at="2026-09-15T19:00:02.000000Z", transition="CoolingToCold")
         tracker.apply_event(ev_cold)
         peer = peers["203.0.113.10"]
-        peer.last_updated = datetime.now(UTC) - timedelta(seconds=700)
+        stale = datetime.now(UTC) - timedelta(seconds=700)
+        peer.last_updated = stale
+        peer.last_signal = stale
         assert tracker.prune_cold(max_idle_seconds=600) == 1
         assert peers == {}
 
@@ -390,3 +392,65 @@ class TestConnectionLost:
         assert peers == {}
         assert tracker.handshake_for("203.0.113.10") is None
         assert tracker.diagnostic_counts()["handshakes_cached"] == 0
+
+
+class TestPresenceAndTtl:
+    def test_first_seen_and_last_signal_on_enter(self):
+        peers = {}
+        tracker = PeerTracker(peers, stable_seconds=0, signal_ttl_seconds=1800)
+        t0 = "2026-09-19T00:00:00.000000Z"
+        tracker.apply_event(_status_changed(at=t0, transition="ColdToWarm"))
+        peer = peers["203.0.113.10"]
+        assert peer.first_seen == datetime(2026, 9, 19, 0, 0, 0, tzinfo=UTC)
+        assert peer.last_signal == peer.first_seen
+
+        t1 = "2026-09-19T00:10:00.000000Z"
+        tracker.apply_event(_status_changed(at=t1, transition="WarmToHot"))
+        assert peer.first_seen == datetime(2026, 9, 19, 0, 0, 0, tzinfo=UTC)
+        assert peer.last_signal == datetime(2026, 9, 19, 0, 10, 0, tzinfo=UTC)
+
+    def test_touch_signal_from_header_keeps_peer_alive(self):
+        peers = {}
+        tracker = PeerTracker(peers, stable_seconds=0, signal_ttl_seconds=1800)
+        tracker.apply_event(
+            _status_changed(at="2026-09-19T00:00:00.000000Z", transition="WarmToHot")
+        )
+        assert tracker.touch_signal(
+            "203.0.113.10", datetime(2026, 9, 19, 0, 25, 0, tzinfo=UTC)
+        )
+        # 29 minutes after last peerevent but 4 min after header touch → still alive
+        leaves = tracker.expire_stale(now=datetime(2026, 9, 19, 0, 29, 0, tzinfo=UTC))
+        assert leaves == []
+        assert peers["203.0.113.10"].state_outbound == PeerState.HOT
+
+    def test_expire_stale_demotes_after_ttl(self):
+        peers = {}
+        tracker = PeerTracker(peers, stable_seconds=0, signal_ttl_seconds=1800)
+        reports = tracker.apply_event(
+            _status_changed(at="2026-09-19T00:00:00.000000Z", transition="WarmToHot")
+        )
+        assert reports[0].change_type == PeerEventChangeType.WARM_HOT
+        leaves = tracker.expire_stale(now=datetime(2026, 9, 19, 0, 30, 0, tzinfo=UTC))
+        assert len(leaves) == 1
+        assert leaves[0].change_type == PeerEventChangeType.WARM_COLD
+        assert peers["203.0.113.10"].state_outbound == PeerState.COLD
+        assert tracker.reported_peer_rows() == []
+
+    def test_ttl_zero_disables(self):
+        peers = {}
+        tracker = PeerTracker(peers, stable_seconds=0, signal_ttl_seconds=0)
+        tracker.apply_event(
+            _status_changed(at="2026-09-19T00:00:00.000000Z", transition="WarmToHot")
+        )
+        assert tracker.expire_stale(now=datetime(2026, 9, 19, 2, 0, 0, tzinfo=UTC)) == []
+        assert peers["203.0.113.10"].state_outbound == PeerState.HOT
+
+    def test_reported_rows_include_presence(self):
+        peers = {}
+        tracker = PeerTracker(peers, stable_seconds=0, signal_ttl_seconds=1800)
+        tracker.apply_event(
+            _status_changed(at="2026-09-19T00:00:00.000000Z", transition="WarmToHot")
+        )
+        row = tracker.reported_peer_rows()[0]
+        assert row["first_seen"].startswith("2026-09-19T00:00:00")
+        assert row["last_signal"].startswith("2026-09-19T00:00:00")

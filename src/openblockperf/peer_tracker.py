@@ -4,6 +4,11 @@ Internal FSM follows cardano-node temperatures (including Cooling).
 All clients report the same lifecycle: stable Cold→Warm and Warm→Hot enters
 (after peer_event_stable_seconds) plus immediate leaves. Cooling is collapsed
 into reportable leave types and never submitted as its own change_type.
+
+Presence: first_seen / last_signal on each peer. last_signal is bumped by
+temperature events, HandshakeSuccess, and blocksample header/body. After
+peer_signal_ttl_seconds without a signal, Warm/Hot directions are soft-demoted
+to Cold (covers missing Net.* leave lines).
 """
 
 from __future__ import annotations
@@ -92,10 +97,12 @@ class PeerTracker:
         peers: dict[str, Peer],
         *,
         stable_seconds: int = 15,
+        signal_ttl_seconds: int = 1800,
         traceroute_enabled: bool = False,
     ):
         self.peers = peers
         self.stable_seconds = max(0, stable_seconds)
+        self.signal_ttl_seconds = max(0, signal_ttl_seconds)
         # Future: optional traceroute enrichment (not implemented yet).
         self.traceroute_enabled = traceroute_enabled
         self._tracks: dict[str, PeerTrack] = {}
@@ -108,6 +115,22 @@ class PeerTracker:
     def peer_key(self, remote_addr: str) -> str:
         """Identity is remote IP only (inbound ephemeral ports are ignored)."""
         return remote_addr
+
+    def _touch(self, peer: Peer, at: datetime) -> None:
+        """Bump presence timestamps (first_seen once, last_signal always)."""
+        aware = _as_aware(at)
+        if peer.first_seen is None:
+            peer.first_seen = aware
+        peer.last_signal = aware
+        peer.last_updated = aware
+
+    def touch_signal(self, remote_addr: str, at: datetime) -> bool:
+        """Refresh last_signal for a known peer (header/body). Returns True if found."""
+        peer = self.peers.get(self.peer_key(remote_addr))
+        if peer is None:
+            return False
+        self._touch(peer, at)
+        return True
 
     def record_handshake(
         self,
@@ -135,6 +158,7 @@ class PeerTracker:
         peer = self.peers.get(remote_addr)
         if peer is not None:
             self._apply_handshake_to_peer(peer, info)
+            self._touch(peer, at)
         return info
 
     def handshake_for(self, remote_addr: str) -> PeerHandshakeInfo | None:
@@ -201,7 +225,7 @@ class PeerTracker:
             peer.state_inbound = new_state
         else:
             peer.state_outbound = new_state
-        peer.last_updated = _as_aware(event.at)
+        self._touch(peer, event.at)
         peer.ns = event.ns
         self._update_duplex(peer)
 
@@ -226,10 +250,18 @@ class PeerTracker:
                     reports.extend(self._flush_pending(track, dtrack, force=True))
 
         if interest_old in (PeerState.WARM, PeerState.HOT) and interest_new in _GONE:
-            reports.extend(self._leave_reports(peer, dtrack, direction, interest_old, new_state, event))
+            reports.extend(
+                self._leave_reports(
+                    peer, dtrack, direction, interest_old, new_state, _as_aware(event.at)
+                )
+            )
             dtrack.pending = None
         elif interest_old == PeerState.HOT and interest_new == PeerState.WARM:
-            reports.extend(self._leave_reports(peer, dtrack, direction, PeerState.HOT, new_state, event))
+            reports.extend(
+                self._leave_reports(
+                    peer, dtrack, direction, PeerState.HOT, new_state, _as_aware(event.at)
+                )
+            )
             if dtrack.reported != PeerState.WARM:
                 dtrack.pending = PendingEnter(
                     direction=direction,
@@ -252,6 +284,62 @@ class PeerTracker:
         for track in list(self._tracks.values()):
             for dtrack in (track.inbound, track.outbound):
                 reports.extend(self._flush_pending(track, dtrack, now=now))
+        return reports
+
+    def expire_stale(self, now: datetime | None = None) -> list[PeerReport]:
+        """Soft-demote Warm/Hot when last_signal is older than signal_ttl_seconds.
+
+        Applies to inbound and outbound. Does not bump last_signal. Returns
+        leave reports for previously reported directions. 0 TTL disables.
+        """
+        if self.signal_ttl_seconds <= 0:
+            return []
+        now = _as_aware(now or _now())
+        reports: list[PeerReport] = []
+        ttl = timedelta(seconds=self.signal_ttl_seconds)
+
+        for key, peer in list(self.peers.items()):
+            if peer.last_signal is None:
+                continue
+            if now - _as_aware(peer.last_signal) < ttl:
+                continue
+
+            track = self._tracks.get(key)
+            if track is None:
+                continue
+
+            demoted_any = False
+            for direction, dtrack, attr in (
+                (PeerDirection.INBOUND, track.inbound, "state_inbound"),
+                (PeerDirection.OUTBOUND, track.outbound, "state_outbound"),
+            ):
+                old_state = getattr(peer, attr)
+                interest_old = self._interest_state(old_state)
+                if interest_old not in _ACTIVE and old_state != PeerState.COOLING:
+                    dtrack.pending = None
+                    continue
+                # Prefer live Warm/Hot; Cooling uses last reported temperature for leave type.
+                if interest_old in _ACTIVE:
+                    left = interest_old
+                else:
+                    left = dtrack.reported if dtrack.reported in _ACTIVE else PeerState.WARM
+                setattr(peer, attr, PeerState.COLD)
+                peer.ns = "peer_signal_ttl"
+                reports.extend(
+                    self._leave_reports(peer, dtrack, direction, left, PeerState.COLD, now)
+                )
+                dtrack.pending = None
+                demoted_any = True
+
+            if demoted_any:
+                self._update_duplex(peer)
+                peer.last_updated = now
+                logger.debug(
+                    "peer signal TTL demote",
+                    peer=peer.remote_addr,
+                    last_signal=peer.last_signal.isoformat() if peer.last_signal else None,
+                )
+
         return reports
 
     def _interest_state(self, state: PeerState) -> PeerState:
@@ -314,7 +402,7 @@ class PeerTracker:
         direction: PeerDirection,
         left: PeerState,
         new_state: PeerState,
-        event: PeerEvent,
+        at: datetime,
     ) -> list[PeerReport]:
         if dtrack.reported is None:
             return []
@@ -336,7 +424,7 @@ class PeerTracker:
                 direction=direction,
                 change_type=change_type,
                 state=state_out,
-                at=_as_aware(event.at),
+                at=_as_aware(at),
                 remote_port=self._report_port(peer, direction),
             )
         ]
@@ -351,7 +439,8 @@ class PeerTracker:
                 continue
             if peer.state_inbound == PeerState.COOLING or peer.state_outbound == PeerState.COOLING:
                 continue
-            idle = (now - _as_aware(peer.last_updated)).total_seconds()
+            idle_from = peer.last_signal or peer.last_updated
+            idle = (now - _as_aware(idle_from)).total_seconds()
             if idle < max_idle_seconds:
                 continue
             del self.peers[key]
@@ -455,6 +544,12 @@ class PeerTracker:
                     "peer_sharing": peer.peer_sharing,
                     "peras_support": peer.peras_support,
                     "handshake_at": hs.at.isoformat() if hs else None,
+                    "first_seen": (
+                        _as_aware(peer.first_seen).isoformat() if peer.first_seen else None
+                    ),
+                    "last_signal": (
+                        _as_aware(peer.last_signal).isoformat() if peer.last_signal else None
+                    ),
                     "last_updated": _as_aware(peer.last_updated).isoformat(),
                 }
             )

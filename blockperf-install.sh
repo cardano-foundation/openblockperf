@@ -1934,6 +1934,7 @@ ${tracer_log_file_line}
   "local_addr": "0.0.0.0",
   "local_port": 3001,
   "peer_event_stable_seconds": 15,
+  "peer_signal_ttl_seconds": 1800,
   "peer_traceroute_enabled": false,
   "peer_count_stats_interval": 5,
   "peer_prune_idle_seconds": 600,
