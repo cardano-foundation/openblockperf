@@ -9,11 +9,13 @@ Living plan for peer events, local relevance, and what we send upstream.
 2. Traceroute stays optional (`peer_traceroute_enabled`) and unimplemented.
 3. HandshakeSuccess enrichment on peerevents (`n2n_version`, `diffusion_mode`,
    `peer_sharing`, `peras_support`) when CM logs are available.
-4. Throttled default `Net.ConnectionManager.Remote` `maxFrequency: 0.0167`
-   yields few handshakes (~48/h in sample). Operators should drop that parent
-   throttle (or override HandshakeSuccess) for useful enrichment.
+4. Typical CNTools TraceOptions log CM Remote at Info without parent
+   `maxFrequency`, so HandshakeSuccess is usually available. If an install
+   throttles that namespace (`maxFrequency: 0.0167` etc.), enrichment coverage
+   drops; drop the throttle or override HandshakeSuccess.
 5. Backend conn-explore remains complementary (global vantage), not replaced
    by client handshakes.
+6. Backend peerevent ingest ready **2026-09-18**; client ships as **v0.0.42**.
 
 ## Decisions (2026-09-17)
 
@@ -31,8 +33,8 @@ Living plan for peer events, local relevance, and what we send upstream.
 
 | Doc | Status |
 |-----|--------|
-| `docs/backend-blocksample.md` | **Active** – 2nd/3rd announcer fields |
-| `docs/backend-peer-events.md` | Active – peerevent + `duplex` |
+| `docs/backend-blocksample.md` | **Active** – 2nd/3rd announcer fields (v0.0.41+) |
+| `docs/backend-peer-events.md` | **Active** – unified lifecycle + HandshakeSuccess (v0.0.42+) |
 | `docs/backend-peer-relevance.md` | **Cancelled** |
 
 ## Phases
@@ -55,8 +57,14 @@ Living plan for peer events, local relevance, and what we send upstream.
 
 * Optional fields on blocksample API accepted.
 * Persist + two relay lookups → `header2_relay_id`, `header3_relay_id`.
-* Client may ship PyPI with header2/header3 (v0.0.41+).
+* Client shipped PyPI with header2/header3 (v0.0.41+).
 * Post-analyze relevance / size×peer as needed.
+
+### Phase 3b – peerevent unify + HandshakeSuccess (**ready 2026-09-18**)
+
+* Drop `peer_events_level`; same four `change_type` values for all clients.
+* Optional handshake fields on peerevent ingest.
+* Client ships PyPI as **v0.0.42**.
 
 ### Phase 4 – ConnectionManager light (optional, local first)
 
@@ -66,5 +74,5 @@ Living plan for peer events, local relevance, and what we send upstream.
 ### Out of scope for now
 
 * Traceroute / geo pull-back.
-* Changing peerevent `change_type` set.
+* Dial-fail / PromoteColdFailed / CM error submits.
 * Merging IPv4/IPv6 into one peer identity on the client.

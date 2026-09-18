@@ -10,6 +10,13 @@ producer and the rest of the network. Running it on a producer is possible
 but not recommended. In normal operation it runs as a systemd service.
 
 ## Release notes
+- v0.0.42 - 2026-09-18
+  - peer events unified: every client reports the same temperature lifecycle
+    (`cold_to_warm`, `warm_to_hot`, `hot_to_warm`, `warm_to_cold`); no levels
+  - legacy `peer_events_level` in config is ignored
+  - HandshakeSuccess enrichment on peerevent submit when CM logs are present:
+    optional `n2n_version`, `diffusion_mode`, `peer_sharing`, `peras_support`
+  - still success life-signals only (no dial-fail / CM error submits)
 - v0.0.41 - 2026-09-17
   - blocksample submit adds optional 2nd/3rd header announcers:
     `header2_remote_addr/port`, `header3_remote_addr/port` (empty/`0` when missing)
