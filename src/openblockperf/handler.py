@@ -168,10 +168,25 @@ class EventHandler:
                 rank = group.header_announcer_rank(event.remote_addr)
                 if rank is not None:
                     self.peer_relevance.record_header(event.remote_addr, rank, event.at)
+                    score = self.peer_relevance.score_for(event.remote_addr, now=event.at)
+                    count_by_rank = {
+                        1: score.headers_1st_count,
+                        2: score.headers_2nd_count,
+                        3: score.headers_3rd_count,
+                    }
+                    ordinal = {1: "1st", 2: "2nd", 3: "3rd"}.get(rank, f"{rank}th")
+                    logger.opt(raw=True).info(
+                        f"new header announced {ordinal} from {event.remote_addr} "
+                        f"{count_by_rank.get(rank, 0)}\n"
+                    )
         elif isinstance(event, CompletedBlockFetchEvent):
             if not body_before and group.block_completed is event:
                 group.body_relevance_recorded = True
                 self.peer_relevance.record_body(event.remote_addr, event.at)
+                score = self.peer_relevance.score_for(event.remote_addr, now=event.at)
+                logger.opt(raw=True).info(
+                    f"new body served by {event.remote_addr} {score.bodies_count}\n"
+                )
 
     @dispatch_event.register
     async def _on_peer_event(self, event: PeerEvent):

@@ -343,19 +343,55 @@ class Blockperf:
                         ready_groups[k] = group
 
                 for k, group in ready_groups.items():
+                    short_hash = f"{group.block_hash[:8]}.."
+                    block_no = group.block_number
                     if not group.is_ok():
+                        logger.opt(raw=True).info(
+                            f"{short_hash} {block_no} skip is_ok=false "
+                            f"ann={len(group.header_announcers)}\n"
+                        )
+                        del self.block_sample_groups[k]
                         continue
+
                     sample = group.get_sample()
-                    await self.api.submit_block_sample(sample)
                     edge = self.api.pool.current
                     edge_name = edge.short_name if edge is not None else "unknown"
-                    short_hash = f"{sample.block_hash[:8]}.."
-                    # Compact journal line without datetime/level/module prefix.
-                    logger.opt(raw=True).info(f"{short_hash} {sample.block_number} {edge_name}\n")
-                    # Delete group
+                    h2 = (
+                        f"{sample.header2_remote_addr}:{sample.header2_remote_port}"
+                        if sample.header2_remote_addr
+                        else "-"
+                    )
+                    h3 = (
+                        f"{sample.header3_remote_addr}:{sample.header3_remote_port}"
+                        if sample.header3_remote_addr
+                        else "-"
+                    )
+                    try:
+                        await self.api.submit_block_sample(sample)
+                    except ApiError as e:
+                        logger.error(
+                            f"blocksample submit failed {short_hash} {block_no} "
+                            f"{edge_name} ann={len(group.header_announcers)} "
+                            f"h2={h2} h3={h3}: {e}"
+                        )
+                        # Keep group for retry on next interval.
+                        continue
+                    except Exception as e:
+                        logger.exception(
+                            f"blocksample submit error {short_hash} {block_no} "
+                            f"{edge_name}: {e!r}"
+                        )
+                        continue
+
+                    logger.opt(raw=True).info(
+                        f"{short_hash} {block_no} {edge_name} ok "
+                        f"ann={len(group.header_announcers)} h2={h2} h3={h3}\n"
+                    )
                     del self.block_sample_groups[k]
             except ApiError as e:
-                logger.error(f"Error sending blocksamples: {e!r}")
+                logger.error(f"Error in blocksample send loop: {e!r}")
+            except Exception as e:
+                logger.exception(f"Unexpected error in blocksample send loop: {e!r}")
 
     async def peer_relevance_snapshot_task(self) -> None:
         """Every 30 minutes log a sliding-window relevance snapshot (backend POST later)."""

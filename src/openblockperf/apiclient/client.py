@@ -66,7 +66,13 @@ class BlockperfApiClient:
         payload["block_remote_addr"] = self._obfuscate(payload.get("block_remote_addr"))
         payload["local_addr"] = self._obfuscate(payload.get("local_addr"))
         bsr = BlockSampleRequest(**payload)
-        logger.debug("Sending BlockSample", block_hash=sample.block_hash, slot=sample.slot)
+        logger.debug(
+            "Sending BlockSample",
+            block_hash=sample.block_hash,
+            slot=sample.slot,
+            header2=payload.get("header2_remote_addr") or "",
+            header3=payload.get("header3_remote_addr") or "",
+        )
         return await self._api.post("/submit/blocksample", bsr, BlockSampleResponse)
 
     async def post_status_change(self):
