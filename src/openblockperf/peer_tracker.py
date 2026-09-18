@@ -359,6 +359,18 @@ class PeerTracker:
             removed += 1
         return removed
 
+    def reset(self) -> int:
+        """Wipe peer FSM and handshake cache (node CM/server shutdown).
+
+        Returns how many peers were cleared. Does not emit leave reports; the
+        node is restarting and new promote/StatusChanged events will rebuild.
+        """
+        cleared = len(self.peers)
+        self.peers.clear()
+        self._tracks.clear()
+        self._handshakes.clear()
+        return cleared
+
     def diagnostic_counts(self) -> dict[str, int]:
         """Live vs reported vs pending Warm/Hot counts for operator diagnostics.
 

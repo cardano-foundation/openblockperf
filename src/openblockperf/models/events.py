@@ -32,7 +32,20 @@ STATES = {
     "Net.InboundGovernor.Remote.PromotedToWarmRemote": "Warm",
     "Net.InboundGovernor.Remote.DemotedToColdRemote": "Cold",
     "Net.InboundGovernor.Remote.DemotedToWarmRemote": "Warm",
+    # Abrupt drops (often no DemotedToCold follows). Force FSM to Cold.
+    "Net.InboundGovernor.Remote.MuxErrored": "Cold",
+    "Net.InboundGovernor.Remote.ResponderErrored": "Cold",
+    "Net.ConnectionManager.Remote.ConnectionHandler.Error": "Cold",
 }
+
+# Namespaces that mean the connection died without an orderly demotion.
+CONNECTION_LOST_NAMESPACES = frozenset(
+    {
+        "Net.InboundGovernor.Remote.MuxErrored",
+        "Net.InboundGovernor.Remote.ResponderErrored",
+        "Net.ConnectionManager.Remote.ConnectionHandler.Error",
+    }
+)
 
 
 class BaseEvent(BaseModel):
@@ -423,7 +436,14 @@ class PeerEvent(BaseEvent):
         data["state"] = STATES.get(ns)
 
         # Direction
-        if ".Remote" in ns:
+        if ns == "Net.ConnectionManager.Remote.ConnectionHandler.Error":
+            # Same CM namespace for both sides; context says which direction died.
+            ctx = (data.get("data") or {}).get("connectionHandler", {}).get("context")
+            if ctx == "OutboundError":
+                data["direction"] = "outbound"
+            else:
+                data["direction"] = "inbound"
+        elif ".Remote" in ns:
             data["direction"] = "inbound"
         elif ".Local" in ns:
             data["direction"] = "outbound"
@@ -435,7 +455,7 @@ class PeerEvent(BaseEvent):
 
         # Change type
         _change_type = None
-        if ns in [
+        if ns in CONNECTION_LOST_NAMESPACES or ns in [
             "Net.InboundGovernor.Local.DemotedToColdRemote",
             "Net.InboundGovernor.Remote.DemotedToColdRemote",
         ]:
@@ -660,3 +680,25 @@ class DemotedPeerEvent(PeerEvent):
 
     def __repr__(self):
         return f"DemotedPeer(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, state={self.state}, direction={self.direction}, change_type={self.change_type}, from={self.remote_addr}:{self.remote_port})"
+
+
+class ConnectionLostEvent(DemotedPeerEvent):
+    """Abrupt connection death (MuxErrored / Handler.Error / ResponderErrored).
+
+    Treated like DemotedToCold for the FSM so peerCountStats do not keep
+    Warm/Hot ghosts when the node never logs an orderly demotion.
+    """
+
+    def __repr__(self):
+        return (
+            f"ConnectionLost(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, "
+            f"ns={self.ns}, direction={self.direction}, "
+            f"from={self.remote_addr}:{self.remote_port})"
+        )
+
+
+class NetworkShutdownEvent(BaseEvent):
+    """ConnectionManager / server stopped; peer FSM should be wiped."""
+
+    def __repr__(self):
+        return f"NetworkShutdown(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, ns={self.ns})"

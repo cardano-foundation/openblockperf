@@ -74,5 +74,9 @@ Living plan for peer events, local relevance, and what we send upstream.
 ### Out of scope for now
 
 * Traceroute / geo pull-back.
-* Dial-fail / PromoteColdFailed / CM error submits.
+* Dial-fail / PromoteColdFailed submits (still out of scope).
 * Merging IPv4/IPv6 into one peer identity on the client.
+
+Abrupt inbound drops (`MuxErrored` / `ConnectionHandler.Error` /
+`ResponderErrored`) **are** parsed as Cold leaves so peerCountStats track
+gLiveView / IG closer. CM Shutdown wipes the FSM.

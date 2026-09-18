@@ -3,8 +3,10 @@
 from datetime import UTC, datetime, timedelta
 
 from openblockperf.models.events import (
+    ConnectionLostEvent,
     HandshakeSuccessEvent,
     PeerEventChangeType,
+    PromotedPeerEvent,
     StatusChangedEvent,
 )
 from openblockperf.models.peer import PeerDirection, PeerState
@@ -256,3 +258,135 @@ class TestHandshakeSuccessEvent:
         assert ev.diffusion_mode == "InitiatorAndResponderDiffusionMode"
         assert ev.peer_sharing == "PeerSharingEnabled"
         assert ev.peras_support == "PerasUnsupported"
+
+
+def _connection_lost(
+    *,
+    at: str,
+    ns: str,
+    remote_addr: str = "203.0.113.10",
+    remote_port: int = 6000,
+    context: str | None = "InboundError",
+):
+    data: dict = {
+        "kind": "MuxErrored" if "MuxErrored" in ns else "ConnectionHandler",
+        "connectionId": {
+            "localAddress": {"address": "10.0.0.1", "port": "3001"},
+            "remoteAddress": {"address": remote_addr, "port": str(remote_port)},
+        },
+    }
+    if "ConnectionHandler.Error" in ns:
+        data["connectionHandler"] = {
+            "command": "ShutdownPeer",
+            "context": context,
+            "kind": "Error",
+            "reason": "resource vanished",
+        }
+        data["kind"] = "ConnectionHandler"
+    elif "ResponderErrored" in ns:
+        data["kind"] = "ResponderErrored"
+        data["reason"] = "ExceededTimeLimit"
+    else:
+        data["reason"] = "Connection reset by peer"
+
+    return ConnectionLostEvent.model_validate(
+        {
+            "at": at,
+            "ns": ns,
+            "data": data,
+            "sev": "Info",
+            "thread": "1",
+            "host": "test",
+        }
+    )
+
+
+def _promoted_warm(*, at: str, remote_addr: str, remote_port: int = 6000):
+    return PromotedPeerEvent.model_validate(
+        {
+            "at": at,
+            "ns": "Net.InboundGovernor.Remote.PromotedToWarmRemote",
+            "data": {
+                "kind": "PromotedToWarmRemote",
+                "connectionId": {
+                    "localAddress": {"address": "10.0.0.1", "port": "3001"},
+                    "remoteAddress": {"address": remote_addr, "port": str(remote_port)},
+                },
+                "result": {"kind": "OperationSuccess"},
+            },
+            "sev": "Info",
+            "thread": "1",
+            "host": "test",
+        }
+    )
+
+
+class TestConnectionLost:
+    def test_mux_errored_parses_inbound_cold(self):
+        ev = _connection_lost(
+            at="2026-09-18T21:21:09.000000Z",
+            ns="Net.InboundGovernor.Remote.MuxErrored",
+        )
+        assert ev.state == "Cold"
+        assert ev.direction == "inbound"
+        assert ev.change_type == PeerEventChangeType.WARM_COLD
+        assert ev.remote_addr == "203.0.113.10"
+
+    def test_handler_error_outbound_context(self):
+        ev = _connection_lost(
+            at="2026-09-18T21:21:09.000000Z",
+            ns="Net.ConnectionManager.Remote.ConnectionHandler.Error",
+            context="OutboundError",
+        )
+        assert ev.direction == "outbound"
+        assert ev.state == "Cold"
+
+    def test_mux_errored_clears_reported_inbound_hot(self):
+        peers = {}
+        tracker = PeerTracker(peers, stable_seconds=0)
+        warm = _promoted_warm(at="2026-09-18T21:00:00.000000Z", remote_addr="203.0.113.10")
+        reports = tracker.apply_event(warm)
+        assert len(reports) == 1
+        assert reports[0].change_type == PeerEventChangeType.COLD_WARM
+        hot = PromotedPeerEvent.model_validate(
+            _promoted_hot(
+                at="2026-09-18T21:00:01.000000Z",
+                remote_addr="203.0.113.10",
+                remote_port=6000,
+            )
+        )
+        reports = tracker.apply_event(hot)
+        assert reports[0].change_type == PeerEventChangeType.WARM_HOT
+        assert peers["203.0.113.10"].state_inbound == PeerState.HOT
+
+        lost = _connection_lost(
+            at="2026-09-18T21:00:05.000000Z",
+            ns="Net.InboundGovernor.Remote.MuxErrored",
+        )
+        leaves = tracker.apply_event(lost)
+        assert len(leaves) == 1
+        assert leaves[0].change_type == PeerEventChangeType.WARM_COLD
+        assert peers["203.0.113.10"].state_inbound == PeerState.COLD
+        diag = tracker.diagnostic_counts()
+        assert diag["in_hot_live"] == 0
+        assert diag["in_hot_reported"] == 0
+
+    def test_reset_clears_peers_and_handshakes(self):
+        peers = {}
+        tracker = PeerTracker(peers, stable_seconds=0)
+        tracker.apply_event(
+            _promoted_warm(at="2026-09-18T21:00:00.000000Z", remote_addr="203.0.113.10")
+        )
+        tracker.record_handshake(
+            remote_addr="203.0.113.10",
+            remote_port=6000,
+            n2n_version=14,
+            diffusion_mode="InitiatorAndResponderDiffusionMode",
+            peer_sharing="PeerSharingEnabled",
+            peras_support="PerasUnsupported",
+            at=datetime(2026, 9, 18, 21, 0, 0, tzinfo=UTC),
+        )
+        assert tracker.reset() == 1
+        assert peers == {}
+        assert tracker.handshake_for("203.0.113.10") is None
+        assert tracker.diagnostic_counts()["handshakes_cached"] == 0

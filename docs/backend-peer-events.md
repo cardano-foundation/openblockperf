@@ -32,7 +32,8 @@ HandshakeSuccess is available in normal installs.
    values with debounce only (`peer_event_stable_seconds`, default 15).
 2. HandshakeSuccess enriches peerevents with optional capability fields.
 3. We do **not** submit connection failures, PromoteColdFailed, or CM errors
-   for now (not for diagnosis).
+   as their own event types. The client may still emit normal `warm_to_cold`
+   when MuxErrored / Handler.Error / ResponderErrored clear a reported peer.
 4. Traceroute stays a future separate optional switch; not part of peerevent.
 
 ---

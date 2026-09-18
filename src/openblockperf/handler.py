@@ -12,10 +12,12 @@ from openblockperf.models.events import (
     AddedToCurrentChainEvent,
     BlockSampleEvent,
     CompletedBlockFetchEvent,
+    ConnectionLostEvent,
     DemotedPeerEvent,
     DownloadedHeaderEvent,
     HandshakeSuccessEvent,
     InboundGovernorCountersEvent,
+    NetworkShutdownEvent,
     PeerEvent,
     PromotedPeerEvent,
     SendFetchRequestEvent,
@@ -60,18 +62,23 @@ class EventHandler:
         "ChainDB.AddBlockEvent.AddedToCurrentChain": AddedToCurrentChainEvent,
         "ChainDB.AddBlockEvent.SwitchedToAFork": SwitchedToAForkEvent,
         "ChainSync.Client.DownloadedHeader": DownloadedHeaderEvent,
+        "Net.ConnectionManager.Remote.ConnectionHandler.Error": ConnectionLostEvent,
         "Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess": HandshakeSuccessEvent,
+        "Net.ConnectionManager.Remote.Shutdown": NetworkShutdownEvent,
         "Net.InboundGovernor.Local.DemotedToColdRemote": DemotedPeerEvent,
         "Net.InboundGovernor.Local.DemotedToWarmRemote": DemotedPeerEvent,
         "Net.InboundGovernor.Local.PromotedToHotRemote": PromotedPeerEvent,
         "Net.InboundGovernor.Local.PromotedToWarmRemote": PromotedPeerEvent,
         "Net.InboundGovernor.Local.InboundGovernorCounters": InboundGovernorCountersEvent,
+        "Net.InboundGovernor.Remote.MuxErrored": ConnectionLostEvent,
         "Net.InboundGovernor.Remote.PromotedToHotRemote": PromotedPeerEvent,
         "Net.InboundGovernor.Remote.PromotedToWarmRemote": PromotedPeerEvent,
         "Net.InboundGovernor.Remote.DemotedToColdRemote": DemotedPeerEvent,
         "Net.InboundGovernor.Remote.DemotedToWarmRemote": DemotedPeerEvent,
         "Net.InboundGovernor.Remote.InboundGovernorCounters": InboundGovernorCountersEvent,
+        "Net.InboundGovernor.Remote.ResponderErrored": ConnectionLostEvent,
         "Net.PeerSelection.Actions.StatusChanged": StatusChangedEvent,
+        "Net.Server.Remote.Stopped": NetworkShutdownEvent,
     }
 
     block_sample_groups: dict[str, BlockSampleGroup]
@@ -122,7 +129,9 @@ class EventHandler:
     # Internal: parsing
     # ------------------------------------------------------------------
 
-    def _make_event_from_message(self, message: dict) -> BlockSampleEvent | PeerEvent:
+    def _make_event_from_message(
+        self, message: dict
+    ) -> BlockSampleEvent | PeerEvent | HandshakeSuccessEvent | InboundGovernorCountersEvent | NetworkShutdownEvent:
         """Validate a raw log message dict into a typed Pydantic event model."""
         ns = message.get("ns")
         if ns not in self.REGISTERED_NAMESPACES:
@@ -247,6 +256,14 @@ class EventHandler:
             f"share={event.peer_sharing} peras={event.peras_support}\n"
         )
 
+    @dispatch_event.register
+    async def _on_network_shutdown(self, event: NetworkShutdownEvent):
+        """Node CM/server stopped; drop FSM so restart does not keep ghosts."""
+        cleared = self.peer_tracker.reset()
+        logger.opt(raw=True).info(
+            f"network shutdown {event.ns} cleared_peers={cleared}\n"
+        )
+
     # ------------------------------------------------------------------
     # Level 2 dispatch — subtype hooks after tracker update (no direct submit)
     # ------------------------------------------------------------------
@@ -267,3 +284,7 @@ class EventHandler:
     @dispatch_peer_event.register
     async def _on_peer_demoted(self, event: DemotedPeerEvent, peer: Peer):
         logger.debug("Peer demoted", event=event, peer=peer)
+
+    @dispatch_peer_event.register
+    async def _on_connection_lost(self, event: ConnectionLostEvent, peer: Peer):
+        logger.debug("Peer connection lost", event=event, peer=peer)

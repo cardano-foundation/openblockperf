@@ -66,6 +66,26 @@ unthrottled capture.
 
 Peers are keyed by **remote IP**, not by ephemeral `ip:port`.
 
+## Abrupt connection loss (count-down)
+
+Orderly `DemotedToColdRemote` / StatusChanged Cooling often **does not**
+follow a hard drop. Without these, live Warm/Hot stay high vs gLiveView /
+`InboundGovernorCounters`.
+
+The client also treats these as inbound (or outbound for
+`OutboundError`) leave to Cold, same as demote:
+
+* `Net.InboundGovernor.Remote.MuxErrored`
+* `Net.InboundGovernor.Remote.ResponderErrored`
+* `Net.ConnectionManager.Remote.ConnectionHandler.Error`
+
+On `Net.ConnectionManager.Remote.Shutdown` or `Net.Server.Remote.Stopped`
+the peer FSM and handshake cache are wiped so a node restart does not keep
+ghosts.
+
+When comparing to gLiveView: **Bi-Dir / Duplex** there are CM
+`duplex` / `fullDuplex` counters, not temperature `duplex`.
+
 ## Local stats (diagnostics)
 
 `peerCountStats` is logged a few seconds after counters change
