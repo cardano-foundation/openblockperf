@@ -14,6 +14,7 @@ from openblockperf.models.events import (
     CompletedBlockFetchEvent,
     DemotedPeerEvent,
     DownloadedHeaderEvent,
+    HandshakeSuccessEvent,
     InboundGovernorCountersEvent,
     PeerEvent,
     PromotedPeerEvent,
@@ -43,7 +44,7 @@ from openblockperf.peer_tracker import PeerReport, PeerTracker
 #           PromotedPeerEvent   → _on_peer_promoted
 #           DemotedPeerEvent    → _on_peer_demoted
 #
-# Peer API submits are decided by PeerTracker (debounce / level / cooling collapse),
+# Peer API submits are decided by PeerTracker (debounce / cooling collapse),
 # not by immediate submit on every log line.
 # ---------------------------------------------------------------------------
 
@@ -53,12 +54,13 @@ class EventHandler:
 
     # Maps cardano-node log namespace strings to their Pydantic event models.
     # _make_event_from_message() uses this to parse raw dicts into typed events.
-    REGISTERED_NAMESPACES: dict[str, type[BlockSampleEvent | PeerEvent]] = {
+    REGISTERED_NAMESPACES: dict[str, type] = {
         "BlockFetch.Client.CompletedBlockFetch": CompletedBlockFetchEvent,
         "BlockFetch.Client.SendFetchRequest": SendFetchRequestEvent,
         "ChainDB.AddBlockEvent.AddedToCurrentChain": AddedToCurrentChainEvent,
         "ChainDB.AddBlockEvent.SwitchedToAFork": SwitchedToAForkEvent,
         "ChainSync.Client.DownloadedHeader": DownloadedHeaderEvent,
+        "Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess": HandshakeSuccessEvent,
         "Net.InboundGovernor.Local.DemotedToColdRemote": DemotedPeerEvent,
         "Net.InboundGovernor.Local.DemotedToWarmRemote": DemotedPeerEvent,
         "Net.InboundGovernor.Local.PromotedToHotRemote": PromotedPeerEvent,
@@ -92,7 +94,6 @@ class EventHandler:
         self.settings = settings
         self.peer_tracker = PeerTracker(
             peers,
-            level=settings.peer_events_level,
             stable_seconds=settings.peer_event_stable_seconds,
             traceroute_enabled=settings.peer_traceroute_enabled,
         )
@@ -211,7 +212,9 @@ class EventHandler:
             return
         logger.opt(raw=True).info(
             f"{report.peer.remote_addr} {report.direction.value} "
-            f"{report.change_type.value} duplex={report.peer.duplex}\n"
+            f"{report.change_type.value} duplex={report.peer.duplex} "
+            f"v={report.peer.n2n_version} share={report.peer.peer_sharing} "
+            f"peras={report.peer.peras_support}\n"
         )
         await self.api.submit_peer_report(
             peer=report.peer,
@@ -225,6 +228,24 @@ class EventHandler:
     @dispatch_event.register
     async def _on_inbound_governor_counters(self, event: InboundGovernorCountersEvent):
         logger.debug("InboundGovernorCountersEvent", event=event)
+
+    @dispatch_event.register
+    async def _on_handshake_success(self, event: HandshakeSuccessEvent):
+        """Cache ConnectionManager handshake options for peerevent enrichment."""
+        info = self.peer_tracker.record_handshake(
+            remote_addr=event.remote_addr,
+            remote_port=event.remote_port,
+            n2n_version=event.n2n_version,
+            diffusion_mode=event.diffusion_mode,
+            peer_sharing=event.peer_sharing,
+            peras_support=event.peras_support,
+            at=event.at,
+        )
+        logger.opt(raw=True).info(
+            f"handshake {event.remote_addr} port={info.remote_port} "
+            f"v={event.n2n_version} mode={event.diffusion_mode} "
+            f"share={event.peer_sharing} peras={event.peras_support}\n"
+        )
 
     # ------------------------------------------------------------------
     # Level 2 dispatch — subtype hooks after tracker update (no direct submit)

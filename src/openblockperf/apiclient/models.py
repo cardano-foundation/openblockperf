@@ -23,6 +23,11 @@ class PeerEventRequest(BaseModel):
     last_state: str
     # True when this remote IP is Warm/Hot on both inbound and outbound at once.
     duplex: bool = False
+    # Optional ConnectionManager HandshakeSuccess enrichment (None = unknown).
+    n2n_version: int | None = None
+    diffusion_mode: str | None = None
+    peer_sharing: str | None = None
+    peras_support: str | None = None
 
 
 class PeerEventResponse(BaseModel):

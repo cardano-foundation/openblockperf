@@ -61,6 +61,11 @@ class Peer(BaseModel):
     state_outbound: PeerState = PeerState.UNCONNECTED
     # True when inbound and outbound temperatures are both Warm or Hot at once.
     duplex: bool = False
+    # Latest ConnectionManager HandshakeSuccess enrichment (optional).
+    n2n_version: int | None = None
+    diffusion_mode: str | None = None
+    peer_sharing: str | None = None
+    peras_support: str | None = None
     last_updated: datetime = field(default_factory=datetime.now)
     geo_info: dict | None = None
     probe_results: dict | None = None

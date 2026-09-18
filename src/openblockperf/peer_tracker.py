@@ -1,31 +1,40 @@
 """Debounced peer-state tracking and API report decisions.
 
 Internal FSM follows cardano-node temperatures (including Cooling).
-Only stable Warm/Hot enters (by configured level) and immediate leaves
-are turned into backend-compatible PeerEventChangeType values.
+All clients report the same lifecycle: stable Cold→Warm and Warm→Hot enters
+(after peer_event_stable_seconds) plus immediate leaves. Cooling is collapsed
+into reportable leave types and never submitted as its own change_type.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from enum import Enum
 
 from openblockperf.logging import logger
 from openblockperf.models.events import PeerEvent, PeerEventChangeType
 from openblockperf.models.peer import Peer, PeerDirection, PeerState
 
-
-class PeerEventsLevel(str, Enum):
-    OFF = "off"
-    LOW = "low"
-    MID = "mid"
-    HIGH = "high"
-
-
 # States that mean "interesting connected temperature" for tracking.
 _ACTIVE = {PeerState.WARM, PeerState.HOT}
 _GONE = {PeerState.COLD, PeerState.UNCONNECTED, PeerState.UNKNOWN, PeerState.COOLING}
+
+# Ephemeral TCP source ports are not relay listen ports.
+_EPHEMERAL_PORT_MIN = 32768
+
+
+@dataclass
+class PeerHandshakeInfo:
+    """Latest ConnectionManager HandshakeSuccess for a remote IP."""
+
+    remote_addr: str
+    # Service listen port when known; 0 if inbound ephemeral / unknown.
+    remote_port: int
+    n2n_version: int | None
+    diffusion_mode: str | None
+    peer_sharing: str | None
+    peras_support: str | None
+    at: datetime
 
 
 @dataclass
@@ -82,32 +91,62 @@ class PeerTracker:
         self,
         peers: dict[str, Peer],
         *,
-        level: PeerEventsLevel = PeerEventsLevel.MID,
         stable_seconds: int = 15,
         traceroute_enabled: bool = False,
     ):
         self.peers = peers
-        self.level = level
         self.stable_seconds = max(0, stable_seconds)
+        # Future: optional traceroute enrichment (not implemented yet).
         self.traceroute_enabled = traceroute_enabled
         self._tracks: dict[str, PeerTrack] = {}
+        self._handshakes: dict[str, PeerHandshakeInfo] = {}
 
     def enabled(self) -> bool:
-        return self.level != PeerEventsLevel.OFF
-
-    def wants_warm(self) -> bool:
-        return self.level == PeerEventsLevel.HIGH
-
-    def wants_hot(self) -> bool:
-        return self.level in (PeerEventsLevel.MID, PeerEventsLevel.HIGH)
-
-    def wants_api_reports(self) -> bool:
-        """Temperature reports to the API (mid/high). Low only tracks locally."""
-        return self.level in (PeerEventsLevel.MID, PeerEventsLevel.HIGH)
+        """Peer temperature tracking is always on."""
+        return True
 
     def peer_key(self, remote_addr: str) -> str:
         """Identity is remote IP only (inbound ephemeral ports are ignored)."""
         return remote_addr
+
+    def record_handshake(
+        self,
+        *,
+        remote_addr: str,
+        remote_port: int,
+        n2n_version: int | None,
+        diffusion_mode: str | None,
+        peer_sharing: str | None,
+        peras_support: str | None,
+        at: datetime,
+    ) -> PeerHandshakeInfo:
+        """Cache HandshakeSuccess options for later peerevent enrichment."""
+        port = 0 if remote_port >= _EPHEMERAL_PORT_MIN else remote_port
+        info = PeerHandshakeInfo(
+            remote_addr=remote_addr,
+            remote_port=port,
+            n2n_version=n2n_version,
+            diffusion_mode=diffusion_mode,
+            peer_sharing=peer_sharing,
+            peras_support=peras_support,
+            at=_as_aware(at),
+        )
+        self._handshakes[remote_addr] = info
+        peer = self.peers.get(remote_addr)
+        if peer is not None:
+            self._apply_handshake_to_peer(peer, info)
+        return info
+
+    def handshake_for(self, remote_addr: str) -> PeerHandshakeInfo | None:
+        return self._handshakes.get(remote_addr)
+
+    def _apply_handshake_to_peer(self, peer: Peer, info: PeerHandshakeInfo) -> None:
+        peer.n2n_version = info.n2n_version
+        peer.diffusion_mode = info.diffusion_mode
+        peer.peer_sharing = info.peer_sharing
+        peer.peras_support = info.peras_support
+        if info.remote_port and not peer.remote_port:
+            peer.remote_port = info.remote_port
 
     def _track_for(self, key: str, peer: Peer) -> PeerTrack:
         track = self._tracks.get(key)
@@ -121,77 +160,62 @@ class PeerTracker:
     def _dir_track(self, track: PeerTrack, direction: PeerDirection) -> DirectionTrack:
         return track.inbound if direction == PeerDirection.INBOUND else track.outbound
 
+    def _update_duplex(self, peer: Peer) -> None:
+        peer.duplex = peer.state_inbound in _ACTIVE and peer.state_outbound in _ACTIVE
+
     def _report_port(self, peer: Peer, direction: PeerDirection) -> int:
-        """Inbound: never report ephemeral remote ports. Outbound: keep service port."""
         if direction == PeerDirection.INBOUND:
             return 0
         return peer.remote_port
 
-    def _update_duplex(self, peer: Peer) -> None:
-        peer.duplex = peer.state_inbound in _ACTIVE and peer.state_outbound in _ACTIVE
-
     def apply_event(self, event: PeerEvent) -> list[PeerReport]:
-        """Apply one parsed peer event. Returns immediate leave reports (if any)."""
-        if not self.enabled():
-            return []
-
+        """Update peer temperatures from a PeerEvent; return any API reports."""
         key = self.peer_key(event.remote_addr)
-        direction = PeerDirection(event.direction)
-        new_state = PeerState(event.state)
+        direction = (
+            event.direction
+            if isinstance(event.direction, PeerDirection)
+            else PeerDirection(event.direction)
+        )
+        new_state = PeerState(event.state) if not isinstance(event.state, PeerState) else event.state
 
-        if key not in self.peers:
-            # Inbound identity ignores ephemeral port in stored remote_port for reporting,
-            # but keep last observed outbound service port when we learn it.
+        peer = self.peers.get(key)
+        if peer is None:
             stored_port = 0 if direction == PeerDirection.INBOUND else event.remote_port
-            self.peers[key] = Peer(
+            peer = Peer(
                 ns=event.ns,
-                remote_addr=event.remote_addr,
-                remote_port=stored_port,
                 local_addr=event.local_addr,
                 local_port=event.local_port,
+                remote_addr=event.remote_addr,
+                remote_port=stored_port,
             )
-        peer = self.peers[key]
-
+            self.peers[key] = peer
         if direction == PeerDirection.OUTBOUND and event.remote_port:
             peer.remote_port = event.remote_port
-        peer.local_addr = event.local_addr
-        peer.local_port = event.local_port
-        peer.ns = event.ns
-        peer.last_updated = _now()
+
+        hs = self._handshakes.get(key)
+        if hs is not None:
+            self._apply_handshake_to_peer(peer, hs)
 
         old_state = peer.state_inbound if direction == PeerDirection.INBOUND else peer.state_outbound
         if direction == PeerDirection.INBOUND:
             peer.state_inbound = new_state
         else:
             peer.state_outbound = new_state
-
+        peer.last_updated = _as_aware(event.at)
+        peer.ns = event.ns
         self._update_duplex(peer)
+
         track = self._track_for(key, peer)
         dtrack = self._dir_track(track, direction)
-
         reports: list[PeerReport] = []
 
-        if not self.wants_api_reports():
-            # low: keep local state only
-            dtrack.pending = None
-            return reports
-
-        # Normalize Cooling as "leaving" for report interest.
         interest_new = self._interest_state(new_state)
         interest_old = self._interest_state(old_state)
 
-        # Enter candidate (warm/hot)
         if interest_new in (PeerState.WARM, PeerState.HOT):
-            if interest_new == PeerState.WARM and not self.wants_warm():
-                # mid: ignore warm enters; wait for hot
-                dtrack.pending = None
-            elif interest_new == PeerState.HOT and not self.wants_hot():
-                dtrack.pending = None
-            elif dtrack.reported == interest_new:
-                # Already reported this temperature; ignore churn
+            if dtrack.reported == interest_new:
                 dtrack.pending = None
             else:
-                # Warm then quickly Hot: replace pending warm with hot
                 dtrack.pending = PendingEnter(
                     direction=direction,
                     target=interest_new,
@@ -201,15 +225,12 @@ class PeerTracker:
                 if self.stable_seconds == 0:
                     reports.extend(self._flush_pending(track, dtrack, force=True))
 
-        # Leave interesting state → report immediately if we had reported it
         if interest_old in (PeerState.WARM, PeerState.HOT) and interest_new in _GONE:
             reports.extend(self._leave_reports(peer, dtrack, direction, interest_old, new_state, event))
             dtrack.pending = None
         elif interest_old == PeerState.HOT and interest_new == PeerState.WARM:
-            # Hot demoted to warm
             reports.extend(self._leave_reports(peer, dtrack, direction, PeerState.HOT, new_state, event))
-            # May start warm pending if high level
-            if self.wants_warm() and dtrack.reported != PeerState.WARM:
+            if dtrack.reported != PeerState.WARM:
                 dtrack.pending = PendingEnter(
                     direction=direction,
                     target=PeerState.WARM,
@@ -220,15 +241,12 @@ class PeerTracker:
                 dtrack.pending = None
 
         if self.traceroute_enabled:
-            # Hook only; traceroute is not implemented in this change.
             logger.debug("peer traceroute enabled but not implemented yet", peer=peer.remote_addr)
 
         return reports
 
     def flush_stable(self, now: datetime | None = None) -> list[PeerReport]:
         """Emit reports for pending enters that stayed stable long enough."""
-        if not self.wants_api_reports():
-            return []
         now = _as_aware(now or _now())
         reports: list[PeerReport] = []
         for track in list(self._tracks.values()):
@@ -256,15 +274,13 @@ class PeerTracker:
         now = _as_aware(now or _now())
         peer = track.peer
         current = peer.state_inbound if pending.direction == PeerDirection.INBOUND else peer.state_outbound
-        # Still at or above the pending target?
         if pending.target == PeerState.HOT and current != PeerState.HOT:
             dtrack.pending = None
             return []
         if pending.target == PeerState.WARM and current not in (PeerState.WARM, PeerState.HOT):
             dtrack.pending = None
             return []
-        # If we pending warm but already reached hot, upgrade target
-        if pending.target == PeerState.WARM and current == PeerState.HOT and self.wants_hot():
+        if pending.target == PeerState.WARM and current == PeerState.HOT:
             pending.target = PeerState.HOT
 
         elapsed = now - pending.since
@@ -278,14 +294,6 @@ class PeerTracker:
         change_type = (
             PeerEventChangeType.WARM_HOT if pending.target == PeerState.HOT else PeerEventChangeType.COLD_WARM
         )
-        # Skip warm report if level is mid (should not pending warm there)
-        if pending.target == PeerState.WARM and not self.wants_warm():
-            dtrack.pending = None
-            return []
-        if pending.target == PeerState.HOT and not self.wants_hot():
-            dtrack.pending = None
-            return []
-
         dtrack.reported = pending.target
         dtrack.pending = None
         return [
@@ -310,26 +318,18 @@ class PeerTracker:
     ) -> list[PeerReport]:
         if dtrack.reported is None:
             return []
-        # Only report leave for temperatures we care about at this level
-        if left == PeerState.HOT and not self.wants_hot():
-            dtrack.reported = None
-            return []
-        if left == PeerState.WARM and not self.wants_warm():
-            # mid may have reported hot; warm leave alone is irrelevant
-            if dtrack.reported != PeerState.HOT:
-                dtrack.reported = None
-            return []
 
         if left == PeerState.HOT:
-            # Hot → warm or Hot → cold/cooling
             final = self._interest_state(new_state)
             change_type = PeerEventChangeType.HOT_WARM if final == PeerState.WARM else PeerEventChangeType.WARM_COLD
             state_out = PeerState.WARM.value if final == PeerState.WARM else PeerState.COLD.value
+            # Keep Warm as reported after Hot→Warm so a later Warm→Cold still leaves.
+            dtrack.reported = PeerState.WARM if change_type == PeerEventChangeType.HOT_WARM else None
         else:
             change_type = PeerEventChangeType.WARM_COLD
             state_out = PeerState.COLD.value
+            dtrack.reported = None
 
-        dtrack.reported = None
         return [
             PeerReport(
                 peer=peer,
@@ -381,6 +381,7 @@ class PeerTracker:
             "out_hot_pending": 0,
             "duplex_live": 0,
             "duplex_reported": 0,
+            "handshakes_cached": len(self._handshakes),
         }
         for key, peer in self.peers.items():
             if peer.state_inbound == PeerState.WARM:
@@ -428,6 +429,7 @@ class PeerTracker:
             if out_rep in _ACTIVE:
                 directions.append("outbound")
             duplex_reported = in_rep in _ACTIVE and out_rep in _ACTIVE
+            hs = self._handshakes.get(key)
             rows.append(
                 {
                     "remote_addr": peer.remote_addr,
@@ -436,6 +438,11 @@ class PeerTracker:
                     "state_inbound": in_rep.value if in_rep else None,
                     "state_outbound": out_rep.value if out_rep else None,
                     "duplex": duplex_reported,
+                    "n2n_version": peer.n2n_version,
+                    "diffusion_mode": peer.diffusion_mode,
+                    "peer_sharing": peer.peer_sharing,
+                    "peras_support": peer.peras_support,
+                    "handshake_at": hs.at.isoformat() if hs else None,
                     "last_updated": _as_aware(peer.last_updated).isoformat(),
                 }
             )

@@ -93,6 +93,9 @@ See also [Installer Guide](blockperf-install.md#switching-an-existing-install-to
     "Net.ConnectionManager.Remote": {
       "severity": "Info"
     },
+    "Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess": {
+      "severity": "Info"
+    },
     "Net.PeerSelection": {
       "severity": "Info"
     },

@@ -98,7 +98,6 @@ sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
   "tracer_log_file": "${TRACER_LOG_FILE}",
   "local_addr": "0.0.0.0",
   "local_port": 3001,
-  "peer_events_level": "mid",
   "peer_event_stable_seconds": 15,
   "peer_traceroute_enabled": false,
   "peer_count_stats_interval": 5,
@@ -149,9 +148,8 @@ Further optional keys (not written above; defaults apply if omitted). Matching
 **Peer events** (written above with defaults; edit in place). See peers.md and
 local-peer-metrics.md:
 
-- `peer_events_level` (default `mid`) `off` | `low` | `mid` | `high`
 - `peer_event_stable_seconds` (default `15`)
-- `peer_traceroute_enabled` (default `false`)
+- `peer_traceroute_enabled` (default `false`; not implemented yet)
 - `peer_count_stats_interval` (default `5`); `0` disables `peerCountStats`
 - `peer_prune_idle_seconds` (default `600`)
 - `local_metrics_enabled` (default `false`)

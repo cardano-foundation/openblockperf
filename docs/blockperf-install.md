@@ -132,7 +132,6 @@ When a new config file is written, the installer sets:
 - `tracer_log_file` (optional; if set, read tracer JSON from this file and follow rotations)
 - `local_addr` (default `0.0.0.0`)
 - `local_port` (default `3001`)
-- `peer_events_level` (default `mid`)
 - `peer_event_stable_seconds` (default `15`)
 - `peer_traceroute_enabled` (default `false`)
 - `peer_count_stats_interval` (default `5`)
@@ -189,11 +188,10 @@ All keys also accept matching `OPENBLOCKPERF_*` environment variables.
 place to change behaviour). See [peers.md](peers.md) and
 [local-peer-metrics.md](local-peer-metrics.md).
 
-- `peer_events_level` (default `mid`) `off` | `low` | `mid` | `high`.
-  Default `mid` reports stable Hot peers only. `high` also reports stable Warm.
 - `peer_event_stable_seconds` (default `15`) how long Warm/Hot must last before
-  an enter is submitted
+  an enter is submitted (all clients report cold_to_warm + warm_to_hot + leaves)
 - `peer_traceroute_enabled` (default `false`) optional traceroute enrichment
+  (not implemented yet)
 - `peer_count_stats_interval` (default `5`) seconds to wait after peer
   counters change before logging `peerCountStats` (debounce); `0` disables
 - `peer_prune_idle_seconds` (default `600`) drop fully inactive peers from the
@@ -233,7 +231,7 @@ If you choose to keep the existing config file, update these keys manually as ne
 - `tracer_log_file`
 - `api_srv` / `api_url` (if you override backend discovery)
 - peer-event / local-metrics keys if you want the same defaults as a fresh install
-  (`peer_events_level`, `local_metrics_*`, …)
+  (`peer_event_stable_seconds`, `local_metrics_*`, …)
 
 ## Systemd and cardano-node
 

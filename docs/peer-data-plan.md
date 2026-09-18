@@ -2,6 +2,19 @@
 
 Living plan for peer events, local relevance, and what we send upstream.
 
+## Decisions (2026-09-18)
+
+1. **No** `peer_events_level`. Every client reports the same temperature
+   lifecycle (`cold_to_warm`, `warm_to_hot`, leaves) with debounce only.
+2. Traceroute stays optional (`peer_traceroute_enabled`) and unimplemented.
+3. HandshakeSuccess enrichment on peerevents (`n2n_version`, `diffusion_mode`,
+   `peer_sharing`, `peras_support`) when CM logs are available.
+4. Throttled default `Net.ConnectionManager.Remote` `maxFrequency: 0.0167`
+   yields few handshakes (~48/h in sample). Operators should drop that parent
+   throttle (or override HandshakeSuccess) for useful enrichment.
+5. Backend conn-explore remains complementary (global vantage), not replaced
+   by client handshakes.
+
 ## Decisions (2026-09-17)
 
 1. **No** `/submit/peerrelevance` and no relevance snapshot table.
@@ -11,11 +24,8 @@ Living plan for peer events, local relevance, and what we send upstream.
    relay ids). Client relevance stays **local metrics only**.
 4. Prefer raw per-block fields over client-precomputed aggregates so
    manipulated submits are harder to disguise.
-5. Empty relevance snapshots are not a backend concern anymore.
-6. Peerevent `duplex` and inbound `remote_port=0` stay as in
-   `backend-peer-events.md` (temperature duplex, not CM Bi-Dir).
-7. ConnectionManager counters / true Bi-Dir explore later (local first);
-   not required for blocksample 2nd/3rd.
+5. Peerevent `duplex` = temperature both dirs (not CM Bi-Dir).
+6. ConnectionManager handshake enrichment (see 2026-09-18).
 
 ## Handoff docs (backend agent)
 

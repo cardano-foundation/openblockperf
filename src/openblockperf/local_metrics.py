@@ -7,7 +7,6 @@ Uses only the stdlib asyncio server (no extra web framework dependency).
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,7 +18,6 @@ from openblockperf.peer_tracker import PeerTracker
 def build_peers_json(
     tracker: PeerTracker,
     *,
-    level: str,
     relevance: PeerRelevanceTracker | None = None,
 ) -> dict[str, Any]:
     """JSON document: reported peers + diagnostic counts + sliding relevance."""
@@ -41,7 +39,6 @@ def build_peers_json(
                 )
     return {
         "at": datetime.now(UTC).isoformat(),
-        "peer_events_level": level,
         "export": "reported",
         "relevance_window_seconds": 1800 if relevance is not None else None,
         "counts": {
@@ -65,6 +62,7 @@ def build_peers_json(
                 "in_hot": diag["in_hot_pending"],
                 "out_hot": diag["out_hot_pending"],
             },
+            "handshakes_cached": diag.get("handshakes_cached", 0),
             "total_tracked": len(tracker.peers),
         },
         "peers": rows,
@@ -75,18 +73,17 @@ def build_peers_json(
 def build_prometheus_text(
     tracker: PeerTracker,
     *,
-    level: str,
     relevance: PeerRelevanceTracker | None = None,
 ) -> str:
     """Prometheus exposition: aggregate gauges only (peer list is JSON)."""
     diag = tracker.diagnostic_counts()
     lines = [
-        "# HELP openblockperf_peer_events_level Peer events level (info label).",
-        "# TYPE openblockperf_peer_events_level gauge",
-        f'openblockperf_peer_events_level{{level="{level}"}} 1',
         "# HELP openblockperf_peers_total Tracked peer IPs in the local map.",
         "# TYPE openblockperf_peers_total gauge",
         f"openblockperf_peers_total {len(tracker.peers)}",
+        "# HELP openblockperf_handshakes_cached Cached HandshakeSuccess peers.",
+        "# TYPE openblockperf_handshakes_cached gauge",
+        f"openblockperf_handshakes_cached {diag.get('handshakes_cached', 0)}",
         "# HELP openblockperf_peers Temperature counts by view, direction, and state.",
         "# TYPE openblockperf_peers gauge",
     ]
@@ -174,22 +171,13 @@ class LocalMetricsServer:
         *,
         bind: str,
         port: int,
-        level: str,
-        get_level: Callable[[], str] | None = None,
         relevance: PeerRelevanceTracker | None = None,
     ):
         self.tracker = tracker
         self.relevance = relevance
         self.bind = bind
         self.port = port
-        self._level = level
-        self._get_level = get_level
         self._server = None
-
-    def _level_value(self) -> str:
-        if self._get_level is not None:
-            return self._get_level()
-        return self._level
 
     async def _handle(self, reader, writer) -> None:
         try:
@@ -199,16 +187,12 @@ class LocalMetricsServer:
             elif path in ("/", "/health"):
                 payload = _http_response(200, "OK", b"ok\n", "text/plain; charset=utf-8")
             elif path == "/metrics":
-                text = build_prometheus_text(
-                    self.tracker, level=self._level_value(), relevance=self.relevance
-                )
+                text = build_prometheus_text(self.tracker, relevance=self.relevance)
                 payload = _http_response(
                     200, "OK", text.encode("utf-8"), "text/plain; version=0.0.4; charset=utf-8"
                 )
             elif path in ("/peers", "/peers.json"):
-                doc = build_peers_json(
-                    self.tracker, level=self._level_value(), relevance=self.relevance
-                )
+                doc = build_peers_json(self.tracker, relevance=self.relevance)
                 body = (json.dumps(doc, indent=2) + "\n").encode("utf-8")
                 payload = _http_response(200, "OK", body, "application/json; charset=utf-8")
             else:

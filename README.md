@@ -248,7 +248,6 @@ Example `config.json` (as written by the installer):
   "node_unit_name": "cnode.service",
   "local_addr": "0.0.0.0",
   "local_port": 3001,
-  "peer_events_level": "mid",
   "peer_event_stable_seconds": 15,
   "peer_traceroute_enabled": false,
   "peer_count_stats_interval": 5,
@@ -276,7 +275,6 @@ node_config: /opt/cardano/cnode/files/config.json
 node_unit_name: cnode.service
 local_addr: 0.0.0.0
 local_port: 3001
-peer_events_level: mid
 peer_event_stable_seconds: 15
 peer_traceroute_enabled: false
 peer_count_stats_interval: 5

@@ -416,8 +416,6 @@ class Blockperf:
             self.handler.peer_tracker,
             bind=self.settings.local_metrics_bind,
             port=self.settings.local_metrics_port,
-            level=self.settings.peer_events_level.value,
-            get_level=lambda: self.settings.peer_events_level.value,
             relevance=self.handler.peer_relevance,
         )
         self._local_metrics = server
@@ -433,8 +431,6 @@ class Blockperf:
 
     async def flush_peer_reports_task(self) -> None:
         """Flush debounced stable peer enters and prune idle cold peers."""
-        if self.settings.peer_events_level.value == "off":
-            return
         while True:
             await asyncio.sleep(1)
             try:
@@ -565,7 +561,9 @@ class Blockperf:
             in_hot_pending=in_hot_pending,
             out_hot_pending=out_hot_pending,
             duplex_reported=duplex_reported,
-            peer_events_level=self.settings.peer_events_level.value,
+            handshakes_cached=self.handler.peer_tracker.diagnostic_counts().get(
+                "handshakes_cached", 0
+            ),
         )
 
     async def testapi_task(self):

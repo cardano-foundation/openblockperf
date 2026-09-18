@@ -223,6 +223,10 @@ class BlockperfApiClient:
             last_seen=at,
             last_state=last_state,
             duplex=peer.duplex,
+            n2n_version=peer.n2n_version,
+            diffusion_mode=peer.diffusion_mode,
+            peer_sharing=peer.peer_sharing,
+            peras_support=peer.peras_support,
         )
         logger.debug("Sending PeerEvent", request=per)
         await self._api.post("/submit/peerevent", per)

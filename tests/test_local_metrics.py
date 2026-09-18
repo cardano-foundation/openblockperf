@@ -6,7 +6,7 @@ import pytest
 
 from openblockperf.local_metrics import build_peers_json, build_prometheus_text
 from openblockperf.models.events import StatusChangedEvent
-from openblockperf.peer_tracker import PeerEventsLevel, PeerTracker
+from openblockperf.peer_tracker import PeerTracker
 
 
 def _warm_to_hot(at: str, remote: str = "203.0.113.10:3001") -> StatusChangedEvent:
@@ -30,7 +30,7 @@ def _warm_to_hot(at: str, remote: str = "203.0.113.10:3001") -> StatusChangedEve
 
 class TestReportedPeerRows:
     def test_empty_until_reported(self):
-        tracker = PeerTracker({}, level=PeerEventsLevel.MID, stable_seconds=15)
+        tracker = PeerTracker({}, stable_seconds=15)
         tracker.apply_event(_warm_to_hot("2026-09-16T12:00:00Z"))
         assert tracker.reported_peer_rows() == []
         tracker.flush_stable(now=datetime(2026, 9, 16, 12, 0, 20, tzinfo=UTC))
@@ -44,9 +44,9 @@ class TestReportedPeerRows:
 
 class TestLocalMetricsBuilders:
     def test_json_contains_counts_and_peers(self):
-        tracker = PeerTracker({}, level=PeerEventsLevel.MID, stable_seconds=0)
+        tracker = PeerTracker({}, stable_seconds=0)
         tracker.apply_event(_warm_to_hot("2026-09-16T12:00:00Z"))
-        doc = build_peers_json(tracker, level="mid")
+        doc = build_peers_json(tracker)
         assert doc["export"] == "reported"
         assert doc["counts"]["reported"]["out_hot"] == 1
         assert len(doc["peers"]) == 1
@@ -54,23 +54,23 @@ class TestLocalMetricsBuilders:
     def test_json_includes_relevance(self):
         from openblockperf.peer_relevance import PeerRelevanceTracker
 
-        tracker = PeerTracker({}, level=PeerEventsLevel.MID, stable_seconds=0)
+        tracker = PeerTracker({}, stable_seconds=0)
         tracker.apply_event(_warm_to_hot("2026-09-16T12:00:00Z"))
         rel = PeerRelevanceTracker()
         now = datetime.now(UTC)
         rel.record_header("203.0.113.10", 1, now)
         rel.record_header("198.51.100.1", 2, now)
-        doc = build_peers_json(tracker, level="mid", relevance=rel)
+        doc = build_peers_json(tracker, relevance=rel)
         assert doc["peers"][0]["relevance"]["header_points"] == 10
         assert len(doc["relevance_orphans"]) == 1
         assert doc["relevance_orphans"][0]["remote_addr"] == "198.51.100.1"
 
     def test_prometheus_has_view_labels(self):
-        tracker = PeerTracker({}, level=PeerEventsLevel.MID, stable_seconds=0)
+        tracker = PeerTracker({}, stable_seconds=0)
         tracker.apply_event(_warm_to_hot("2026-09-16T12:00:00Z"))
-        text = build_prometheus_text(tracker, level="mid")
+        text = build_prometheus_text(tracker)
         assert 'openblockperf_peers{view="reported",direction="outbound",state="hot"} 1' in text
-        assert 'openblockperf_peer_events_level{level="mid"} 1' in text
+        assert "openblockperf_handshakes_cached" in text
 
 
 class TestLocalMetricsHttp:
@@ -82,11 +82,9 @@ class TestLocalMetricsHttp:
 
         from openblockperf.local_metrics import LocalMetricsServer
 
-        tracker = PeerTracker({}, level=PeerEventsLevel.MID, stable_seconds=0)
+        tracker = PeerTracker({}, stable_seconds=0)
         tracker.apply_event(_warm_to_hot("2026-09-16T12:00:00Z"))
-        server = LocalMetricsServer(
-            tracker, bind="127.0.0.1", port=0, level="mid", relevance=None
-        )
+        server = LocalMetricsServer(tracker, bind="127.0.0.1", port=0, relevance=None)
         task = asyncio.create_task(server.start())
         await asyncio.sleep(0.05)
         try:

@@ -2,29 +2,26 @@
 
 The client watches cardano-node tracer logs for peer temperature changes
 (Cold / Warm / Hot) and reports a **debounced** view of who this node is
-actually connected to.
+actually connected to. Every participant uses the **same** report set so the
+backend can interpret absences correctly.
 
 Cardano peer temperatures (simplified):
 
-* **Cold** – known peer, no useful connection yet (not reported as an “active” peer)
+* **Cold** – known peer, no useful connection yet
 * **Warm** – TCP + handshake / established connection, not fully active
 * **Hot** – active mini-protocols (ChainSync, BlockFetch, …) – this is what
   block samples are correlated against
 * **Cooling** – short teardown state inside the node; tracked only inside the
   client, never sent to the backend
 
-## Reporting levels (`peer_events_level`)
+## What is submitted (same for all clients)
 
-| Level | Meaning |
-|-------|---------|
-| `off` | Do not parse or submit peer temperature events |
-| `low` | Keep a local peer picture for stats; do not submit temperature changes |
-| `mid` (default) | Submit **stable Hot** enters (after debounce) and Hot leaves immediately |
-| `high` | Like `mid`, plus **stable Warm** enters |
-
-`peer_traceroute_enabled` is a separate switch (any level except when peer
-events are off). Traceroute enrichment is optional and not required for
-normal operation.
+| `change_type` | Meaning |
+|---------------|---------|
+| `cold_to_warm` | Stable Warm enter (after debounce) |
+| `warm_to_hot` | Stable Hot enter (after debounce) |
+| `hot_to_warm` | Left Hot, still Warm |
+| `warm_to_cold` | Left Hot/Warm path ending Cold (Cooling collapsed) |
 
 ### Debounce (`peer_event_stable_seconds`, default `15`)
 
@@ -33,13 +30,39 @@ N seconds. Short Cold→Warm→Hot flickers collapse to a single Hot enter when
 possible. **Leaves** are submitted immediately once a previously reported
 temperature is gone.
 
+### Traceroute (`peer_traceroute_enabled`, default `false`)
+
+Separate optional switch. Not implemented yet. Does not change temperature
+reporting.
+
+## Handshake enrichment (ConnectionManager)
+
+`Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess` is parsed
+when present. Latest options per remote IP are cached and attached to later
+peerevents / `/peers` rows:
+
+* `n2n_version`
+* `diffusion_mode` (e.g. `InitiatorAndResponderDiffusionMode`)
+* `peer_sharing`
+* `peras_support`
+
+Ephemeral remote ports (`>= 32768`) are stored as `0` (not a relay listen port).
+
+**TraceOptions note:** many default node configs set
+`Net.ConnectionManager.Remote` with `maxFrequency: 0.0167`, which starves
+HandshakeSuccess (~tens per hour). Prefer Info **without** that parent throttle
+(or a child override for HandshakeSuccess). See
+`logs/node-logs_Net-namespace/` for a throttled 1h sample vs an upcoming
+unthrottled capture.
+
 ## Inbound vs outbound
 
 * **Outbound** – this node initiated toward a remote relay (service port kept)
 * **Inbound** – remote side toward this node (ephemeral remote ports are **not**
   used as identity; reports use `remote_port = 0`)
 * **Duplex** – same remote IP is Warm/Hot on both directions at once
-  (`duplex: true` on the peer event)
+  (`duplex: true` on the peer event). This is temperature duplex, not
+  ConnectionManager / gLiveView Bi-Dir.
 
 Peers are keyed by **remote IP**, not by ephemeral `ip:port`.
 
@@ -54,10 +77,10 @@ Fields:
 * `*_reported` – passed debounce and submitted (operator export / API truth)
 * `*_pending` – waiting for `peer_event_stable_seconds`
 * `duplex` / `duplex_reported` – live vs both sides reported active
+* `handshakes_cached` – HandshakeSuccess cache size
 
 When comparing to gLiveView Warm/Hot, use **live**. When asking “what did we
-tell the backend?”, use **reported**. Large `live - reported` with high
-`pending` means debounce is still absorbing churn.
+tell the backend?”, use **reported**.
 
 See [local-peer-metrics.md](local-peer-metrics.md) for the localhost
 Prometheus/JSON endpoint (default port `14041`, opt-in) and the sliding
@@ -83,7 +106,6 @@ defaults below so you can edit them in place.
 
 ```json
 {
-  "peer_events_level": "mid",
   "peer_event_stable_seconds": 15,
   "peer_traceroute_enabled": false,
   "peer_count_stats_interval": 5,
@@ -94,5 +116,7 @@ defaults below so you can edit them in place.
 }
 ```
 
+Legacy `peer_events_level` in an old `config.json` is ignored (`extra=ignore`).
+
 Environment variables use the `OPENBLOCKPERF_` prefix, for example
-`OPENBLOCKPERF_PEER_EVENTS_LEVEL=high`.
+`OPENBLOCKPERF_PEER_EVENT_STABLE_SECONDS=30`.

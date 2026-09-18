@@ -569,6 +569,50 @@ class PeerEvent(BaseEvent):
         return f"PeerEvent(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, state={self.state}, direction={self.direction}, change_type={self.change_type}, from={self.remote_addr}:{self.remote_port})"
 
 
+class HandshakeSuccessEvent(BaseEvent):
+    """Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess.
+
+    Used to enrich peers with n2n version, diffusion mode, peer sharing, and
+    peras support. Not a temperature PeerEvent.
+    """
+
+    local_addr: str
+    local_port: int
+    remote_addr: str
+    remote_port: int
+    n2n_version: int | None = None
+    diffusion_mode: str | None = None
+    peer_sharing: str | None = None
+    peras_support: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse(cls, data: Any):
+        payload = data.get("data") or {}
+        cid = payload.get("connectionId") or {}
+        local = cid.get("localAddress") or {}
+        remote = cid.get("remoteAddress") or {}
+        handler = payload.get("connectionHandler") or {}
+        opts = handler.get("agreedOptions") or {}
+        data["local_addr"] = local.get("address")
+        data["local_port"] = int(local.get("port"))
+        data["remote_addr"] = remote.get("address")
+        data["remote_port"] = int(remote.get("port"))
+        ver = handler.get("versionNumber")
+        data["n2n_version"] = int(ver) if ver is not None else None
+        data["diffusion_mode"] = opts.get("diffusionMode")
+        data["peer_sharing"] = opts.get("peerSharing")
+        data["peras_support"] = opts.get("perasSupport")
+        return data
+
+    def __repr__(self):
+        return (
+            f"HandshakeSuccess(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, "
+            f"from={self.remote_addr}:{self.remote_port}, "
+            f"v={self.n2n_version}, mode={self.diffusion_mode})"
+        )
+
+
 class InboundGovernorCountersEvent(BaseEvent):
     """
 
