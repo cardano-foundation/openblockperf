@@ -210,13 +210,13 @@ class BlockperfApiClient:
         change_type: str,
         last_state: str,
         remote_port: int,
-        epoch_id: int | None = None,
+        node_generation: int | None = None,
         session_id: str | None = None,
         close_reason: str | None = None,
         we_dialed: bool | None = None,
         event_role: str | None = None,
     ):
-        """Submit a session open / temperature / close / epoch event."""
+        """Submit a session open / temperature / close / node_restart event."""
         per = PeerEventRequest(
             at=at,
             direction=direction if isinstance(direction, str) else direction.value,
@@ -232,7 +232,7 @@ class BlockperfApiClient:
             diffusion_mode=peer.diffusion_mode,
             peer_sharing=peer.peer_sharing,
             peras_support=peer.peras_support,
-            epoch_id=epoch_id,
+            node_generation=node_generation,
             session_id=session_id,
             close_reason=close_reason,
             we_dialed=we_dialed,

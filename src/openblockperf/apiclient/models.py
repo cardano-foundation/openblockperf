@@ -29,7 +29,7 @@ class PeerEventRequest(BaseModel):
     peer_sharing: str | None = None
     peras_support: str | None = None
     # Session model (omit-none). Older backends extra=ignore these.
-    epoch_id: int | None = None
+    node_generation: int | None = None
     session_id: str | None = None
     close_reason: str | None = None
     we_dialed: bool | None = None

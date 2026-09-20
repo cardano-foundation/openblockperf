@@ -8,7 +8,7 @@ Upstream relevance / 2nd–3rd analysis: extend blocksamples
 
 ## Goals
 
-1. Report connection sessions to the backend (open / temperature / close / epoch).
+1. Report connection sessions to the backend (open / temperature / close / node_restart).
 2. Give SPOs a local peer list of **useful open** sessions, not 2s HS flicker.
 3. Enrich local rows with blocksample relevance over a fixed 30m window.
 4. Optionally expose Prometheus + JSON on a dedicated local port.
@@ -19,8 +19,8 @@ Upstream relevance / 2nd–3rd analysis: extend blocksamples
 
 Operator-facing `GET /peers` exports **useful open sessions**:
 Hot on ig or outbound, or Warm held for `peer_event_stable_seconds`.
-Each row includes `session_id`, `epoch_id`, `we_dialed`, ig/outbound
-temperatures, HS options, `first_seen`, `last_signal`.
+Each row includes `session_id`, `node_generation`, `we_dialed`, ig/outbound
+temperatures, HS options, `opened_at`, `last_signal`.
 
 `GET /peers?all=1` or `/peers/sessions` includes all currently open
 sessions (short HS too). Header/body **client** IPs that were only in
@@ -69,7 +69,7 @@ on the client.
 ## Prometheus
 
 Gauges: `openblockperf_sessions_open`, `openblockperf_sessions_useful`,
-`openblockperf_epoch`, `openblockperf_session_temperature{track,state}`,
+`openblockperf_node_generation`, `openblockperf_session_temperature{track,state}`,
 `openblockperf_sessions_closed{reason}`.
 
 Not `in_hot_live` named like the node.

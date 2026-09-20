@@ -5,9 +5,9 @@ not an IP-keyed temperature map. Block samples stay the first data type we
 parse and report. Peer sessions are the second.
 
 A session is one TCP `connectionId` (local + remote addr/port) in one node
-epoch. HandshakeSuccess opens it. InboundGovernor and PeerSelection
-temperatures fill it. MuxErrored, orderly demote, CoolingToCold, or a node
-restart close it.
+generation (cardano-node / diffusion start, not a chain epoch).
+HandshakeSuccess opens it. InboundGovernor and PeerSelection temperatures
+fill it. MuxErrored, orderly demote, CoolingToCold, or a node restart close it.
 
 ## Decisions (2026-09-20)
 
@@ -30,9 +30,9 @@ restart close it.
 7. **Do not** submit or name CM `duplex` / `fullDuplex` / `unidirectional`.
    Drop `duplex` from `/peers` and journal lines.
 8. Restart: `Server.Remote.Stopped` / `Shutdown` close every open session
-   with `close_reason=node_epoch`. `Server.Remote.Started` (debounced with
-   Local.Started / `Startup.DiffusionInit`) increments `epoch_id` and
-   submits `event_role=epoch`.
+   with `close_reason=node_restart`. `Server.Remote.Started` (debounced with
+   Local.Started / `Startup.DiffusionInit`) increments `node_generation` and
+   submits `event_role=node_restart`. Not a Cardano chain epoch.
 9. Traceroute / RTT stay later. Trigger would be first Warm. Not in these
    logs (`TraceEmitDeltaQ` is empty).
 10. Outbound n2n is **not** InboundGovernor. `Promote*Done` / `Demote*Done`
@@ -40,6 +40,12 @@ restart close it.
     (needed when `Actions.StatusChanged` is missing). `ChainSync.Client`
     and `BlockFetch.Client` also mark that session we-dialed and outbound
     Hot. Those IPs were showing up as `/peers` relevance orphans.
+11. `/peers` has `opened_at` and `last_signal`. **Do not** export
+    `first_seen` (it was a copy of `opened_at`).
+12. Handshake options (`n2n_version`, `diffusion_mode`, `peer_sharing`,
+    `peras_support`) come **only** from HandshakeSuccess on that connection.
+    Null means we did not see that HS (typical when the client attaches
+    after the TCP session already exists). Not "feature off".
 
 ## What is submitted (`POST /submit/peerevent`)
 
@@ -51,13 +57,13 @@ New fields are omit-none.
 | `open` | HandshakeSuccess (or first temperature if we attached mid-run) | `cold_to_warm` |
 | `temperature` | IG or outbound Warm/Hot change | `warm_to_hot` / `hot_to_warm` |
 | `close` | Session ended | `warm_to_cold` |
-| `epoch` | Node started from empty. Dummy remote `0.0.0.0`. | `warm_to_cold` |
+| `node_restart` | Node started from empty. Dummy remote `0.0.0.0`. | `warm_to_cold` |
 
 | `close_reason` | Kind |
 |----------------|------|
 | `ig_mux_error` / `ig_responder_error` / `handler_error` | unexpected |
 | `demoted_cold` / `cooling_to_cold` | planned churn |
-| `node_epoch` | cardano-node restart |
+| `node_restart` | cardano-node restart |
 | `ttl` | no leave line for `peer_signal_ttl_seconds` (default 1800) |
 
 Ephemeral remote ports (`>= 32768`) are submitted as `0`. Listen ports are kept.
@@ -102,14 +108,15 @@ curl -s http://127.0.0.1:14041/metrics
 ```
 
 `GET /peers` is **useful open** sessions (IP, listen port if known, ig and
-outbound temperatures, HS options, first_seen, last_signal, local 30m
-header/body relevance). No `duplex` field. Outbound Hot comes from
-PeerSelection *Done / StatusChanged or from header/body **client** lines.
+outbound temperatures, HS options, `opened_at`, `last_signal`, local 30m
+header/body relevance). No `duplex` field. No `first_seen`. Outbound Hot
+comes from PeerSelection *Done / StatusChanged or from header/body
+**client** lines.
 
 `?all=1` or `/peers/sessions` includes short HS that are not yet useful.
 
 Prometheus: `openblockperf_sessions_open`, `openblockperf_sessions_useful`,
-`openblockperf_epoch`, `openblockperf_sessions_closed{reason=...}`.
+`openblockperf_node_generation`, `openblockperf_sessions_closed{reason=...}`.
 Not node Warm/Hot box names.
 
 ## Config

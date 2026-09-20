@@ -46,7 +46,7 @@ from openblockperf.peer_tracker import PeerReport, PeerTracker
 #   Level 2 — dispatch_peer_event(peer, event)
 #       Called from _on_peer_event after session state is updated.
 #
-# Peer API submits come from the session store (open / temperature / close / epoch).
+# Peer API submits come from the session store (open / temperature / close / node_restart).
 # ---------------------------------------------------------------------------
 
 
@@ -250,7 +250,7 @@ class EventHandler:
         logger.opt(raw=True).info(
             f"{report.peer.remote_addr} {report.event_role.value} "
             f"{report.change_type.value} {report.direction.value} "
-            f"epoch={report.epoch_id} session={report.session_id or '-'} "
+            f"gen={report.node_generation} session={report.session_id or '-'} "
             f"reason={reason} we_dialed={report.we_dialed} "
             f"v={report.peer.n2n_version} share={report.peer.peer_sharing} "
             f"peras={report.peer.peras_support}\n"
@@ -262,7 +262,7 @@ class EventHandler:
             change_type=report.change_type.value,
             last_state=report.state,
             remote_port=report.remote_port,
-            epoch_id=report.epoch_id,
+            node_generation=report.node_generation,
             session_id=report.session_id,
             close_reason=report.close_reason.value if report.close_reason else None,
             we_dialed=report.we_dialed,
@@ -298,7 +298,7 @@ class EventHandler:
 
     @dispatch_event.register
     async def _on_network_shutdown(self, event: NetworkShutdownEvent):
-        """Node CM/server stopped; close open sessions with node_epoch."""
+        """Node CM/server stopped; close open sessions with node_restart."""
         reports = self.peer_tracker.on_network_stop(event.at, ns=event.ns)
         logger.opt(raw=True).info(
             f"network shutdown {event.ns} closed_sessions={len(reports)}\n"
@@ -308,10 +308,10 @@ class EventHandler:
 
     @dispatch_event.register
     async def _on_node_epoch_start(self, event: NodeEpochStartEvent):
-        """Server started from empty. New epoch after closing leftovers."""
+        """Server started from empty. New node generation after closing leftovers."""
         reports = self.peer_tracker.on_network_start(event.at, ns=event.ns)
         logger.opt(raw=True).info(
-            f"node epoch {event.ns} epoch_id={self.peer_tracker.epoch_id} "
+            f"node generation {event.ns} node_generation={self.peer_tracker.node_generation} "
             f"reports={len(reports)}\n"
         )
         for report in reports:

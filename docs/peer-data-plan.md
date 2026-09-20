@@ -12,13 +12,20 @@ Living plan for peer sessions, local relevance, and what we send upstream.
    PeerSelection.
 4. Debounce (`peer_event_stable_seconds`) only flags **useful** for `/peers`.
    Backend always gets open/close, including short HS flicker.
-5. Restart: Stopped/Shutdown close all with `node_epoch`. Started increments
-   `epoch_id` and submits `event_role=epoch`.
+5. Restart: Stopped/Shutdown close all with `node_restart`. Started increments
+   `node_generation` and submits `event_role=node_restart`. Not a chain epoch.
 6. **Do not** name or submit CM duplex / bi-dir. Drop `duplex` from `/peers`.
 7. Do not chase node Warm/Hot counter boxes. Count useful open sessions.
 8. Traceroute / RTT still later, on first Warm, our own probe.
 9. Phase 4 ConnectionManagerCounters gauges: skip. Counters are noise when
    unthrottled and they are not our product numbers.
+10. Backend `POST /submit/peerevent` (checked 2026-09-20) still stores
+    `(client, address, port)` + `change_type` only. Extra JSON including
+    session/HS fields is ignored. HTTP **201**. Briefing:
+    `docs/backend-peer-events.md`.
+11. `/peers` drops `first_seen` (duplicate of `opened_at`).
+12. Handshake options stay null unless we saw HandshakeSuccess for that
+    connection. Startup log replay is implemented but currently disabled.
 
 ## Decisions (2026-09-18)
 
@@ -55,7 +62,7 @@ Living plan for peer sessions, local relevance, and what we send upstream.
 | Doc | Status |
 |-----|--------|
 | `docs/backend-blocksample.md` | **Active** – 2nd/3rd announcer fields (v0.0.41+) |
-| `docs/backend-peer-events.md` | **Active** – session fields + HandshakeSuccess + epoch |
+| `docs/backend-peer-events.md` | **Active** – session fields + HandshakeSuccess + node_generation |
 | `docs/backend-peer-relevance.md` | **Cancelled** |
 
 ## Phases
@@ -87,11 +94,12 @@ Living plan for peer sessions, local relevance, and what we send upstream.
 * Optional handshake fields on peerevent ingest.
 * Client ships PyPI as **v0.0.42**.
 
-### Phase 3c – connection sessions (**this change**)
+### Phase 3c – connection sessions (**client done, backend ingest not**)
 
-* Session store keyed by connectionId + epoch.
-* Submit `event_role` / `session_id` / `epoch_id` / `close_reason` / `we_dialed`.
+* Session store keyed by connectionId + node_generation.
+* Submit `event_role` / `session_id` / `node_generation` / `close_reason` / `we_dialed`.
 * Close all open sessions on node restart. Local `/peers` is useful open sessions.
+* Backend still IP+port event log until Stage A/B in `backend-peer-events.md`.
 
 ### Phase 4 – ConnectionManager counters
 
@@ -105,4 +113,4 @@ Living plan for peer sessions, local relevance, and what we send upstream.
 
 Abrupt inbound drops (`MuxErrored` / `ConnectionHandler.Error` /
 `ResponderErrored`) close the session. Restart Stopped/Shutdown submit
-`close_reason=node_epoch` instead of a silent wipe.
+`close_reason=node_restart` instead of a silent wipe.

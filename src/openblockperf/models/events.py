@@ -683,8 +683,9 @@ class PeerEvent(BaseEvent):
 class HandshakeSuccessEvent(BaseEvent):
     """Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess.
 
-    Used to enrich peers with n2n version, diffusion mode, peer sharing, and
-    peras support. Not a temperature PeerEvent.
+    Only source of n2n_version / diffusion_mode / peer_sharing / peras_support.
+    Other Net.* traces have connectionId but not agreedOptions.
+    Used to enrich peers. Not a temperature PeerEvent.
     """
 
     local_addr: str
@@ -802,7 +803,7 @@ class ConnectionLostEvent(DemotedPeerEvent):
 
 
 class NetworkShutdownEvent(BaseEvent):
-    """ConnectionManager / server stopped; open sessions close with node_epoch."""
+    """ConnectionManager / server stopped; open sessions close with node_restart."""
 
     def __repr__(self):
         return f"NetworkShutdown(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, ns={self.ns})"

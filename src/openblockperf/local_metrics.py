@@ -47,7 +47,7 @@ def build_peers_json(
     return {
         "at": datetime.now(UTC).isoformat(),
         "export": "open" if include_all_open else "useful",
-        "epoch_id": diag["epoch_id"],
+        "node_generation": diag["node_generation"],
         "relevance_window_seconds": 1800 if relevance is not None else None,
         "counts": {
             "open": diag["open"],
@@ -73,9 +73,9 @@ def build_prometheus_text(
     """Prometheus exposition: session gauges, not node Warm/Hot boxes."""
     diag = tracker.diagnostic_counts()
     lines = [
-        "# HELP openblockperf_epoch Current node epoch (increments on Server.Started).",
-        "# TYPE openblockperf_epoch gauge",
-        f"openblockperf_epoch {diag['epoch_id']}",
+        "# HELP openblockperf_node_generation Cardano-node / diffusion start count this client process.",
+        "# TYPE openblockperf_node_generation gauge",
+        f"openblockperf_node_generation {diag['node_generation']}",
         "# HELP openblockperf_sessions_open Currently open remote peer sessions.",
         "# TYPE openblockperf_sessions_open gauge",
         f"openblockperf_sessions_open {diag['open']}",

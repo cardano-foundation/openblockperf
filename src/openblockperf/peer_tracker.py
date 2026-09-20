@@ -1,10 +1,10 @@
 """Connection-session tracking from Net.* logs.
 
-A session is one TCP connectionId (local+remote addr/port) in one node epoch.
-HandshakeSuccess opens it. IG Remote, PeerSelection StatusChanged, and
-Selection Promote/Demote *Done fill temperatures. ChainSync/BlockFetch
-client lines mark we-dialed outbound Hot. MuxErrored / demote /
-CoolingToCold / node epoch close it.
+A session is one TCP connectionId (local+remote addr/port) in one node
+generation (cardano-node / diffusion start). HandshakeSuccess opens it.
+IG Remote, PeerSelection StatusChanged, and Selection Promote/Demote *Done
+fill temperatures. ChainSync/BlockFetch client lines mark we-dialed outbound
+Hot. MuxErrored / demote / CoolingToCold / node restart close it.
 
 Useful is a local-list flag (Hot, or Warm held for stable_seconds). Backend
 always gets open/close so short handshakes still count as signs of life.
@@ -33,7 +33,7 @@ from openblockperf.models.peer import (
 )
 
 _ACTIVE = {PeerState.WARM, PeerState.HOT}
-_EPOCH_DEBOUNCE = timedelta(seconds=2)
+_GENERATION_DEBOUNCE = timedelta(seconds=2)
 
 
 def _now() -> datetime:
@@ -57,9 +57,9 @@ def submit_port(port: int) -> int:
 
 @dataclass
 class PeerSession:
-    """One remote TCP session in the current (or just-closed) epoch."""
+    """One remote TCP session in the current (or just-closed) node generation."""
 
-    epoch_id: int
+    node_generation: int
     session_id: str
     local_addr: str
     local_port: int
@@ -123,7 +123,7 @@ class PeerReport:
     at: datetime
     remote_port: int
     event_role: EventRole
-    epoch_id: int
+    node_generation: int
     session_id: str | None = None
     close_reason: CloseReason | None = None
     we_dialed: bool | None = None
@@ -166,12 +166,12 @@ class PeerTracker:
         self.stable_seconds = max(0, stable_seconds)
         self.signal_ttl_seconds = max(0, signal_ttl_seconds)
         self.traceroute_enabled = traceroute_enabled
-        self.epoch_id = 0
+        self.node_generation = 0
         self._open: dict[str, PeerSession] = {}
         self._closed: dict[str, PeerSession] = {}
         self._opened_count = 0
         self._close_counts = _CloseCounts()
-        self._last_epoch_at: datetime | None = None
+        self._last_generation_at: datetime | None = None
         self._stopped = False
 
     def enabled(self) -> bool:
@@ -366,31 +366,31 @@ class PeerTracker:
         return removed
 
     def on_network_stop(self, at: datetime, ns: str = "") -> list[PeerReport]:
-        """Server/CM stopped. Close every open session with node_epoch."""
+        """Server/CM stopped. Close every open session with node_restart."""
         at = _as_aware(at)
         self._stopped = True
         reports: list[PeerReport] = []
         for session in list(self._open.values()):
             session.last_ns = ns or session.last_ns
-            reports.extend(self._close_session(session, at, CloseReason.NODE_EPOCH))
+            reports.extend(self._close_session(session, at, CloseReason.NODE_RESTART))
         return reports
 
     def on_network_start(self, at: datetime, ns: str = "") -> list[PeerReport]:
-        """Remote server started (or Startup.DiffusionInit). New epoch.
+        """Remote server started (or Startup.DiffusionInit). New node generation.
 
         Debounced so Local.Started + Remote.Started + DiffusionInit in the same
         couple of seconds only increment once.
         """
         at = _as_aware(at)
-        if self._last_epoch_at is not None and at - self._last_epoch_at < _EPOCH_DEBOUNCE:
+        if self._last_generation_at is not None and at - self._last_generation_at < _GENERATION_DEBOUNCE:
             return []
         reports: list[PeerReport] = []
         if self._open:
             reports.extend(self.on_network_stop(at, ns=ns))
-        self.epoch_id += 1
-        self._last_epoch_at = at
+        self.node_generation += 1
+        self._last_generation_at = at
         self._stopped = False
-        reports.append(self._epoch_report(at, ns))
+        reports.append(self._node_restart_report(at, ns))
         return reports
 
     def reset(self) -> int:
@@ -398,7 +398,7 @@ class PeerTracker:
         cleared = len(self._open)
         for session in list(self._open.values()):
             session.closed_at = _now()
-            session.close_reason = CloseReason.NODE_EPOCH
+            session.close_reason = CloseReason.NODE_RESTART
             self._closed[session.session_id] = session
         self._open.clear()
         self.peers.clear()
@@ -486,7 +486,7 @@ class PeerTracker:
     def diagnostic_counts(self) -> dict[str, int]:
         """Session gauges for operator diagnostics. Not node Warm/Hot boxes."""
         counts = {
-            "epoch_id": self.epoch_id,
+            "node_generation": self.node_generation,
             "open": len(self._open),
             "useful": 0,
             "ig_warm": 0,
@@ -534,7 +534,7 @@ class PeerTracker:
             rows.append(
                 {
                     "session_id": session.session_id,
-                    "epoch_id": session.epoch_id,
+                    "node_generation": session.node_generation,
                     "remote_addr": session.remote_addr,
                     "remote_port": listen,
                     "local_addr": session.local_addr,
@@ -547,7 +547,6 @@ class PeerTracker:
                     "diffusion_mode": session.diffusion_mode,
                     "peer_sharing": session.peer_sharing,
                     "peras_support": session.peras_support,
-                    "first_seen": _as_aware(session.opened_at).isoformat(),
                     "last_signal": _as_aware(
                         session.last_signal or session.opened_at
                     ).isoformat(),
@@ -572,7 +571,7 @@ class PeerTracker:
         ns: str | None,
     ) -> PeerSession:
         return PeerSession(
-            epoch_id=self.epoch_id,
+            node_generation=self.node_generation,
             session_id=uuid.uuid4().hex,
             local_addr=local_addr,
             local_port=local_port,
@@ -780,7 +779,7 @@ class PeerTracker:
             PeerDirection.OUTBOUND if session.we_dialed else PeerDirection.INBOUND
         )
         if reason in (CloseReason.COOLING_TO_COLD,) or (
-            session.we_dialed and reason == CloseReason.NODE_EPOCH
+            session.we_dialed and reason == CloseReason.NODE_RESTART
         ):
             direction = PeerDirection.OUTBOUND
         return [
@@ -795,9 +794,9 @@ class PeerTracker:
             )
         ]
 
-    def _epoch_report(self, at: datetime, ns: str) -> PeerReport:
+    def _node_restart_report(self, at: datetime, ns: str) -> PeerReport:
         dummy = Peer(
-            ns=ns or "epoch",
+            ns=ns or "node_restart",
             local_addr="0.0.0.0",
             local_port=0,
             remote_addr="0.0.0.0",
@@ -813,10 +812,10 @@ class PeerTracker:
             state=PeerState.COLD.value,
             at=at,
             remote_port=0,
-            event_role=EventRole.EPOCH,
-            epoch_id=self.epoch_id,
+            event_role=EventRole.NODE_RESTART,
+            node_generation=self.node_generation,
             session_id=None,
-            close_reason=CloseReason.NODE_EPOCH,
+            close_reason=CloseReason.NODE_RESTART,
             we_dialed=None,
         )
 
@@ -839,7 +838,7 @@ class PeerTracker:
             at=at,
             remote_port=submit_port(session.remote_port),
             event_role=event_role,
-            epoch_id=session.epoch_id,
+            node_generation=session.node_generation,
             session_id=session.session_id,
             close_reason=close_reason,
             we_dialed=session.we_dialed,

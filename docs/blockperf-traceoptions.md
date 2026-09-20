@@ -17,7 +17,7 @@ Please note that the following is absolutely necessary
 - Net.ConnectionManager.Remote (Info, no parent maxFrequency)
 - Net.PeerSelection (Info)
 - Net.InboundGovernor.Remote (Info)
-- Net.Server (Info) so we see Started/Stopped for node epochs
+- Net.Server (Info) so we see Started/Stopped for node restarts
 
 Throttle only `Net.ConnectionManager.Remote.ConnectionManagerCounters`.
 Do not enable `Net.InboundGovernor.Local` promote/demote. That is n2c / unix,

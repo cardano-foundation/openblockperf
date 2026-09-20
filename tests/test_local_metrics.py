@@ -91,6 +91,7 @@ class TestLocalMetricsBuilders:
         text = build_prometheus_text(tracker)
         assert 'openblockperf_session_temperature{track="outbound",state="hot"} 1' in text
         assert "openblockperf_sessions_useful 1" in text
+        assert "openblockperf_node_generation" in text
         assert "openblockperf_handshakes_cached" in text
         assert "openblockperf_duplex" not in text
 

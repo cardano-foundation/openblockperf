@@ -486,7 +486,7 @@ class Blockperf:
             )
         )
         return (
-            diag["epoch_id"],
+            diag["node_generation"],
             diag["open"],
             diag["useful"],
             diag["ig_warm"],
@@ -500,7 +500,7 @@ class Blockperf:
 
     def _log_peer_count_stats(self, snapshot: tuple) -> None:
         (
-            epoch_id,
+            node_generation,
             open_n,
             useful,
             ig_warm,
@@ -513,7 +513,7 @@ class Blockperf:
         ) = snapshot
         log_json_event(
             "peerCountStats",
-            epoch_id=epoch_id,
+            node_generation=node_generation,
             open=open_n,
             useful=useful,
             ig_warm=ig_warm,

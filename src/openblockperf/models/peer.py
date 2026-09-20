@@ -38,7 +38,7 @@ class EventRole(Enum):
     OPEN = "open"
     TEMPERATURE = "temperature"
     CLOSE = "close"
-    EPOCH = "epoch"
+    NODE_RESTART = "node_restart"
 
 
 class CloseReason(Enum):
@@ -49,7 +49,7 @@ class CloseReason(Enum):
     HANDLER_ERROR = "handler_error"
     DEMOTED_COLD = "demoted_cold"
     COOLING_TO_COLD = "cooling_to_cold"
-    NODE_EPOCH = "node_epoch"
+    NODE_RESTART = "node_restart"
     TTL = "ttl"
 
 

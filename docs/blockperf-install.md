@@ -82,7 +82,7 @@ Or, for a dedicated single-node logfile:
 ```
 
 Confirm startup prints `Tracer Log File: ...` and that header/blocksample
-or peer submit lines (`open` / `temperature` / `close` plus `epoch=`) appear
+or peer submit lines (`open` / `temperature` / `close` plus `gen=`) appear
 shortly after new tracer activity. A quiet journal alone does not prove log
 parsing is working.
 

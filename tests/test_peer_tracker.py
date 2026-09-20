@@ -371,6 +371,8 @@ class TestUsefulFlag:
         tracker.apply_event(_status_changed(at="2026-09-16T12:00:00Z", transition="WarmToHot"))
         assert tracker.useful_session_rows()[0]["outbound_temperature"] == "Hot"
         assert tracker.useful_session_rows()[0]["useful"] is True
+        assert "first_seen" not in tracker.useful_session_rows()[0]
+        assert "opened_at" in tracker.useful_session_rows()[0]
 
     def test_warm_waits_for_stable_seconds(self):
         tracker = PeerTracker({}, stable_seconds=15)
@@ -404,9 +406,9 @@ class TestEpochRestart:
         )
         closes = tracker.on_network_stop(stop.at, ns=stop.ns)
         assert len(closes) == 1
-        assert closes[0].close_reason == CloseReason.NODE_EPOCH
+        assert closes[0].close_reason == CloseReason.NODE_RESTART
         assert tracker.diagnostic_counts()["open"] == 0
-        assert tracker.epoch_id == 0
+        assert tracker.node_generation == 0
 
         start = _ns_event(
             NodeEpochStartEvent,
@@ -415,8 +417,8 @@ class TestEpochRestart:
         )
         reports = tracker.on_network_start(start.at, ns=start.ns)
         roles = [r.event_role for r in reports]
-        assert EventRole.EPOCH in roles
-        assert tracker.epoch_id == 1
+        assert EventRole.NODE_RESTART in roles
+        assert tracker.node_generation == 1
         hs = tracker.open_handshake(
             local_addr="10.10.193.91",
             local_port=6010,
@@ -429,18 +431,18 @@ class TestEpochRestart:
             at=datetime(2026, 9, 18, 21, 29, 25, tzinfo=UTC),
             ns="Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess",
         )
-        assert hs[0].epoch_id == 1
+        assert hs[0].node_generation == 1
 
     def test_local_and_remote_started_debounce(self):
         tracker = PeerTracker({}, stable_seconds=0)
         t0 = datetime(2026, 9, 18, 21, 29, 25, 114728, tzinfo=UTC)
         first = tracker.on_network_start(t0, ns="Net.Server.Local.Started")
         assert len(first) == 1
-        assert tracker.epoch_id == 1
+        assert tracker.node_generation == 1
         t1 = datetime(2026, 9, 18, 21, 29, 25, 114876, tzinfo=UTC)
         second = tracker.on_network_start(t1, ns="Net.Server.Remote.Started")
         assert second == []
-        assert tracker.epoch_id == 1
+        assert tracker.node_generation == 1
 
     def test_start_without_stop_still_closes_leftovers(self):
         tracker = PeerTracker({}, stable_seconds=0)
@@ -450,7 +452,7 @@ class TestEpochRestart:
             ns="Net.Server.Remote.Started",
         )
         assert any(r.event_role == EventRole.CLOSE for r in reports)
-        assert any(r.event_role == EventRole.EPOCH for r in reports)
+        assert any(r.event_role == EventRole.NODE_RESTART for r in reports)
         assert tracker.diagnostic_counts()["open"] == 0
 
 
