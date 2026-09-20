@@ -1,62 +1,63 @@
-# Backend handoff: peerevent (unified + HandshakeSuccess)
+# Backend handoff: peerevent (sessions + HandshakeSuccess)
 
-**Audience:** backend agent / API maintainers  
-**Client:** openblockperf v0.0.42+  
-**Endpoint:** existing `POST /submit/peerevent` (same API key)  
-**No new endpoint.** No dial-fail / error submits. Success life-signals only.  
-**Backend ingest:** ready (2026-09-18). Client may ship on PyPI.
+**Audience:** backend agent / API maintainers
+**Client:** openblockperf after the session-model change
+**Endpoint:** existing `POST /submit/peerevent` (same API key)
+**No new endpoint.** Dial-fail / PromoteColdFailed still out of scope.
 
-**Goal:** one comparable peer session stream from every SPO client: handshake
-capabilities (when known) plus debounced temperature lifecycle until the
-session ends. Same schema for all clients (no `peer_events_level`).
+**Goal:** one comparable **session** stream from every SPO client. Handshake
+capabilities plus temperature timeline until the session ends. Node restart
+is an epoch so previously open sessions can be marked terminated.
 
 Related:
 
 * Blocksample 2nd/3rd announcers: `docs/backend-blocksample.md`
 * Plan overview: `docs/peer-data-plan.md`
-* Peer relevance POST: cancelled (`docs/backend-peer-relevance.md`)
+* Operator local list: `docs/peers.md`
 
-Complementary to backend conn-explore (global successful pings +
-version/features). Client peerevents mean: this relay successfully talked to
-peer X and how that session moved Warm/Hot.
+Client peerevents mean: this relay successfully talked to peer X (HS), how
+that TCP session moved Warm/Hot, and how it ended.
 
 Typical fleet TraceOptions (CNTools and similar) log
 `Net.ConnectionManager.Remote` at Info **without** a parent `maxFrequency`, so
-HandshakeSuccess is available in normal installs.
+HandshakeSuccess is available. Throttle only `ConnectionManagerCounters`.
 
 ---
 
-## Decisions (2026-09-18)
+## Decisions (2026-09-20)
 
-1. No `peer_events_level`. Every client reports the same four `change_type`
-   values with debounce only (`peer_event_stable_seconds`, default 15).
-2. HandshakeSuccess enriches peerevents with optional capability fields.
-3. We do **not** submit connection failures, PromoteColdFailed, or CM errors
-   as their own event types. The client may still emit normal `warm_to_cold`
-   when MuxErrored / Handler.Error / ResponderErrored clear a reported peer.
-4. Traceroute stays a future separate optional switch; not part of peerevent.
+1. Keep the four `change_type` values so v0.0.42 ingest still works.
+2. Add omit-none fields: `epoch_id`, `session_id`, `event_role`,
+   `close_reason`, `we_dialed`.
+3. Identity is a **session** (`session_id` + `epoch_id` + connection).
+   Remote IP is still the relay identity for catalog / geo. Ephemeral
+   `remote_port` is submitted as `0`.
+4. **Do not** use `duplex`. Ignore it if still present (`false`).
+5. On `event_role=epoch` (and/or `close_reason=node_epoch` on each session):
+   mark all still-open sessions for that client terminated. Idempotent.
+6. Handshake fields stay optional. Missing = unknown, not "feature off".
+7. Traceroute / PromoteColdFailed still out of scope for this endpoint.
 
 ---
 
 ## 1. Client behaviour
 
-1. Parses `Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess`
-   and caches per remote IP: `n2n_version`, `diffusion_mode`, `peer_sharing`,
-   `peras_support` (service port when not ephemeral).
-2. Parses PeerSelection / InboundGovernor temperature changes.
-   Debounced enters; immediate leaves.
-3. On each peerevent submit, attaches the **latest cached handshake** for that
-   IP (if any).
-4. Cooling is client-only; collapsed into reportable leaves. Never submitted
-   as Cooling.
+1. HandshakeSuccess opens a session and submits `event_role=open`.
+2. IG Remote promote/demote and PeerSelection StatusChanged update
+   temperatures on that session (`event_role=temperature`).
+3. MuxErrored / Handler.Error / ResponderErrored / DemotedToCold /
+   CoolingToCold close the session (`event_role=close` + `close_reason`).
+4. Server Stopped / CM Shutdown close **all** open sessions with
+   `node_epoch`. Server Started increments `epoch_id` and submits
+   `event_role=epoch`.
+5. Useful / debounce is **local `/peers` only**. Short HS flicker is still
+   submitted (open then close).
 
 Typical session on the backend:
 
-`cold_to_warm` → (optional) `warm_to_hot` → `hot_to_warm` and/or `warm_to_cold`
+`open` → optional `warm_to_hot` → `close`
 
-Handshake fields may already be on the first enter if HS arrived earlier;
-otherwise they appear on later events once HS is seen. Missing fields =
-unknown (not “feature off”).
+Handshake fields are on the open event when HS arrived first.
 
 ---
 
@@ -64,67 +65,85 @@ unknown (not “feature off”).
 
 ```json
 {
-  "at": "2026-09-18T17:00:00.123456+00:00",
+  "at": "2026-09-20T17:00:00.123456+00:00",
   "direction": "inbound",
   "local_addr": "<string>",
   "local_port": 3001,
   "remote_addr": "<ip>",
   "remote_port": 0,
   "change_type": "cold_to_warm",
-  "last_seen": "2026-09-18T17:00:00.123456+00:00",
+  "last_seen": "2026-09-20T17:00:00.123456+00:00",
   "last_state": "Warm",
-  "duplex": false,
   "n2n_version": 14,
   "diffusion_mode": "InitiatorAndResponderDiffusionMode",
   "peer_sharing": "PeerSharingEnabled",
-  "peras_support": "PerasUnsupported"
+  "peras_support": "PerasUnsupported",
+  "epoch_id": 1,
+  "session_id": "a1b2c3...",
+  "event_role": "open",
+  "we_dialed": false
 }
 ```
 
 | Field | Type | Required | Meaning |
-|-------|------|----------|---------|
+|--------|------|----------|---------|
 | `at` / `last_seen` | datetime | yes | Event time (ISO) |
-| `direction` | `inbound` \| `outbound` | yes | Side of the peer |
+| `direction` | `inbound` \| `outbound` | yes | Track that moved (open/close: outbound if `we_dialed`) |
 | `local_addr` / `local_port` | string / int | yes | This relay (may be obfuscated) |
-| `remote_addr` | string | yes | Peer IP (identity with client id) |
-| `remote_port` | int | yes | Outbound: listen port. **Inbound: always `0`** |
-| `change_type` | string | yes | See table below |
-| `last_state` | `Warm` \| `Hot` \| `Cold` | yes | Temperature after change |
-| `duplex` | bool | no (default false) | Warm/Hot on **both** IN and OUT (temperature duplex, not CM Bi-Dir) |
+| `remote_addr` | string | yes | Peer IP. Epoch event uses `0.0.0.0` |
+| `remote_port` | int | yes | Listen port, or **0** if ephemeral / epoch |
+| `change_type` | string | yes | Four values below (compat) |
+| `last_state` | `Warm` \| `Hot` \| `Cold` | yes | After the event |
+| `duplex` | bool | no | Always false if present. Ignore. |
 | `n2n_version` | int \| absent | no | From HandshakeSuccess |
 | `diffusion_mode` | string \| absent | no | e.g. `InitiatorAndResponderDiffusionMode` |
 | `peer_sharing` | string \| absent | no | e.g. `PeerSharingEnabled` |
 | `peras_support` | string \| absent | no | e.g. `PerasUnsupported` |
+| `epoch_id` | int \| absent | no | Node generation. 0 until first Started |
+| `session_id` | string \| absent | no | Hex id. Absent on `event_role=epoch` |
+| `event_role` | `open` \| `temperature` \| `close` \| `epoch` | no | If absent, treat as old temperature-only client |
+| `close_reason` | string \| absent | no | Set on close / epoch. See table |
+| `we_dialed` | bool \| absent | no | True if we initiated. Absent = unknown |
 
-Client uses `exclude_none`: unknown handshake fields are **omitted** from JSON.
+Client uses `exclude_none`: unknown optional fields are omitted.
 
-### `change_type` (all four from all current clients)
+### `change_type` (compat)
 
 | Value | Meaning |
 |-------|---------|
-| `cold_to_warm` | Stable Warm enter (session became useful) |
-| `warm_to_hot` | Stable Hot enter |
+| `cold_to_warm` | Session open or Warm enter |
+| `warm_to_hot` | Hot enter |
 | `hot_to_warm` | Left Hot, still Warm |
-| `warm_to_cold` | Left to Cold (includes Cooling teardown collapse) |
+| `warm_to_cold` | Close, or epoch marker |
 
-Do **not** expect Cooling change types. Do **not** expect dial-fail events.
+Prefer `event_role` when present. Cooling is never submitted.
 
-String codes as above, or map to internal enum/IDs. Low cardinality either way.
+### `close_reason`
+
+| Value | Kind |
+|-------|------|
+| `ig_mux_error` | unexpected (MuxErrored) |
+| `ig_responder_error` | unexpected (KeepAlive etc.) |
+| `handler_error` | unexpected (ConnectionHandler.Error) |
+| `demoted_cold` | planned IG demote to Cold |
+| `cooling_to_cold` | planned outbound CoolingToCold |
+| `node_epoch` | cardano-node restart |
+| `ttl` | client soft-TTL, no leave line |
 
 ---
 
 ## 3. Backend tasks
 
-1. **Schema:** optional `n2n_version`, `diffusion_mode`, `peer_sharing`,
-   `peras_support` (absent = unknown). Keep `duplex`.
-2. **Persist** them for analytics / life-signal views next to conn-explore.
-3. **Lifecycle:** session markers per `(client, remote_addr, direction)`.
-   Inbound port is not a relay id. Outbound may join catalog via
-   `remote_addr:remote_port` when port ≠ 0.
-4. **Expect `cold_to_warm`** from the whole fleet (no mid/high split).
+1. **Schema:** optional session fields above. Keep accepting posts without them.
+2. **Lifecycle:** session row per `(client, session_id)` falling back to
+   `(client, remote_addr, direction)` for old clients.
+3. **Epoch:** on `event_role=epoch` or any `close_reason=node_epoch`, close
+   remaining open sessions for that client.
+4. **Signs of life:** HS fields + session intervals. Join with conn-explore
+   pings by IP. Join blocksamples by client + remote IP + time overlap.
 5. **Strict validators:** add fields before new clients go wide, or posts 422.
-6. **Out of scope:** traceroute, PromoteColdFailed, CM error streams,
-   separate handshake-only endpoint, `/submit/peerrelevance`.
+6. **Out of scope:** traceroute, PromoteColdFailed, CM error streams as their
+   own types, `/submit/peerrelevance`.
 
 ---
 
@@ -132,19 +151,16 @@ String codes as above, or map to internal enum/IDs. Low cardinality either way.
 
 | Source | Role |
 |--------|------|
-| Blocksamples (`header` / `header2` / `header3` / body) | Who announced/served blocks; correlate with Hot intervals |
+| Blocksamples (`header` / `header2` / `header3` / body) | Who announced/served blocks; overlap with session intervals |
 | Backend conn-explore | Successful reachability + version/features from fixed vantage points |
-| Peerevent + HandshakeSuccess fields | This SPO’s node negotiated with peer X; session Warm/Hot lifecycle |
+| Peerevent sessions | This SPO’s node negotiated with peer X; open/close and HS options |
 
-Together: different sources of **successful** life signals, not error
-diagnostics.
+Together: successful life signals, plus session replay when a node restarts.
 
 ---
 
 ## 5. Compatibility
 
-* Older clients without handshake fields must still ingest.
-* Older mid-only Hot enter/leave history stays valid; new clients add Warm
-  enters + optional capability fields.
-* Legacy client config key `peer_events_level` is ignored on the client
-  (`extra=ignore`).
+* Older clients without session fields must still ingest (temperature-only).
+* `event_role` absent: keep previous Warm/Hot enter/leave behaviour.
+* Legacy client config key `peer_events_level` is ignored on the client.

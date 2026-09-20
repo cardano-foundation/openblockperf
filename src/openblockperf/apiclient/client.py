@@ -210,8 +210,13 @@ class BlockperfApiClient:
         change_type: str,
         last_state: str,
         remote_port: int,
+        epoch_id: int | None = None,
+        session_id: str | None = None,
+        close_reason: str | None = None,
+        we_dialed: bool | None = None,
+        event_role: str | None = None,
     ):
-        """Submit a debounced/collapsed peer report to the backend."""
+        """Submit a session open / temperature / close / epoch event."""
         per = PeerEventRequest(
             at=at,
             direction=direction if isinstance(direction, str) else direction.value,
@@ -222,11 +227,16 @@ class BlockperfApiClient:
             change_type=change_type,
             last_seen=at,
             last_state=last_state,
-            duplex=peer.duplex,
+            duplex=False,
             n2n_version=peer.n2n_version,
             diffusion_mode=peer.diffusion_mode,
             peer_sharing=peer.peer_sharing,
             peras_support=peer.peras_support,
+            epoch_id=epoch_id,
+            session_id=session_id,
+            close_reason=close_reason,
+            we_dialed=we_dialed,
+            event_role=event_role,
         )
         logger.debug("Sending PeerEvent", request=per)
         await self._api.post("/submit/peerevent", per)

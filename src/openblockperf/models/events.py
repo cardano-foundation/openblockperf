@@ -24,15 +24,11 @@ from openblockperf.models.peer import PeerConnectionSimple
 # Used strings here and not the PeerState enum to keep the events simple
 # as well as not coupled to the event module.
 STATES = {
-    "Net.InboundGovernor.Local.DemotedToColdRemote": "Cold",
-    "Net.InboundGovernor.Local.DemotedToWarmRemote": "Warm",
-    "Net.InboundGovernor.Local.PromotedToHotRemote": "Hot",
-    "Net.InboundGovernor.Local.PromotedToWarmRemote": "Warm",
     "Net.InboundGovernor.Remote.PromotedToHotRemote": "Hot",
     "Net.InboundGovernor.Remote.PromotedToWarmRemote": "Warm",
     "Net.InboundGovernor.Remote.DemotedToColdRemote": "Cold",
     "Net.InboundGovernor.Remote.DemotedToWarmRemote": "Warm",
-    # Abrupt drops (often no DemotedToCold follows). Force FSM to Cold.
+    # Abrupt drops (often no DemotedToCold follows). Force session to close.
     "Net.InboundGovernor.Remote.MuxErrored": "Cold",
     "Net.InboundGovernor.Remote.ResponderErrored": "Cold",
     "Net.ConnectionManager.Remote.ConnectionHandler.Error": "Cold",
@@ -351,7 +347,16 @@ class SwitchedToAForkEvent(BlockSampleEvent):
 
 
 class StartedEvent(BaseEvent):
+    """Unused stub. Prefer NodeEpochStartEvent."""
+
     pass
+
+
+class NodeEpochStartEvent(BaseEvent):
+    """Net.Server.Remote.Started (and Local.Started / Startup.DiffusionInit)."""
+
+    def __repr__(self):
+        return f"NodeEpochStart(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, ns={self.ns})"
 
 
 class PeerEventChangeType(enum.Enum):
@@ -435,9 +440,10 @@ class PeerEvent(BaseEvent):
             raise EventError(_msg)
         data["state"] = STATES.get(ns)
 
-        # Direction
+        # Direction: IG Remote is inbound-governor temperature on a connection.
+        # Outbound n2n is PeerSelection StatusChanged (parsed separately).
+        # InboundGovernor.Local is n2c / unix, not registered.
         if ns == "Net.ConnectionManager.Remote.ConnectionHandler.Error":
-            # Same CM namespace for both sides; context says which direction died.
             ctx = (data.get("data") or {}).get("connectionHandler", {}).get("context")
             if ctx == "OutboundError":
                 data["direction"] = "outbound"
@@ -445,35 +451,20 @@ class PeerEvent(BaseEvent):
                 data["direction"] = "inbound"
         elif ".Remote" in ns:
             data["direction"] = "inbound"
-        elif ".Local" in ns:
-            data["direction"] = "outbound"
         else:
-            # This should not happen ... as far as i can tell right now...
             _msg = "Event does not have a direction"
             logger.exception(_msg, namespace=ns)
             raise EventError(_msg)
 
         # Change type
         _change_type = None
-        if ns in CONNECTION_LOST_NAMESPACES or ns in [
-            "Net.InboundGovernor.Local.DemotedToColdRemote",
-            "Net.InboundGovernor.Remote.DemotedToColdRemote",
-        ]:
+        if ns in CONNECTION_LOST_NAMESPACES or ns == "Net.InboundGovernor.Remote.DemotedToColdRemote":
             _change_type = PeerEventChangeType.WARM_COLD
-        elif ns in [
-            "Net.InboundGovernor.Local.DemotedToWarmRemote",
-            "Net.InboundGovernor.Remote.DemotedToWarmRemote",
-        ]:
+        elif ns == "Net.InboundGovernor.Remote.DemotedToWarmRemote":
             _change_type = PeerEventChangeType.HOT_WARM
-        elif ns in [
-            "Net.InboundGovernor.Local.PromotedToHotRemote",
-            "Net.InboundGovernor.Remote.PromotedToHotRemote",
-        ]:
+        elif ns == "Net.InboundGovernor.Remote.PromotedToHotRemote":
             _change_type = PeerEventChangeType.WARM_HOT
-        elif ns in [
-            "Net.InboundGovernor.Local.PromotedToWarmRemote",
-            "Net.InboundGovernor.Remote.PromotedToWarmRemote",
-        ]:
+        elif ns == "Net.InboundGovernor.Remote.PromotedToWarmRemote":
             _change_type = PeerEventChangeType.COLD_WARM
         else:
             pass
@@ -698,7 +689,7 @@ class ConnectionLostEvent(DemotedPeerEvent):
 
 
 class NetworkShutdownEvent(BaseEvent):
-    """ConnectionManager / server stopped; peer FSM should be wiped."""
+    """ConnectionManager / server stopped; open sessions close with node_epoch."""
 
     def __repr__(self):
         return f"NetworkShutdown(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, ns={self.ns})"

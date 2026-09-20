@@ -16,18 +16,24 @@ class PeerEventRequest(BaseModel):
     local_addr: str
     local_port: int
     remote_addr: str
-    # 0 = unknown / not applicable. Inbound peers intentionally omit ephemeral ports.
+    # 0 = unknown / not applicable. Ephemeral remote ports are submitted as 0.
     remote_port: int = 0
-    change_type: str  # Any of app.models.PeerStatusChangeType (reportable four only)
+    change_type: str  # reportable four: cold_to_warm, warm_to_hot, hot_to_warm, warm_to_cold
     last_seen: datetime
     last_state: str
-    # True when this remote IP is Warm/Hot on both inbound and outbound at once.
+    # Leftover default for older backends. Always false; not a product field.
     duplex: bool = False
     # Optional ConnectionManager HandshakeSuccess enrichment (None = unknown).
     n2n_version: int | None = None
     diffusion_mode: str | None = None
     peer_sharing: str | None = None
     peras_support: str | None = None
+    # Session model (omit-none). Older backends extra=ignore these.
+    epoch_id: int | None = None
+    session_id: str | None = None
+    close_reason: str | None = None
+    we_dialed: bool | None = None
+    event_role: str | None = None
 
 
 class PeerEventResponse(BaseModel):

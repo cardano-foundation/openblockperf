@@ -430,7 +430,7 @@ class Blockperf:
             self._local_metrics = None
 
     async def flush_peer_reports_task(self) -> None:
-        """Flush debounced stable peer enters and prune idle cold peers."""
+        """Mark useful sessions, TTL-close stale ones, prune idle."""
         while True:
             await asyncio.sleep(1)
             try:
@@ -476,94 +476,53 @@ class Blockperf:
                 pending_since = None
 
     def _peer_count_snapshot(self) -> tuple:
-        """Hashable peer temperature counters for change detection."""
-        peers = self.peers.values()
-        in_cold = sum(1 for p in peers if p.state_inbound == PeerState.COLD)
-        out_cold = sum(1 for p in peers if p.state_outbound == PeerState.COLD)
-        in_warm = sum(1 for p in peers if p.state_inbound == PeerState.WARM)
-        out_warm = sum(1 for p in peers if p.state_outbound == PeerState.WARM)
-        in_hot = sum(1 for p in peers if p.state_inbound == PeerState.HOT)
-        out_hot = sum(1 for p in peers if p.state_outbound == PeerState.HOT)
-        in_cooling = sum(1 for p in peers if p.state_inbound == PeerState.COOLING)
-        out_cooling = sum(1 for p in peers if p.state_outbound == PeerState.COOLING)
-        in_unknown = sum(1 for p in peers if p.state_inbound == PeerState.UNKNOWN)
-        out_unknown = sum(1 for p in peers if p.state_outbound == PeerState.UNKNOWN)
+        """Hashable session counters for change detection."""
         diag = self.handler.peer_tracker.diagnostic_counts()
+        closed = tuple(
+            sorted(
+                (key, value)
+                for key, value in diag.items()
+                if key.startswith("closed_")
+            )
+        )
         return (
-            in_cold,
-            out_cold,
-            in_warm,
-            out_warm,
-            in_hot,
-            out_hot,
-            in_cooling,
-            out_cooling,
-            in_unknown,
-            out_unknown,
-            diag["duplex_live"],
-            len(self.peers),
-            diag["in_warm_reported"],
-            diag["out_warm_reported"],
-            diag["in_hot_reported"],
-            diag["out_hot_reported"],
-            diag["in_warm_pending"],
-            diag["out_warm_pending"],
-            diag["in_hot_pending"],
-            diag["out_hot_pending"],
-            diag["duplex_reported"],
+            diag["epoch_id"],
+            diag["open"],
+            diag["useful"],
+            diag["ig_warm"],
+            diag["ig_hot"],
+            diag["out_warm"],
+            diag["out_hot"],
+            diag["opened"],
+            diag.get("handshakes_cached", 0),
+            closed,
         )
 
     def _log_peer_count_stats(self, snapshot: tuple) -> None:
         (
-            in_cold,
-            out_cold,
-            in_warm,
+            epoch_id,
+            open_n,
+            useful,
+            ig_warm,
+            ig_hot,
             out_warm,
-            in_hot,
             out_hot,
-            in_cooling,
-            out_cooling,
-            in_unknown,
-            out_unknown,
-            duplex,
-            total_peers,
-            in_warm_reported,
-            out_warm_reported,
-            in_hot_reported,
-            out_hot_reported,
-            in_warm_pending,
-            out_warm_pending,
-            in_hot_pending,
-            out_hot_pending,
-            duplex_reported,
+            opened,
+            handshakes_cached,
+            closed,
         ) = snapshot
-        # live_* aliases: in_warm/in_hot/... are the live FSM counts (nearer node/gLiveView).
         log_json_event(
             "peerCountStats",
-            in_cold=in_cold,
-            out_cold=out_cold,
-            in_warm=in_warm,
+            epoch_id=epoch_id,
+            open=open_n,
+            useful=useful,
+            ig_warm=ig_warm,
+            ig_hot=ig_hot,
             out_warm=out_warm,
-            in_hot=in_hot,
             out_hot=out_hot,
-            in_cooling=in_cooling,
-            out_cooling=out_cooling,
-            in_unknown=in_unknown,
-            out_unknown=out_unknown,
-            duplex=duplex,
-            total_peers=total_peers,
-            in_warm_reported=in_warm_reported,
-            out_warm_reported=out_warm_reported,
-            in_hot_reported=in_hot_reported,
-            out_hot_reported=out_hot_reported,
-            in_warm_pending=in_warm_pending,
-            out_warm_pending=out_warm_pending,
-            in_hot_pending=in_hot_pending,
-            out_hot_pending=out_hot_pending,
-            duplex_reported=duplex_reported,
-            handshakes_cached=self.handler.peer_tracker.diagnostic_counts().get(
-                "handshakes_cached", 0
-            ),
+            opened=opened,
+            handshakes_cached=handshakes_cached,
+            closed=dict(closed),
         )
 
     async def testapi_task(self):

@@ -1,4 +1,3 @@
-from datetime import datetime
 from functools import singledispatchmethod
 
 from pydantic import ValidationError
@@ -18,6 +17,7 @@ from openblockperf.models.events import (
     HandshakeSuccessEvent,
     InboundGovernorCountersEvent,
     NetworkShutdownEvent,
+    NodeEpochStartEvent,
     PeerEvent,
     PromotedPeerEvent,
     SendFetchRequestEvent,
@@ -36,18 +36,15 @@ from openblockperf.peer_tracker import PeerReport, PeerTracker
 #   Level 1 — dispatch_event(event)
 #       Routes by top-level event type:
 #           BlockSampleEvent             → _on_block_sample_event
-#           PeerEvent                    → _on_peer_event          (also advances peer state)
-#           InboundGovernorCountersEvent → _on_inbound_governor_counters
+#           PeerEvent                    → _on_peer_event
+#           HandshakeSuccessEvent        → _on_handshake_success (opens session)
+#           NetworkShutdownEvent         → _on_network_shutdown (close all)
+#           NodeEpochStartEvent          → _on_node_epoch_start
 #
 #   Level 2 — dispatch_peer_event(peer, event)
-#       Called from _on_peer_event after peer state is updated.
-#       Routes by specific PeerEvent subtype:
-#           StatusChangedEvent  → _on_peer_status_changed
-#           PromotedPeerEvent   → _on_peer_promoted
-#           DemotedPeerEvent    → _on_peer_demoted
+#       Called from _on_peer_event after session state is updated.
 #
-# Peer API submits are decided by PeerTracker (debounce / cooling collapse),
-# not by immediate submit on every log line.
+# Peer API submits come from the session store (open / temperature / close / epoch).
 # ---------------------------------------------------------------------------
 
 
@@ -65,11 +62,6 @@ class EventHandler:
         "Net.ConnectionManager.Remote.ConnectionHandler.Error": ConnectionLostEvent,
         "Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess": HandshakeSuccessEvent,
         "Net.ConnectionManager.Remote.Shutdown": NetworkShutdownEvent,
-        "Net.InboundGovernor.Local.DemotedToColdRemote": DemotedPeerEvent,
-        "Net.InboundGovernor.Local.DemotedToWarmRemote": DemotedPeerEvent,
-        "Net.InboundGovernor.Local.PromotedToHotRemote": PromotedPeerEvent,
-        "Net.InboundGovernor.Local.PromotedToWarmRemote": PromotedPeerEvent,
-        "Net.InboundGovernor.Local.InboundGovernorCounters": InboundGovernorCountersEvent,
         "Net.InboundGovernor.Remote.MuxErrored": ConnectionLostEvent,
         "Net.InboundGovernor.Remote.PromotedToHotRemote": PromotedPeerEvent,
         "Net.InboundGovernor.Remote.PromotedToWarmRemote": PromotedPeerEvent,
@@ -79,6 +71,10 @@ class EventHandler:
         "Net.InboundGovernor.Remote.ResponderErrored": ConnectionLostEvent,
         "Net.PeerSelection.Actions.StatusChanged": StatusChangedEvent,
         "Net.Server.Remote.Stopped": NetworkShutdownEvent,
+        "Net.Server.Local.Stopped": NetworkShutdownEvent,
+        "Net.Server.Remote.Started": NodeEpochStartEvent,
+        "Net.Server.Local.Started": NodeEpochStartEvent,
+        "Startup.DiffusionInit": NodeEpochStartEvent,
     }
 
     block_sample_groups: dict[str, BlockSampleGroup]
@@ -117,7 +113,7 @@ class EventHandler:
         return await self.dispatch_event(event)
 
     async def flush_peer_reports(self) -> int:
-        """Flush debounced peer enters and soft-TTL demotes. Returns submit count."""
+        """Mark useful sessions, TTL-close stale ones, prune idle. Returns submit count."""
         reports = self.peer_tracker.flush_stable()
         reports.extend(self.peer_tracker.expire_stale())
         for report in reports:
@@ -133,7 +129,14 @@ class EventHandler:
 
     def _make_event_from_message(
         self, message: dict
-    ) -> BlockSampleEvent | PeerEvent | HandshakeSuccessEvent | InboundGovernorCountersEvent | NetworkShutdownEvent:
+    ) -> (
+        BlockSampleEvent
+        | PeerEvent
+        | HandshakeSuccessEvent
+        | InboundGovernorCountersEvent
+        | NetworkShutdownEvent
+        | NodeEpochStartEvent
+    ):
         """Validate a raw log message dict into a typed Pydantic event model."""
         ns = message.get("ns")
         if ns not in self.REGISTERED_NAMESPACES:
@@ -223,9 +226,12 @@ class EventHandler:
     async def _submit_report(self, report: PeerReport) -> None:
         if not report.change_type.is_reportable():
             return
+        reason = report.close_reason.value if report.close_reason else "-"
         logger.opt(raw=True).info(
-            f"{report.peer.remote_addr} {report.direction.value} "
-            f"{report.change_type.value} duplex={report.peer.duplex} "
+            f"{report.peer.remote_addr} {report.event_role.value} "
+            f"{report.change_type.value} {report.direction.value} "
+            f"epoch={report.epoch_id} session={report.session_id or '-'} "
+            f"reason={reason} we_dialed={report.we_dialed} "
             f"v={report.peer.n2n_version} share={report.peer.peer_sharing} "
             f"peras={report.peer.peras_support}\n"
         )
@@ -236,6 +242,11 @@ class EventHandler:
             change_type=report.change_type.value,
             last_state=report.state,
             remote_port=report.remote_port,
+            epoch_id=report.epoch_id,
+            session_id=report.session_id,
+            close_reason=report.close_reason.value if report.close_reason else None,
+            we_dialed=report.we_dialed,
+            event_role=report.event_role.value,
         )
 
     @dispatch_event.register
@@ -244,8 +255,10 @@ class EventHandler:
 
     @dispatch_event.register
     async def _on_handshake_success(self, event: HandshakeSuccessEvent):
-        """Cache ConnectionManager handshake options for peerevent enrichment."""
-        info = self.peer_tracker.record_handshake(
+        """Open a connection session and cache n2n options."""
+        reports = self.peer_tracker.open_handshake(
+            local_addr=event.local_addr,
+            local_port=event.local_port,
             remote_addr=event.remote_addr,
             remote_port=event.remote_port,
             n2n_version=event.n2n_version,
@@ -253,20 +266,36 @@ class EventHandler:
             peer_sharing=event.peer_sharing,
             peras_support=event.peras_support,
             at=event.at,
+            ns=event.ns,
         )
         logger.opt(raw=True).info(
-            f"handshake {event.remote_addr} port={info.remote_port} "
+            f"handshake {event.remote_addr} port={event.remote_port} "
             f"v={event.n2n_version} mode={event.diffusion_mode} "
             f"share={event.peer_sharing} peras={event.peras_support}\n"
         )
+        for report in reports:
+            await self._submit_report(report)
 
     @dispatch_event.register
     async def _on_network_shutdown(self, event: NetworkShutdownEvent):
-        """Node CM/server stopped; drop FSM so restart does not keep ghosts."""
-        cleared = self.peer_tracker.reset()
+        """Node CM/server stopped; close open sessions with node_epoch."""
+        reports = self.peer_tracker.on_network_stop(event.at, ns=event.ns)
         logger.opt(raw=True).info(
-            f"network shutdown {event.ns} cleared_peers={cleared}\n"
+            f"network shutdown {event.ns} closed_sessions={len(reports)}\n"
         )
+        for report in reports:
+            await self._submit_report(report)
+
+    @dispatch_event.register
+    async def _on_node_epoch_start(self, event: NodeEpochStartEvent):
+        """Server started from empty. New epoch after closing leftovers."""
+        reports = self.peer_tracker.on_network_start(event.at, ns=event.ns)
+        logger.opt(raw=True).info(
+            f"node epoch {event.ns} epoch_id={self.peer_tracker.epoch_id} "
+            f"reports={len(reports)}\n"
+        )
+        for report in reports:
+            await self._submit_report(report)
 
     # ------------------------------------------------------------------
     # Level 2 dispatch — subtype hooks after tracker update (no direct submit)

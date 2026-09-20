@@ -82,8 +82,9 @@ Or, for a dedicated single-node logfile:
 ```
 
 Confirm startup prints `Tracer Log File: ...` and that header/blocksample
-or peer submit lines (`outbound`/`inbound` … `duplex=`) appear shortly after
-new tracer activity. A quiet journal alone does not prove log parsing is working.
+or peer submit lines (`open` / `temperature` / `close` plus `epoch=`) appear
+shortly after new tracer activity. A quiet journal alone does not prove log
+parsing is working.
 
 ## API key flow
 

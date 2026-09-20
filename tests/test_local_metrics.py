@@ -1,4 +1,4 @@
-"""Tests for local metrics JSON/Prometheus builders and reported peer rows."""
+"""Tests for local metrics JSON/Prometheus builders and useful session rows."""
 
 from datetime import UTC, datetime
 
@@ -28,18 +28,15 @@ def _warm_to_hot(at: str, remote: str = "203.0.113.10:3001") -> StatusChangedEve
     )
 
 
-class TestReportedPeerRows:
-    def test_empty_until_reported(self):
+class TestUsefulSessionRows:
+    def test_empty_until_hot_or_stable_warm(self):
         tracker = PeerTracker({}, stable_seconds=15)
         tracker.apply_event(_warm_to_hot("2026-09-16T12:00:00Z"))
-        assert tracker.reported_peer_rows() == []
-        tracker.flush_stable(now=datetime(2026, 9, 16, 12, 0, 20, tzinfo=UTC))
         rows = tracker.reported_peer_rows()
         assert len(rows) == 1
         assert rows[0]["remote_addr"] == "203.0.113.10"
-        assert rows[0]["directions"] == ["outbound"]
-        assert rows[0]["state_outbound"] == "Hot"
-        assert rows[0]["duplex"] is False
+        assert rows[0]["outbound_temperature"] == "Hot"
+        assert "duplex" not in rows[0]
 
 
 class TestLocalMetricsBuilders:
@@ -47,9 +44,32 @@ class TestLocalMetricsBuilders:
         tracker = PeerTracker({}, stable_seconds=0)
         tracker.apply_event(_warm_to_hot("2026-09-16T12:00:00Z"))
         doc = build_peers_json(tracker)
-        assert doc["export"] == "reported"
-        assert doc["counts"]["reported"]["out_hot"] == 1
+        assert doc["export"] == "useful"
+        assert doc["counts"]["useful"] == 1
+        assert doc["counts"]["out_hot"] == 1
+        assert "duplex" not in doc["counts"]
         assert len(doc["peers"]) == 1
+
+    def test_json_all_open_export(self):
+        tracker = PeerTracker({}, stable_seconds=15)
+        body = "ColdToWarm (Just 10.0.0.1:3001) 203.0.113.10:3001"
+        warm = StatusChangedEvent.model_validate(
+            {
+                "at": "2026-09-16T12:00:00Z",
+                "ns": "Net.PeerSelection.Actions.StatusChanged",
+                "data": {"kind": "PeerStatusChanged", "peerStatusChangeType": body},
+                "sev": "Info",
+                "thread": "1",
+                "host": "test",
+            }
+        )
+        tracker.apply_event(warm)
+        useful = build_peers_json(tracker)
+        assert useful["export"] == "useful"
+        assert useful["peers"] == []
+        all_open = build_peers_json(tracker, include_all_open=True)
+        assert all_open["export"] == "open"
+        assert len(all_open["peers"]) == 1
 
     def test_json_includes_relevance(self):
         from openblockperf.peer_relevance import PeerRelevanceTracker
@@ -65,12 +85,14 @@ class TestLocalMetricsBuilders:
         assert len(doc["relevance_orphans"]) == 1
         assert doc["relevance_orphans"][0]["remote_addr"] == "198.51.100.1"
 
-    def test_prometheus_has_view_labels(self):
+    def test_prometheus_has_session_gauges(self):
         tracker = PeerTracker({}, stable_seconds=0)
         tracker.apply_event(_warm_to_hot("2026-09-16T12:00:00Z"))
         text = build_prometheus_text(tracker)
-        assert 'openblockperf_peers{view="reported",direction="outbound",state="hot"} 1' in text
+        assert 'openblockperf_session_temperature{track="outbound",state="hot"} 1' in text
+        assert "openblockperf_sessions_useful 1" in text
         assert "openblockperf_handshakes_cached" in text
+        assert "openblockperf_duplex" not in text
 
 
 class TestLocalMetricsHttp:
@@ -94,12 +116,14 @@ class TestLocalMetricsHttp:
             async with httpx.AsyncClient() as client:
                 r = await client.get(f"http://127.0.0.1:{port}/peers")
                 assert r.status_code == 200
-                assert r.json()["counts"]["reported"]["out_hot"] == 1
+                assert r.json()["counts"]["useful"] == 1
                 m = await client.get(f"http://127.0.0.1:{port}/metrics")
                 assert m.status_code == 200
-                assert "openblockperf_peers" in m.text
+                assert "openblockperf_sessions_open" in m.text
                 h = await client.get(f"http://127.0.0.1:{port}/health")
                 assert h.text.strip() == "ok"
+                all_r = await client.get(f"http://127.0.0.1:{port}/peers?all=1")
+                assert all_r.json()["export"] == "open"
         finally:
             task.cancel()
             with pytest.raises(asyncio.CancelledError):

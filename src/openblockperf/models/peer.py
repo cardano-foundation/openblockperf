@@ -32,34 +32,51 @@ class PeerState(Enum):
     COOLING = "Cooling"
 
 
+class EventRole(Enum):
+    """What a submitted peerevent means in the session model."""
+
+    OPEN = "open"
+    TEMPERATURE = "temperature"
+    CLOSE = "close"
+    EPOCH = "epoch"
+
+
+class CloseReason(Enum):
+    """Why a session ended. Unexpected vs planned is derived from these."""
+
+    IG_MUX_ERROR = "ig_mux_error"
+    IG_RESPONDER_ERROR = "ig_responder_error"
+    HANDLER_ERROR = "handler_error"
+    DEMOTED_COLD = "demoted_cold"
+    COOLING_TO_COLD = "cooling_to_cold"
+    NODE_EPOCH = "node_epoch"
+    TTL = "ttl"
+
+
+# TCP source ports in this range are not relay listen ports.
+EPHEMERAL_PORT_MIN = 32768
+
+
+def is_ephemeral_port(port: int) -> bool:
+    return port >= EPHEMERAL_PORT_MIN
+
+
 class Peer(BaseModel):
-    """A Peer is a remote node this (local) node is connected with.
+    """IP-level view derived from connection sessions.
 
-    The Peers are uniquely identified by the ip address and port combination.
-    They are kept in a dict using a tuple of the address and port combination
-    as the key.
-
-    A Peer can be connected with this node in two ways.
-    * Incoming connections: Someone opened a connection to us.
-    * Outgoing connections: We opened a connetion to someone.
-
-    The messages from the logs do not clearly indicate which connection is
-    incoming or outgoing. We must try to figure it out by assuming that the
-    connections are usually made to service ports in the 1000-10000 range.
-    While outgoing connections
-
-
-
+    Sessions are keyed by connectionId (local+remote addr/port). This object
+    is the per-remote-IP rollup used for last_signal from blocksamples and
+    for submit field mapping.
     """
 
     ns: str | None  # The namespace of the event, kept for later debugging
     local_addr: str
     local_port: int
     remote_addr: str  # IP address of the remote
-    remote_port: int  # Outbound service port when known; 0 if inbound-only / unknown
+    remote_port: int  # Listen port when known; 0 if ephemeral / unknown
     state_inbound: PeerState = PeerState.UNCONNECTED
     state_outbound: PeerState = PeerState.UNCONNECTED
-    # True when inbound and outbound temperatures are both Warm or Hot at once.
+    # Unused leftover for API default; not a product field.
     duplex: bool = False
     # Latest ConnectionManager HandshakeSuccess enrichment (optional).
     n2n_version: int | None = None

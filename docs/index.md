@@ -6,8 +6,8 @@ can be categorize into three main parts.
 
 * **Block timings** is about measuring different times regarding to a specific block.
     See blocksamples.md
-* **Node Peers** is about monitoring the peers a node is connected to
-    (debounced Hot/Warm reporting levels). See peers.md.
+* **Node Peers** is about connection sessions (HandshakeSuccess, temperatures,
+    restart epoch). See peers.md.
     Backend ingest notes: backend-peer-events.md, backend-blocksample.md
     Plan: peer-data-plan.md
     Local metrics: local-peer-metrics.md

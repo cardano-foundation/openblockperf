@@ -1,4 +1,4 @@
-"""Optional local HTTP metrics for SPOs and gLiveView (Prometheus + JSON).
+"""Optional local HTTP metrics for SPOs (Prometheus + JSON).
 
 Enabled via ``local_metrics_enabled``. Default bind ``127.0.0.1:14041``.
 Uses only the stdlib asyncio server (no extra web framework dependency).
@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from openblockperf.logging import logger
 from openblockperf.peer_relevance import PeerRelevanceTracker
@@ -19,10 +20,11 @@ def build_peers_json(
     tracker: PeerTracker,
     *,
     relevance: PeerRelevanceTracker | None = None,
+    include_all_open: bool = False,
 ) -> dict[str, Any]:
-    """JSON document: reported peers + diagnostic counts + sliding relevance."""
+    """JSON document: useful (or all open) sessions + diagnostic counts."""
     diag = tracker.diagnostic_counts()
-    rows = tracker.reported_peer_rows()
+    rows = tracker.all_open_session_rows() if include_all_open else tracker.useful_session_rows()
     relevance_orphans: list[dict] = []
     if relevance is not None:
         reported_ips = {r["remote_addr"] for r in rows}
@@ -37,33 +39,26 @@ def build_peers_json(
                         "relevance": relevance.score_dict(score.remote_addr),
                     }
                 )
+    closed = {
+        key.removeprefix("closed_"): value
+        for key, value in diag.items()
+        if key.startswith("closed_")
+    }
     return {
         "at": datetime.now(UTC).isoformat(),
-        "export": "reported",
+        "export": "open" if include_all_open else "useful",
+        "epoch_id": diag["epoch_id"],
         "relevance_window_seconds": 1800 if relevance is not None else None,
         "counts": {
-            "live": {
-                "in_warm": diag["in_warm_live"],
-                "out_warm": diag["out_warm_live"],
-                "in_hot": diag["in_hot_live"],
-                "out_hot": diag["out_hot_live"],
-                "duplex": diag["duplex_live"],
-            },
-            "reported": {
-                "in_warm": diag["in_warm_reported"],
-                "out_warm": diag["out_warm_reported"],
-                "in_hot": diag["in_hot_reported"],
-                "out_hot": diag["out_hot_reported"],
-                "duplex": diag["duplex_reported"],
-            },
-            "pending": {
-                "in_warm": diag["in_warm_pending"],
-                "out_warm": diag["out_warm_pending"],
-                "in_hot": diag["in_hot_pending"],
-                "out_hot": diag["out_hot_pending"],
-            },
+            "open": diag["open"],
+            "useful": diag["useful"],
+            "ig_warm": diag["ig_warm"],
+            "ig_hot": diag["ig_hot"],
+            "out_warm": diag["out_warm"],
+            "out_hot": diag["out_hot"],
+            "opened": diag["opened"],
             "handshakes_cached": diag.get("handshakes_cached", 0),
-            "total_tracked": len(tracker.peers),
+            "closed": closed,
         },
         "peers": rows,
         "relevance_orphans": relevance_orphans,
@@ -75,40 +70,38 @@ def build_prometheus_text(
     *,
     relevance: PeerRelevanceTracker | None = None,
 ) -> str:
-    """Prometheus exposition: aggregate gauges only (peer list is JSON)."""
+    """Prometheus exposition: session gauges, not node Warm/Hot boxes."""
     diag = tracker.diagnostic_counts()
     lines = [
-        "# HELP openblockperf_peers_total Tracked peer IPs in the local map.",
-        "# TYPE openblockperf_peers_total gauge",
-        f"openblockperf_peers_total {len(tracker.peers)}",
-        "# HELP openblockperf_handshakes_cached Cached HandshakeSuccess peers.",
+        "# HELP openblockperf_epoch Current node epoch (increments on Server.Started).",
+        "# TYPE openblockperf_epoch gauge",
+        f"openblockperf_epoch {diag['epoch_id']}",
+        "# HELP openblockperf_sessions_open Currently open remote peer sessions.",
+        "# TYPE openblockperf_sessions_open gauge",
+        f"openblockperf_sessions_open {diag['open']}",
+        "# HELP openblockperf_sessions_useful Open sessions flagged useful (Hot or stable Warm).",
+        "# TYPE openblockperf_sessions_useful gauge",
+        f"openblockperf_sessions_useful {diag['useful']}",
+        "# HELP openblockperf_sessions_opened Sessions opened this process (HS or first temperature).",
+        "# TYPE openblockperf_sessions_opened counter",
+        f"openblockperf_sessions_opened {diag['opened']}",
+        "# HELP openblockperf_handshakes_cached Open sessions with HandshakeSuccess options.",
         "# TYPE openblockperf_handshakes_cached gauge",
         f"openblockperf_handshakes_cached {diag.get('handshakes_cached', 0)}",
-        "# HELP openblockperf_peers Temperature counts by view, direction, and state.",
-        "# TYPE openblockperf_peers gauge",
+        "# HELP openblockperf_session_temperature Open sessions by governor track and temperature.",
+        "# TYPE openblockperf_session_temperature gauge",
+        f'openblockperf_session_temperature{{track="ig",state="warm"}} {diag["ig_warm"]}',
+        f'openblockperf_session_temperature{{track="ig",state="hot"}} {diag["ig_hot"]}',
+        f'openblockperf_session_temperature{{track="outbound",state="warm"}} {diag["out_warm"]}',
+        f'openblockperf_session_temperature{{track="outbound",state="hot"}} {diag["out_hot"]}',
+        "# HELP openblockperf_sessions_closed Sessions closed this process by reason.",
+        "# TYPE openblockperf_sessions_closed counter",
     ]
-    mapping = [
-        ("live", "inbound", "warm", diag["in_warm_live"]),
-        ("live", "outbound", "warm", diag["out_warm_live"]),
-        ("live", "inbound", "hot", diag["in_hot_live"]),
-        ("live", "outbound", "hot", diag["out_hot_live"]),
-        ("reported", "inbound", "warm", diag["in_warm_reported"]),
-        ("reported", "outbound", "warm", diag["out_warm_reported"]),
-        ("reported", "inbound", "hot", diag["in_hot_reported"]),
-        ("reported", "outbound", "hot", diag["out_hot_reported"]),
-        ("pending", "inbound", "warm", diag["in_warm_pending"]),
-        ("pending", "outbound", "warm", diag["out_warm_pending"]),
-        ("pending", "inbound", "hot", diag["in_hot_pending"]),
-        ("pending", "outbound", "hot", diag["out_hot_pending"]),
-    ]
-    for view, direction, state, value in mapping:
-        lines.append(
-            f'openblockperf_peers{{view="{view}",direction="{direction}",state="{state}"}} {value}'
-        )
-    lines.append("# HELP openblockperf_duplex Duplex peer count by view.")
-    lines.append("# TYPE openblockperf_duplex gauge")
-    lines.append(f'openblockperf_duplex{{view="live"}} {diag["duplex_live"]}')
-    lines.append(f'openblockperf_duplex{{view="reported"}} {diag["duplex_reported"]}')
+    for key, value in diag.items():
+        if not key.startswith("closed_"):
+            continue
+        reason = key.removeprefix("closed_")
+        lines.append(f'openblockperf_sessions_closed{{reason="{reason}"}} {value}')
     if relevance is not None:
         scores = relevance.all_scores()
         header_points = sum(s.header_points for s in scores)
@@ -145,21 +138,21 @@ def _http_response(status: int, reason: str, body: bytes, content_type: str) -> 
     return headers.encode("ascii") + body
 
 
-async def _read_request(reader) -> tuple[str, str]:
-    """Return (method, path) from a minimal HTTP request. Path excludes query."""
+async def _read_request(reader) -> tuple[str, str, str]:
+    """Return (method, path, query) from a minimal HTTP request."""
     request_line = await reader.readline()
     if not request_line:
-        return "", ""
+        return "", "", ""
     parts = request_line.decode("latin-1", errors="replace").strip().split()
     if len(parts) < 2:
-        return "", ""
+        return "", "", ""
     method, target = parts[0].upper(), parts[1]
     while True:
         line = await reader.readline()
         if line in (b"\r\n", b"\n", b""):
             break
-    path = target.split("?", 1)[0]
-    return method, path
+    parsed = urlparse(target)
+    return method, parsed.path, parsed.query
 
 
 class LocalMetricsServer:
@@ -181,7 +174,7 @@ class LocalMetricsServer:
 
     async def _handle(self, reader, writer) -> None:
         try:
-            method, path = await _read_request(reader)
+            method, path, query = await _read_request(reader)
             if method != "GET":
                 payload = _http_response(405, "Method Not Allowed", b"method not allowed\n", "text/plain")
             elif path in ("/", "/health"):
@@ -191,8 +184,18 @@ class LocalMetricsServer:
                 payload = _http_response(
                     200, "OK", text.encode("utf-8"), "text/plain; version=0.0.4; charset=utf-8"
                 )
-            elif path in ("/peers", "/peers.json"):
-                doc = build_peers_json(self.tracker, relevance=self.relevance)
+            elif path in ("/peers", "/peers.json", "/peers/sessions"):
+                qs = parse_qs(query)
+                include_all = path == "/peers/sessions" or qs.get("all", ["0"])[0] in (
+                    "1",
+                    "true",
+                    "yes",
+                )
+                doc = build_peers_json(
+                    self.tracker,
+                    relevance=self.relevance,
+                    include_all_open=include_all,
+                )
                 body = (json.dumps(doc, indent=2) + "\n").encode("utf-8")
                 payload = _http_response(200, "OK", body, "application/json; charset=utf-8")
             else:

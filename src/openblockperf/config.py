@@ -53,11 +53,11 @@ class AppSettings(BaseSettings):
     # Seconds to wait after peerCountStats counters change before logging.
     # Resets while counters keep changing (debounce). 0 disables peerCountStats.
     peer_count_stats_interval: int = Field(default=5, ge=0)
-    # Seconds a Warm/Hot state must remain before it is reported (enter debounce).
-    # All clients report the same lifecycle: cold_to_warm, warm_to_hot, leaves.
+    # Seconds a Warm session must remain before it is flagged useful (local /peers).
+    # Handshake open/close is always submitted. Hot is useful immediately.
     peer_event_stable_seconds: int = Field(default=15, ge=0)
-    # Soft-TTL: demote Warm/Hot to Cold when last_signal is older than this.
-    # Covers missing Net.* leave lines (esp. outbound). 0 disables. Default 30m.
+    # Soft-TTL: close open sessions when last_signal is older than this.
+    # Covers missing Net.* leave lines. 0 disables. Default 30m.
     peer_signal_ttl_seconds: int = Field(default=1800, ge=0)
     # Optional traceroute enrichment (not implemented yet; separate from temperature).
     peer_traceroute_enabled: bool = False

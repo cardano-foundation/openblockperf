@@ -1,6 +1,24 @@
 # Peer / blocksample data plan (client + backend)
 
-Living plan for peer events, local relevance, and what we send upstream.
+Living plan for peer sessions, local relevance, and what we send upstream.
+
+## Decisions (2026-09-20)
+
+1. Peer tracking is a **connection session** store, not an IP-keyed
+   temperature map. Keep the existing parsers. Rewrite the tracker and submit.
+2. HandshakeSuccess **opens** a session (sign of life). IG Remote and
+   PeerSelection StatusChanged are two temperature tracks on that session.
+3. `InboundGovernor.Local` is n2c / unix, not outbound n2n. Outbound n2n is
+   PeerSelection.
+4. Debounce (`peer_event_stable_seconds`) only flags **useful** for `/peers`.
+   Backend always gets open/close, including short HS flicker.
+5. Restart: Stopped/Shutdown close all with `node_epoch`. Started increments
+   `epoch_id` and submits `event_role=epoch`.
+6. **Do not** name or submit CM duplex / bi-dir. Drop `duplex` from `/peers`.
+7. Do not chase node Warm/Hot counter boxes. Count useful open sessions.
+8. Traceroute / RTT still later, on first Warm, our own probe.
+9. Phase 4 ConnectionManagerCounters gauges: skip. Counters are noise when
+   unthrottled and they are not our product numbers.
 
 ## Decisions (2026-09-18)
 
@@ -37,7 +55,7 @@ Living plan for peer events, local relevance, and what we send upstream.
 | Doc | Status |
 |-----|--------|
 | `docs/backend-blocksample.md` | **Active** – 2nd/3rd announcer fields (v0.0.41+) |
-| `docs/backend-peer-events.md` | **Active** – unified lifecycle + HandshakeSuccess (v0.0.42+) |
+| `docs/backend-peer-events.md` | **Active** – session fields + HandshakeSuccess + epoch |
 | `docs/backend-peer-relevance.md` | **Cancelled** |
 
 ## Phases
@@ -69,10 +87,15 @@ Living plan for peer events, local relevance, and what we send upstream.
 * Optional handshake fields on peerevent ingest.
 * Client ships PyPI as **v0.0.42**.
 
-### Phase 4 – ConnectionManager light (optional, local first)
+### Phase 3c – connection sessions (**this change**)
 
-* Parse `ConnectionManagerCounters` for gLiveView-like gauges.
-* Decide later if any of that is worth submitting.
+* Session store keyed by connectionId + epoch.
+* Submit `event_role` / `session_id` / `epoch_id` / `close_reason` / `we_dialed`.
+* Close all open sessions on node restart. Local `/peers` is useful open sessions.
+
+### Phase 4 – ConnectionManager counters
+
+* **Cancelled.** Do not parse Counters for gLiveView-like gauges.
 
 ### Out of scope for now
 
@@ -81,5 +104,5 @@ Living plan for peer events, local relevance, and what we send upstream.
 * Merging IPv4/IPv6 into one peer identity on the client.
 
 Abrupt inbound drops (`MuxErrored` / `ConnectionHandler.Error` /
-`ResponderErrored`) **are** parsed as Cold leaves so peerCountStats track
-gLiveView / IG closer. CM Shutdown wipes the FSM.
+`ResponderErrored`) close the session. Restart Stopped/Shutdown submit
+`close_reason=node_epoch` instead of a silent wipe.

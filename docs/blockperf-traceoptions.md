@@ -14,7 +14,14 @@ Please note that the following is absolutely necessary
 - ChainDB.AddBlockEvent
   - AddedToCurrentChain
   - SwitchedToAFork
-- Net.ConnectionManager.Remote
+- Net.ConnectionManager.Remote (Info, no parent maxFrequency)
+- Net.PeerSelection (Info)
+- Net.InboundGovernor.Remote (Info)
+- Net.Server (Info) so we see Started/Stopped for node epochs
+
+Throttle only `Net.ConnectionManager.Remote.ConnectionManagerCounters`.
+Do not enable `Net.InboundGovernor.Local` promote/demote. That is n2c / unix,
+not outbound n2n.
 
 This traceOptions are optimized for a relay node. 
 
@@ -93,18 +100,21 @@ See also [Installer Guide](blockperf-install.md#switching-an-existing-install-to
     "Net.ConnectionManager.Remote": {
       "severity": "Info"
     },
+    "Net.ConnectionManager.Remote.ConnectionManagerCounters": {
+      "severity": "Info",
+      "maxFrequency": 0.0167
+    },
     "Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess": {
       "severity": "Info"
     },
     "Net.PeerSelection": {
       "severity": "Info"
     },
-    "Net.InboundGovernor.Remote": {
+    "Net.Server": {
       "severity": "Info"
     },
-    "Net.InboundGovernor.Local.InboundGovernorCounters": {
-      "severity": "Info",
-      "maxFrequency": 0.0167
+    "Net.InboundGovernor.Remote": {
+      "severity": "Info"
     },
     "Net.InboundGovernor.Remote.InboundGovernorCounters": {
       "severity": "Info",

@@ -89,7 +89,7 @@ Example (abbreviated):
 
 * Body fields: still first successful body server only.
 * Peer events: still `POST /submit/peerevent` (see
-  `backend-peer-events.md`); `duplex` optional bool.
+  `backend-peer-events.md`). Session fields are optional; ignore `duplex`.
 * No `/submit/peerrelevance`.
 * No requirement to store Cooling or CM counters from this handoff.
 

@@ -1,139 +1,106 @@
-# Tracking peers
+# Tracking peer sessions
 
-The client watches cardano-node tracer logs for peer temperature changes
-(Cold / Warm / Hot) and reports a **debounced** view of who this node is
-actually connected to. Every participant uses the **same** report set so the
-backend can interpret absences correctly.
+The client watches cardano-node tracer logs and builds **connection sessions**,
+not an IP-keyed temperature map. Block samples stay the first data type we
+parse and report. Peer sessions are the second.
 
-Cardano peer temperatures (simplified):
+A session is one TCP `connectionId` (local + remote addr/port) in one node
+epoch. HandshakeSuccess opens it. InboundGovernor and PeerSelection
+temperatures fill it. MuxErrored, orderly demote, CoolingToCold, or a node
+restart close it.
 
-* **Cold** – known peer, no useful connection yet
-* **Warm** – TCP + handshake / established connection, not fully active
-* **Hot** – active mini-protocols (ChainSync, BlockFetch, …) – this is what
-  block samples are correlated against
-* **Cooling** – short teardown state inside the node; tracked only inside the
-  client, never sent to the backend
+## Decisions (2026-09-20)
 
-## What is submitted (same for all clients)
+1. Key by **connection**, not by remote IP. Same IP can be we-dialed `:3001`
+   and they-dialed `:54329` at once. Same IP:port can die and come back as
+   session 2.
+2. **HandshakeSuccess** is session open and the n2n sign of life
+   (`n2n_version`, `diffusion_mode`, `peer_sharing`, `peras_support`).
+3. Two temperature tracks on the same session when `connectionId` matches:
+   `ig_temperature` (InboundGovernor Remote) and `outbound_temperature`
+   (PeerSelection StatusChanged).
+4. **Do not** treat `InboundGovernor.Local` as outbound n2n. That namespace
+   is n2c / unix. Outbound n2n is PeerSelection.
+5. `we_dialed` is true after StatusChanged `ColdToWarm` / PromoteColdDone
+   on that connection. Otherwise unknown or they dialed.
+6. Useful is a **local list flag** only: Hot on either track, or Warm held
+   for `peer_event_stable_seconds` (default 15). Backend always gets open
+   and close, including short HS flicker.
+7. **Do not** submit or name CM `duplex` / `fullDuplex` / `unidirectional`.
+   Drop `duplex` from `/peers` and journal lines.
+8. Restart: `Server.Remote.Stopped` / `Shutdown` close every open session
+   with `close_reason=node_epoch`. `Server.Remote.Started` (debounced with
+   Local.Started / `Startup.DiffusionInit`) increments `epoch_id` and
+   submits `event_role=epoch`.
+9. Traceroute / RTT stay later. Trigger would be first Warm. Not in these
+   logs (`TraceEmitDeltaQ` is empty).
 
-| `change_type` | Meaning |
-|---------------|---------|
-| `cold_to_warm` | Stable Warm enter (after debounce) |
-| `warm_to_hot` | Stable Hot enter (after debounce) |
-| `hot_to_warm` | Left Hot, still Warm |
-| `warm_to_cold` | Left Hot/Warm path ending Cold (Cooling collapsed) |
+## What is submitted (`POST /submit/peerevent`)
 
-### Debounce (`peer_event_stable_seconds`, default `15`)
+Same endpoint as v0.0.42. Four `change_type` values stay for older backends.
+New fields are omit-none.
 
-A Warm/Hot **enter** is submitted only if that temperature stays in place for
-N seconds. Short Cold→Warm→Hot flickers collapse to a single Hot enter when
-possible. **Leaves** are submitted immediately once a previously reported
-temperature is gone.
+| `event_role` | Meaning | Typical `change_type` |
+|--------------|---------|------------------------|
+| `open` | HandshakeSuccess (or first temperature if we attached mid-run) | `cold_to_warm` |
+| `temperature` | IG or outbound Warm/Hot change | `warm_to_hot` / `hot_to_warm` |
+| `close` | Session ended | `warm_to_cold` |
+| `epoch` | Node started from empty. Dummy remote `0.0.0.0`. | `warm_to_cold` |
 
-### Presence + soft TTL (`peer_signal_ttl_seconds`, default `1800`)
+| `close_reason` | Kind |
+|----------------|------|
+| `ig_mux_error` / `ig_responder_error` / `handler_error` | unexpected |
+| `demoted_cold` / `cooling_to_cold` | planned churn |
+| `node_epoch` | cardano-node restart |
+| `ttl` | no leave line for `peer_signal_ttl_seconds` (default 1800) |
 
-Each peer keeps `first_seen` and `last_signal`. `last_signal` is bumped by
-temperature events, HandshakeSuccess, and blocksample header/body from that
-IP. After 30 minutes without a signal, Warm/Hot (inbound and outbound) are
-soft-demoted to Cold and a normal `warm_to_cold` is submitted if we had
-reported them. Set to `0` to disable. This covers missing Net.* leave lines
-(especially outbound) without chasing every CM error namespace.
+Ephemeral remote ports (`>= 32768`) are submitted as `0`. Listen ports are kept.
 
-### Traceroute (`peer_traceroute_enabled`, default `false`)
+## Log namespaces we use
 
-Separate optional switch. Not implemented yet. Does not change temperature
-reporting.
+**Session truth**
 
-## Handshake enrichment (ConnectionManager)
+- `Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess`
+- `Net.InboundGovernor.Remote.PromotedToWarmRemote` / `PromotedToHotRemote`
+- `Net.InboundGovernor.Remote.DemotedToWarmRemote` / `DemotedToColdRemote`
+- `Net.PeerSelection.Actions.StatusChanged`
+- `Net.InboundGovernor.Remote.MuxErrored` / `ResponderErrored`
+- `Net.ConnectionManager.Remote.ConnectionHandler.Error`
+- `Net.Server.Remote.Stopped` / `Net.Server.Local.Stopped`
+- `Net.ConnectionManager.Remote.Shutdown`
+- `Net.Server.Remote.Started` / `Net.Server.Local.Started`
+- `Startup.DiffusionInit` (optional non-Net restart confirm)
 
-`Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess` is parsed
-when present. Latest options per remote IP are cached and attached to later
-peerevents / `/peers` rows:
+**Not used to drive the FSM:** ConnectionManagerCounters, Mux.State,
+TraceEmitDeltaQ, Promote*Done (redundant with StatusChanged), MaturedConnections.
 
-* `n2n_version`
-* `diffusion_mode` (e.g. `InitiatorAndResponderDiffusionMode`)
-* `peer_sharing`
-* `peras_support`
+HandshakeQuery is ignored (query-only). PromoteColdFailed stays out of scope.
 
-Ephemeral remote ports (`>= 32768`) are stored as `0` (not a relay listen port).
+Parent `Net.ConnectionManager.Remote` should stay Info **without**
+`maxFrequency`. Throttle **only** `ConnectionManagerCounters`.
 
-**TraceOptions note:** many default node configs set
-`Net.ConnectionManager.Remote` with `maxFrequency: 0.0167`, which starves
-HandshakeSuccess (~tens per hour). Prefer Info **without** that parent throttle
-(or a child override for HandshakeSuccess). See
-`logs/node-logs_Net-namespace/` for a throttled 1h sample vs an upcoming
-unthrottled capture.
+## Operator endpoints
 
-## Inbound vs outbound
-
-* **Outbound** – this node initiated toward a remote relay (service port kept)
-* **Inbound** – remote side toward this node (ephemeral remote ports are **not**
-  used as identity; reports use `remote_port = 0`)
-* **Duplex** – same remote IP is Warm/Hot on both directions at once
-  (`duplex: true` on the peer event). This is temperature duplex, not
-  ConnectionManager / gLiveView Bi-Dir.
-
-Peers are keyed by **remote IP**, not by ephemeral `ip:port`.
-
-## Abrupt connection loss (count-down)
-
-Orderly `DemotedToColdRemote` / StatusChanged Cooling often **does not**
-follow a hard drop. Without these, live Warm/Hot stay high vs gLiveView /
-`InboundGovernorCounters`.
-
-The client also treats these as inbound (or outbound for
-`OutboundError`) leave to Cold, same as demote:
-
-* `Net.InboundGovernor.Remote.MuxErrored`
-* `Net.InboundGovernor.Remote.ResponderErrored`
-* `Net.ConnectionManager.Remote.ConnectionHandler.Error`
-
-On `Net.ConnectionManager.Remote.Shutdown` or `Net.Server.Remote.Stopped`
-the peer FSM and handshake cache are wiped so a node restart does not keep
-ghosts.
-
-When comparing to gLiveView: **Bi-Dir / Duplex** there are CM
-`duplex` / `fullDuplex` counters, not temperature `duplex`.
-
-## Local stats (diagnostics)
-
-`peerCountStats` is logged a few seconds after counters change
-(`peer_count_stats_interval`, default `5`; `0` disables).
-
-Fields:
-
-* `in_warm` / `in_hot` / … – **live** FSM (every parsed event; nearer node/gLiveView)
-* `*_reported` – passed debounce and submitted (operator export / API truth)
-* `*_pending` – waiting for `peer_event_stable_seconds`
-* `duplex` / `duplex_reported` – live vs both sides reported active
-* `handshakes_cached` – HandshakeSuccess cache size
-* `/peers` rows also expose `first_seen` and `last_signal`
-
-When comparing to gLiveView Warm/Hot, use **live** (approximate). Prefer the
-peer list + `last_signal` over matching gLiveView boxes exactly. When asking
-“what did we tell the backend?”, use **reported**.
-
-See [local-peer-metrics.md](local-peer-metrics.md) for the localhost
-Prometheus/JSON endpoint (default port `14041`, opt-in) and the sliding
-30‑minute relevance scores on `/peers`.
-
-Enable locally:
-
-```json
-"local_metrics_enabled": true,
-"local_metrics_bind": "127.0.0.1",
-"local_metrics_port": 14041
-```
+Enable with `local_metrics_enabled: true` (default bind `127.0.0.1:14041`).
 
 ```bash
 curl -s http://127.0.0.1:14041/peers
+curl -s http://127.0.0.1:14041/peers?all=1
+curl -s http://127.0.0.1:14041/peers/sessions
 curl -s http://127.0.0.1:14041/metrics
 ```
 
-## Operator config (examples)
+`GET /peers` is **useful open** sessions (IP, listen port if known, ig and
+outbound temperatures, HS options, first_seen, last_signal, local 30m
+header/body relevance). No `duplex` field.
 
-The installer writes these keys into `${INSTALL_DIR}/config.json` with the
-defaults below so you can edit them in place.
+`?all=1` or `/peers/sessions` includes short HS that are not yet useful.
+
+Prometheus: `openblockperf_sessions_open`, `openblockperf_sessions_useful`,
+`openblockperf_epoch`, `openblockperf_sessions_closed{reason=...}`.
+Not node Warm/Hot box names.
+
+## Config
 
 ```json
 {
@@ -148,8 +115,8 @@ defaults below so you can edit them in place.
 }
 ```
 
-Legacy `peer_events_level` in an old `config.json` is ignored (`extra=ignore`).
+`peer_event_stable_seconds` only gates the useful flag / `/peers` list.
+Handshake open and close are always submitted.
 
-Environment variables use the `OPENBLOCKPERF_` prefix, for example
-`OPENBLOCKPERF_PEER_EVENT_STABLE_SECONDS=30` or
-`OPENBLOCKPERF_PEER_SIGNAL_TTL_SECONDS=1800`.
+See [local-peer-metrics.md](local-peer-metrics.md) and
+[backend-peer-events.md](backend-peer-events.md).

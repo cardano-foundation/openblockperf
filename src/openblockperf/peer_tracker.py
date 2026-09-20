@@ -1,82 +1,32 @@
-"""Debounced peer-state tracking and API report decisions.
+"""Connection-session tracking from Net.* logs.
 
-Internal FSM follows cardano-node temperatures (including Cooling).
-All clients report the same lifecycle: stable Cold→Warm and Warm→Hot enters
-(after peer_event_stable_seconds) plus immediate leaves. Cooling is collapsed
-into reportable leave types and never submitted as its own change_type.
+A session is one TCP connectionId (local+remote addr/port) in one node epoch.
+HandshakeSuccess opens it. InboundGovernor and PeerSelection temperatures fill
+it. MuxErrored / demote / CoolingToCold / node epoch close it.
 
-Presence: first_seen / last_signal on each peer. last_signal is bumped by
-temperature events, HandshakeSuccess, and blocksample header/body. After
-peer_signal_ttl_seconds without a signal, Warm/Hot directions are soft-demoted
-to Cold (covers missing Net.* leave lines).
+Useful is a local-list flag (Hot, or Warm held for stable_seconds). Backend
+always gets open/close so short handshakes still count as signs of life.
 """
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from openblockperf.logging import logger
 from openblockperf.models.events import PeerEvent, PeerEventChangeType
-from openblockperf.models.peer import Peer, PeerDirection, PeerState
+from openblockperf.models.peer import (
+    CloseReason,
+    EventRole,
+    Peer,
+    PeerDirection,
+    PeerState,
+    is_ephemeral_port,
+)
 
-# States that mean "interesting connected temperature" for tracking.
 _ACTIVE = {PeerState.WARM, PeerState.HOT}
-_GONE = {PeerState.COLD, PeerState.UNCONNECTED, PeerState.UNKNOWN, PeerState.COOLING}
-
-# Ephemeral TCP source ports are not relay listen ports.
-_EPHEMERAL_PORT_MIN = 32768
-
-
-@dataclass
-class PeerHandshakeInfo:
-    """Latest ConnectionManager HandshakeSuccess for a remote IP."""
-
-    remote_addr: str
-    # Service listen port when known; 0 if inbound ephemeral / unknown.
-    remote_port: int
-    n2n_version: int | None
-    diffusion_mode: str | None
-    peer_sharing: str | None
-    peras_support: str | None
-    at: datetime
-
-
-@dataclass
-class PendingEnter:
-    """A candidate Warm/Hot enter waiting for the stability window."""
-
-    direction: PeerDirection
-    target: PeerState
-    since: datetime
-    event_at: datetime
-
-
-@dataclass
-class PeerReport:
-    """Payload the handler turns into an API submit."""
-
-    peer: Peer
-    direction: PeerDirection
-    change_type: PeerEventChangeType
-    state: str
-    at: datetime
-    remote_port: int
-
-
-@dataclass
-class DirectionTrack:
-    """Per-direction reported and pending state."""
-
-    reported: PeerState | None = None  # last state we told the backend about
-    pending: PendingEnter | None = None
-
-
-@dataclass
-class PeerTrack:
-    peer: Peer
-    inbound: DirectionTrack = field(default_factory=DirectionTrack)
-    outbound: DirectionTrack = field(default_factory=DirectionTrack)
+_EPOCH_DEBOUNCE = timedelta(seconds=2)
 
 
 def _now() -> datetime:
@@ -89,8 +39,113 @@ def _as_aware(dt: datetime) -> datetime:
     return dt
 
 
+def connection_key(local_addr: str, local_port: int, remote_addr: str, remote_port: int) -> str:
+    return f"{local_addr}|{local_port}|{remote_addr}|{remote_port}"
+
+
+def submit_port(port: int) -> int:
+    """Listen port for backend identity; ephemeral becomes 0."""
+    return 0 if is_ephemeral_port(port) else port
+
+
+@dataclass
+class PeerSession:
+    """One remote TCP session in the current (or just-closed) epoch."""
+
+    epoch_id: int
+    session_id: str
+    local_addr: str
+    local_port: int
+    remote_addr: str
+    remote_port: int
+    opened_at: datetime
+    last_ns: str | None = None
+    we_dialed: bool | None = None
+    n2n_version: int | None = None
+    diffusion_mode: str | None = None
+    peer_sharing: str | None = None
+    peras_support: str | None = None
+    ig_temperature: PeerState = PeerState.UNCONNECTED
+    outbound_temperature: PeerState = PeerState.UNCONNECTED
+    useful: bool = False
+    warm_since: datetime | None = None
+    last_signal: datetime | None = None
+    closed_at: datetime | None = None
+    close_reason: CloseReason | None = None
+    opened_submitted: bool = False
+    ig_submitted: PeerState | None = None
+    out_submitted: PeerState | None = None
+
+    @property
+    def conn_key(self) -> str:
+        return connection_key(
+            self.local_addr, self.local_port, self.remote_addr, self.remote_port
+        )
+
+    @property
+    def open(self) -> bool:
+        return self.closed_at is None
+
+    def as_peer(self) -> Peer:
+        return Peer(
+            ns=self.last_ns,
+            local_addr=self.local_addr,
+            local_port=self.local_port,
+            remote_addr=self.remote_addr,
+            remote_port=submit_port(self.remote_port),
+            state_inbound=self.ig_temperature,
+            state_outbound=self.outbound_temperature,
+            n2n_version=self.n2n_version,
+            diffusion_mode=self.diffusion_mode,
+            peer_sharing=self.peer_sharing,
+            peras_support=self.peras_support,
+            first_seen=self.opened_at,
+            last_signal=self.last_signal or self.opened_at,
+            last_updated=self.last_signal or self.opened_at,
+        )
+
+
+@dataclass
+class PeerReport:
+    """Payload the handler turns into an API submit."""
+
+    peer: Peer
+    direction: PeerDirection
+    change_type: PeerEventChangeType
+    state: str
+    at: datetime
+    remote_port: int
+    event_role: EventRole
+    epoch_id: int
+    session_id: str | None = None
+    close_reason: CloseReason | None = None
+    we_dialed: bool | None = None
+
+
+@dataclass
+class PeerHandshakeInfo:
+    """Latest HandshakeSuccess fields for a remote IP (debug / tests)."""
+
+    remote_addr: str
+    remote_port: int
+    n2n_version: int | None
+    diffusion_mode: str | None
+    peer_sharing: str | None
+    peras_support: str | None
+    at: datetime
+
+
+@dataclass
+class _CloseCounts:
+    by_reason: dict[str, int] = field(default_factory=dict)
+
+    def add(self, reason: CloseReason) -> None:
+        key = reason.value
+        self.by_reason[key] = self.by_reason.get(key, 0) + 1
+
+
 class PeerTracker:
-    """Owns peer dict updates and decides what to submit."""
+    """Owns connection sessions and decides what to submit."""
 
     def __init__(
         self,
@@ -103,34 +158,48 @@ class PeerTracker:
         self.peers = peers
         self.stable_seconds = max(0, stable_seconds)
         self.signal_ttl_seconds = max(0, signal_ttl_seconds)
-        # Future: optional traceroute enrichment (not implemented yet).
         self.traceroute_enabled = traceroute_enabled
-        self._tracks: dict[str, PeerTrack] = {}
-        self._handshakes: dict[str, PeerHandshakeInfo] = {}
+        self.epoch_id = 0
+        self._open: dict[str, PeerSession] = {}
+        self._closed: dict[str, PeerSession] = {}
+        self._opened_count = 0
+        self._close_counts = _CloseCounts()
+        self._last_epoch_at: datetime | None = None
+        self._stopped = False
 
     def enabled(self) -> bool:
-        """Peer temperature tracking is always on."""
         return True
 
     def peer_key(self, remote_addr: str) -> str:
-        """Identity is remote IP only (inbound ephemeral ports are ignored)."""
         return remote_addr
 
-    def _touch(self, peer: Peer, at: datetime) -> None:
-        """Bump presence timestamps (first_seen once, last_signal always)."""
-        aware = _as_aware(at)
-        if peer.first_seen is None:
-            peer.first_seen = aware
-        peer.last_signal = aware
-        peer.last_updated = aware
-
-    def touch_signal(self, remote_addr: str, at: datetime) -> bool:
-        """Refresh last_signal for a known peer (header/body). Returns True if found."""
-        peer = self.peers.get(self.peer_key(remote_addr))
-        if peer is None:
-            return False
-        self._touch(peer, at)
-        return True
+    def handshake_for(self, remote_addr: str) -> PeerHandshakeInfo | None:
+        """Latest handshake on any session for this IP (open preferred)."""
+        found: PeerSession | None = None
+        for session in self._open.values():
+            if session.remote_addr == remote_addr and session.n2n_version is not None:
+                if found is None or (session.last_signal or session.opened_at) >= (
+                    found.last_signal or found.opened_at
+                ):
+                    found = session
+        if found is None:
+            for session in self._closed.values():
+                if session.remote_addr == remote_addr and session.n2n_version is not None:
+                    if found is None or (session.last_signal or session.opened_at) >= (
+                        found.last_signal or found.opened_at
+                    ):
+                        found = session
+        if found is None:
+            return None
+        return PeerHandshakeInfo(
+            remote_addr=found.remote_addr,
+            remote_port=submit_port(found.remote_port),
+            n2n_version=found.n2n_version,
+            diffusion_mode=found.diffusion_mode,
+            peer_sharing=found.peer_sharing,
+            peras_support=found.peras_support,
+            at=found.last_signal or found.opened_at,
+        )
 
     def record_handshake(
         self,
@@ -142,416 +211,635 @@ class PeerTracker:
         peer_sharing: str | None,
         peras_support: str | None,
         at: datetime,
+        local_addr: str = "0.0.0.0",
+        local_port: int = 0,
+        ns: str = "Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess",
     ) -> PeerHandshakeInfo:
-        """Cache HandshakeSuccess options for later peerevent enrichment."""
-        port = 0 if remote_port >= _EPHEMERAL_PORT_MIN else remote_port
-        info = PeerHandshakeInfo(
+        """Open (or enrich) a session from HandshakeSuccess. Returns HS cache view."""
+        reports = self.open_handshake(
+            local_addr=local_addr,
+            local_port=local_port,
             remote_addr=remote_addr,
-            remote_port=port,
+            remote_port=remote_port,
             n2n_version=n2n_version,
             diffusion_mode=diffusion_mode,
             peer_sharing=peer_sharing,
             peras_support=peras_support,
-            at=_as_aware(at),
+            at=at,
+            ns=ns,
         )
-        self._handshakes[remote_addr] = info
-        peer = self.peers.get(remote_addr)
-        if peer is not None:
-            self._apply_handshake_to_peer(peer, info)
-            self._touch(peer, at)
+        # Caller that only wanted the cache (legacy) still works; handler uses
+        # open_handshake directly when it needs reports.
+        _ = reports
+        info = self.handshake_for(remote_addr)
+        assert info is not None
         return info
 
-    def handshake_for(self, remote_addr: str) -> PeerHandshakeInfo | None:
-        return self._handshakes.get(remote_addr)
+    def open_handshake(
+        self,
+        *,
+        local_addr: str,
+        local_port: int,
+        remote_addr: str,
+        remote_port: int,
+        n2n_version: int | None,
+        diffusion_mode: str | None,
+        peer_sharing: str | None,
+        peras_support: str | None,
+        at: datetime,
+        ns: str,
+    ) -> list[PeerReport]:
+        """Open a session on HandshakeSuccess (sign of life). Always submits open."""
+        at = _as_aware(at)
+        existing = self._find_open(local_addr, local_port, remote_addr, remote_port)
+        if existing is not None:
+            self._rekey_local(existing, local_addr, local_port)
+            existing.n2n_version = n2n_version
+            existing.diffusion_mode = diffusion_mode
+            existing.peer_sharing = peer_sharing
+            existing.peras_support = peras_support
+            existing.last_ns = ns
+            self._touch_session(existing, at)
+            self._sync_ip_peer(existing)
+            return []
 
-    def _apply_handshake_to_peer(self, peer: Peer, info: PeerHandshakeInfo) -> None:
-        peer.n2n_version = info.n2n_version
-        peer.diffusion_mode = info.diffusion_mode
-        peer.peer_sharing = info.peer_sharing
-        peer.peras_support = info.peras_support
-        if info.remote_port and not peer.remote_port:
-            peer.remote_port = info.remote_port
-
-    def _track_for(self, key: str, peer: Peer) -> PeerTrack:
-        track = self._tracks.get(key)
-        if track is None:
-            track = PeerTrack(peer=peer)
-            self._tracks[key] = track
-        else:
-            track.peer = peer
-        return track
-
-    def _dir_track(self, track: PeerTrack, direction: PeerDirection) -> DirectionTrack:
-        return track.inbound if direction == PeerDirection.INBOUND else track.outbound
-
-    def _update_duplex(self, peer: Peer) -> None:
-        peer.duplex = peer.state_inbound in _ACTIVE and peer.state_outbound in _ACTIVE
-
-    def _report_port(self, peer: Peer, direction: PeerDirection) -> int:
-        if direction == PeerDirection.INBOUND:
-            return 0
-        return peer.remote_port
+        session = self._new_session(
+            local_addr=local_addr,
+            local_port=local_port,
+            remote_addr=remote_addr,
+            remote_port=remote_port,
+            at=at,
+            ns=ns,
+        )
+        session.n2n_version = n2n_version
+        session.diffusion_mode = diffusion_mode
+        session.peer_sharing = peer_sharing
+        session.peras_support = peras_support
+        self._open[session.conn_key] = session
+        self._opened_count += 1
+        self._touch_session(session, at)
+        self._maybe_mark_useful(session, at)
+        self._sync_ip_peer(session)
+        if self.traceroute_enabled:
+            logger.debug("peer traceroute enabled but not implemented yet", peer=remote_addr)
+        return [self._open_report(session, at)]
 
     def apply_event(self, event: PeerEvent) -> list[PeerReport]:
-        """Update peer temperatures from a PeerEvent; return any API reports."""
-        key = self.peer_key(event.remote_addr)
+        """Update a session from an IG / PeerSelection / death PeerEvent."""
+        at = _as_aware(event.at)
         direction = (
             event.direction
             if isinstance(event.direction, PeerDirection)
             else PeerDirection(event.direction)
         )
         new_state = PeerState(event.state) if not isinstance(event.state, PeerState) else event.state
+        is_close = self._is_close_event(event, new_state)
+        existing = self._find_open(
+            event.local_addr, event.local_port, event.remote_addr, event.remote_port
+        )
+        if existing is None and is_close:
+            return []
+        session = self._session_for_event(event, at)
+        session.last_ns = event.ns
+        self._touch_session(session, at)
 
-        peer = self.peers.get(key)
-        if peer is None:
-            stored_port = 0 if direction == PeerDirection.INBOUND else event.remote_port
-            peer = Peer(
-                ns=event.ns,
-                local_addr=event.local_addr,
-                local_port=event.local_port,
-                remote_addr=event.remote_addr,
-                remote_port=stored_port,
-            )
-            self.peers[key] = peer
-        if direction == PeerDirection.OUTBOUND and event.remote_port:
-            peer.remote_port = event.remote_port
-
-        hs = self._handshakes.get(key)
-        if hs is not None:
-            self._apply_handshake_to_peer(peer, hs)
-
-        old_state = peer.state_inbound if direction == PeerDirection.INBOUND else peer.state_outbound
-        if direction == PeerDirection.INBOUND:
-            peer.state_inbound = new_state
-        else:
-            peer.state_outbound = new_state
-        self._touch(peer, event.at)
-        peer.ns = event.ns
-        self._update_duplex(peer)
-
-        track = self._track_for(key, peer)
-        dtrack = self._dir_track(track, direction)
         reports: list[PeerReport] = []
+        if not session.opened_submitted:
+            reports.append(self._open_report(session, session.opened_at))
 
-        interest_new = self._interest_state(new_state)
-        interest_old = self._interest_state(old_state)
+        if direction == PeerDirection.OUTBOUND:
+            reports.extend(self._apply_outbound(session, new_state, event, at))
+        else:
+            reports.extend(self._apply_inbound(session, new_state, event, at))
 
-        if interest_new in (PeerState.WARM, PeerState.HOT):
-            if dtrack.reported == interest_new:
-                dtrack.pending = None
-            else:
-                dtrack.pending = PendingEnter(
-                    direction=direction,
-                    target=interest_new,
-                    since=_as_aware(event.at),
-                    event_at=_as_aware(event.at),
-                )
-                if self.stable_seconds == 0:
-                    reports.extend(self._flush_pending(track, dtrack, force=True))
-
-        if interest_old in (PeerState.WARM, PeerState.HOT) and interest_new in _GONE:
-            reports.extend(
-                self._leave_reports(
-                    peer, dtrack, direction, interest_old, new_state, _as_aware(event.at)
-                )
-            )
-            dtrack.pending = None
-        elif interest_old == PeerState.HOT and interest_new == PeerState.WARM:
-            reports.extend(
-                self._leave_reports(
-                    peer, dtrack, direction, PeerState.HOT, new_state, _as_aware(event.at)
-                )
-            )
-            if dtrack.reported != PeerState.WARM:
-                dtrack.pending = PendingEnter(
-                    direction=direction,
-                    target=PeerState.WARM,
-                    since=_as_aware(event.at),
-                    event_at=_as_aware(event.at),
-                )
-            else:
-                dtrack.pending = None
-
-        if self.traceroute_enabled:
-            logger.debug("peer traceroute enabled but not implemented yet", peer=peer.remote_addr)
-
+        self._maybe_mark_useful(session, at)
+        self._sync_ip_peer(session)
         return reports
 
     def flush_stable(self, now: datetime | None = None) -> list[PeerReport]:
-        """Emit reports for pending enters that stayed stable long enough."""
+        """Mark useful when Warm has been held long enough. No API reports."""
         now = _as_aware(now or _now())
-        reports: list[PeerReport] = []
-        for track in list(self._tracks.values()):
-            for dtrack in (track.inbound, track.outbound):
-                reports.extend(self._flush_pending(track, dtrack, now=now))
-        return reports
+        for session in self._open.values():
+            self._maybe_mark_useful(session, now)
+        return []
 
     def expire_stale(self, now: datetime | None = None) -> list[PeerReport]:
-        """Soft-demote Warm/Hot when last_signal is older than signal_ttl_seconds.
-
-        Applies to inbound and outbound. Does not bump last_signal. Returns
-        leave reports for previously reported directions. 0 TTL disables.
-        """
+        """Close open sessions whose last_signal is older than signal_ttl_seconds."""
         if self.signal_ttl_seconds <= 0:
             return []
         now = _as_aware(now or _now())
-        reports: list[PeerReport] = []
         ttl = timedelta(seconds=self.signal_ttl_seconds)
-
-        for key, peer in list(self.peers.items()):
-            if peer.last_signal is None:
+        reports: list[PeerReport] = []
+        for session in list(self._open.values()):
+            last = session.last_signal or session.opened_at
+            if now - _as_aware(last) < ttl:
                 continue
-            if now - _as_aware(peer.last_signal) < ttl:
-                continue
-
-            track = self._tracks.get(key)
-            if track is None:
-                continue
-
-            demoted_any = False
-            for direction, dtrack, attr in (
-                (PeerDirection.INBOUND, track.inbound, "state_inbound"),
-                (PeerDirection.OUTBOUND, track.outbound, "state_outbound"),
-            ):
-                old_state = getattr(peer, attr)
-                interest_old = self._interest_state(old_state)
-                if interest_old not in _ACTIVE and old_state != PeerState.COOLING:
-                    dtrack.pending = None
-                    continue
-                # Prefer live Warm/Hot; Cooling uses last reported temperature for leave type.
-                if interest_old in _ACTIVE:
-                    left = interest_old
-                else:
-                    left = dtrack.reported if dtrack.reported in _ACTIVE else PeerState.WARM
-                setattr(peer, attr, PeerState.COLD)
-                peer.ns = "peer_signal_ttl"
-                reports.extend(
-                    self._leave_reports(peer, dtrack, direction, left, PeerState.COLD, now)
-                )
-                dtrack.pending = None
-                demoted_any = True
-
-            if demoted_any:
-                self._update_duplex(peer)
-                peer.last_updated = now
-                logger.debug(
-                    "peer signal TTL demote",
-                    peer=peer.remote_addr,
-                    last_signal=peer.last_signal.isoformat() if peer.last_signal else None,
-                )
-
+            reports.extend(self._close_session(session, now, CloseReason.TTL))
         return reports
 
-    def _interest_state(self, state: PeerState) -> PeerState:
-        """Map Cooling to gone for interest comparisons."""
-        if state == PeerState.COOLING:
-            return PeerState.COLD
-        return state
-
-    def _flush_pending(
-        self,
-        track: PeerTrack,
-        dtrack: DirectionTrack,
-        *,
-        now: datetime | None = None,
-        force: bool = False,
-    ) -> list[PeerReport]:
-        pending = dtrack.pending
-        if pending is None:
-            return []
-        now = _as_aware(now or _now())
-        peer = track.peer
-        current = peer.state_inbound if pending.direction == PeerDirection.INBOUND else peer.state_outbound
-        if pending.target == PeerState.HOT and current != PeerState.HOT:
-            dtrack.pending = None
-            return []
-        if pending.target == PeerState.WARM and current not in (PeerState.WARM, PeerState.HOT):
-            dtrack.pending = None
-            return []
-        if pending.target == PeerState.WARM and current == PeerState.HOT:
-            pending.target = PeerState.HOT
-
-        elapsed = now - pending.since
-        if not force and elapsed < timedelta(seconds=self.stable_seconds):
-            return []
-
-        if dtrack.reported == pending.target:
-            dtrack.pending = None
-            return []
-
-        change_type = (
-            PeerEventChangeType.WARM_HOT if pending.target == PeerState.HOT else PeerEventChangeType.COLD_WARM
-        )
-        dtrack.reported = pending.target
-        dtrack.pending = None
-        return [
-            PeerReport(
-                peer=peer,
-                direction=pending.direction,
-                change_type=change_type,
-                state=pending.target.value,
-                at=pending.event_at,
-                remote_port=self._report_port(peer, pending.direction),
-            )
-        ]
-
-    def _leave_reports(
-        self,
-        peer: Peer,
-        dtrack: DirectionTrack,
-        direction: PeerDirection,
-        left: PeerState,
-        new_state: PeerState,
-        at: datetime,
-    ) -> list[PeerReport]:
-        if dtrack.reported is None:
-            return []
-
-        if left == PeerState.HOT:
-            final = self._interest_state(new_state)
-            change_type = PeerEventChangeType.HOT_WARM if final == PeerState.WARM else PeerEventChangeType.WARM_COLD
-            state_out = PeerState.WARM.value if final == PeerState.WARM else PeerState.COLD.value
-            # Keep Warm as reported after Hot→Warm so a later Warm→Cold still leaves.
-            dtrack.reported = PeerState.WARM if change_type == PeerEventChangeType.HOT_WARM else None
-        else:
-            change_type = PeerEventChangeType.WARM_COLD
-            state_out = PeerState.COLD.value
-            dtrack.reported = None
-
-        return [
-            PeerReport(
-                peer=peer,
-                direction=direction,
-                change_type=change_type,
-                state=state_out,
-                at=_as_aware(at),
-                remote_port=self._report_port(peer, direction),
-            )
-        ]
-
     def prune_cold(self, max_idle_seconds: int = 600) -> int:
-        """Remove peers that are fully cold/unknown and idle. Returns removed count."""
+        """Drop closed sessions and idle fully-cold IP rollups. Returns removed IP count."""
         now = _now()
+        cutoff = timedelta(seconds=max_idle_seconds)
+        for sid, session in list(self._closed.items()):
+            closed_at = session.closed_at or session.last_signal or session.opened_at
+            if now - _as_aware(closed_at) >= cutoff:
+                del self._closed[sid]
+
         removed = 0
         for key in list(self.peers.keys()):
+            if any(s.remote_addr == key for s in self._open.values()):
+                continue
             peer = self.peers[key]
-            if peer.state_inbound in _ACTIVE or peer.state_outbound in _ACTIVE:
-                continue
-            if peer.state_inbound == PeerState.COOLING or peer.state_outbound == PeerState.COOLING:
-                continue
             idle_from = peer.last_signal or peer.last_updated
-            idle = (now - _as_aware(idle_from)).total_seconds()
-            if idle < max_idle_seconds:
+            if (now - _as_aware(idle_from)).total_seconds() < max_idle_seconds:
                 continue
             del self.peers[key]
-            self._tracks.pop(key, None)
             removed += 1
         return removed
 
-    def reset(self) -> int:
-        """Wipe peer FSM and handshake cache (node CM/server shutdown).
+    def on_network_stop(self, at: datetime, ns: str = "") -> list[PeerReport]:
+        """Server/CM stopped. Close every open session with node_epoch."""
+        at = _as_aware(at)
+        self._stopped = True
+        reports: list[PeerReport] = []
+        for session in list(self._open.values()):
+            session.last_ns = ns or session.last_ns
+            reports.extend(self._close_session(session, at, CloseReason.NODE_EPOCH))
+        return reports
 
-        Returns how many peers were cleared. Does not emit leave reports; the
-        node is restarting and new promote/StatusChanged events will rebuild.
+    def on_network_start(self, at: datetime, ns: str = "") -> list[PeerReport]:
+        """Remote server started (or Startup.DiffusionInit). New epoch.
+
+        Debounced so Local.Started + Remote.Started + DiffusionInit in the same
+        couple of seconds only increment once.
         """
-        cleared = len(self.peers)
+        at = _as_aware(at)
+        if self._last_epoch_at is not None and at - self._last_epoch_at < _EPOCH_DEBOUNCE:
+            return []
+        reports: list[PeerReport] = []
+        if self._open:
+            reports.extend(self.on_network_stop(at, ns=ns))
+        self.epoch_id += 1
+        self._last_epoch_at = at
+        self._stopped = False
+        reports.append(self._epoch_report(at, ns))
+        return reports
+
+    def reset(self) -> int:
+        """Wipe open sessions without submits (tests / emergency). Prefer on_network_stop."""
+        cleared = len(self._open)
+        for session in list(self._open.values()):
+            session.closed_at = _now()
+            session.close_reason = CloseReason.NODE_EPOCH
+            self._closed[session.session_id] = session
+        self._open.clear()
         self.peers.clear()
-        self._tracks.clear()
-        self._handshakes.clear()
         return cleared
 
-    def diagnostic_counts(self) -> dict[str, int]:
-        """Live vs reported vs pending Warm/Hot counts for operator diagnostics.
-
-        * live_*     – current FSM temperature (every parsed event)
-        * reported_* – temperatures already submitted to the backend (debounce passed)
-        * pending_*  – waiting for peer_event_stable_seconds before submit
-        """
-        counts = {
-            "in_warm_live": 0,
-            "out_warm_live": 0,
-            "in_hot_live": 0,
-            "out_hot_live": 0,
-            "in_warm_reported": 0,
-            "out_warm_reported": 0,
-            "in_hot_reported": 0,
-            "out_hot_reported": 0,
-            "in_warm_pending": 0,
-            "out_warm_pending": 0,
-            "in_hot_pending": 0,
-            "out_hot_pending": 0,
-            "duplex_live": 0,
-            "duplex_reported": 0,
-            "handshakes_cached": len(self._handshakes),
-        }
-        for key, peer in self.peers.items():
-            if peer.state_inbound == PeerState.WARM:
-                counts["in_warm_live"] += 1
-            elif peer.state_inbound == PeerState.HOT:
-                counts["in_hot_live"] += 1
-            if peer.state_outbound == PeerState.WARM:
-                counts["out_warm_live"] += 1
-            elif peer.state_outbound == PeerState.HOT:
-                counts["out_hot_live"] += 1
-            if peer.duplex:
-                counts["duplex_live"] += 1
-
-            track = self._tracks.get(key)
-            if track is None:
+    def touch_signal(self, remote_addr: str, at: datetime) -> bool:
+        """Refresh last_signal on open sessions for this IP (header/body)."""
+        at = _as_aware(at)
+        hit = False
+        for session in self._open.values():
+            if session.remote_addr != remote_addr:
                 continue
-            for prefix, dtrack in (("in", track.inbound), ("out", track.outbound)):
-                if dtrack.reported == PeerState.WARM:
-                    counts[f"{prefix}_warm_reported"] += 1
-                elif dtrack.reported == PeerState.HOT:
-                    counts[f"{prefix}_hot_reported"] += 1
-                if dtrack.pending is not None:
-                    if dtrack.pending.target == PeerState.WARM:
-                        counts[f"{prefix}_warm_pending"] += 1
-                    elif dtrack.pending.target == PeerState.HOT:
-                        counts[f"{prefix}_hot_pending"] += 1
-            if track.inbound.reported in _ACTIVE and track.outbound.reported in _ACTIVE:
-                counts["duplex_reported"] += 1
+            self._touch_session(session, at)
+            hit = True
+        peer = self.peers.get(remote_addr)
+        if peer is not None:
+            if peer.first_seen is None:
+                peer.first_seen = at
+            peer.last_signal = at
+            peer.last_updated = at
+            hit = True
+        return hit
+
+    def diagnostic_counts(self) -> dict[str, int]:
+        """Session gauges for operator diagnostics. Not node Warm/Hot boxes."""
+        counts = {
+            "epoch_id": self.epoch_id,
+            "open": len(self._open),
+            "useful": 0,
+            "ig_warm": 0,
+            "ig_hot": 0,
+            "out_warm": 0,
+            "out_hot": 0,
+            "opened": self._opened_count,
+            "handshakes_cached": sum(
+                1 for s in self._open.values() if s.n2n_version is not None
+            ),
+        }
+        for reason in CloseReason:
+            counts[f"closed_{reason.value}"] = self._close_counts.by_reason.get(reason.value, 0)
+        for session in self._open.values():
+            if session.useful:
+                counts["useful"] += 1
+            if session.ig_temperature == PeerState.WARM:
+                counts["ig_warm"] += 1
+            elif session.ig_temperature == PeerState.HOT:
+                counts["ig_hot"] += 1
+            if session.outbound_temperature == PeerState.WARM:
+                counts["out_warm"] += 1
+            elif session.outbound_temperature == PeerState.HOT:
+                counts["out_hot"] += 1
         return counts
 
+    def useful_session_rows(self) -> list[dict]:
+        """Open sessions that passed the useful filter (operator /peers)."""
+        return self._session_rows(useful_only=True)
+
+    def all_open_session_rows(self) -> list[dict]:
+        """All currently open sessions, including short HS flicker."""
+        return self._session_rows(useful_only=False)
+
     def reported_peer_rows(self) -> list[dict]:
-        """Peers with at least one direction still marked reported (export set)."""
+        """Alias for useful_session_rows (local metrics / tests)."""
+        return self.useful_session_rows()
+
+    def _session_rows(self, *, useful_only: bool) -> list[dict]:
         rows: list[dict] = []
-        for key, peer in self.peers.items():
-            track = self._tracks.get(key)
-            if track is None:
+        for session in self._open.values():
+            if useful_only and not session.useful:
                 continue
-            in_rep = track.inbound.reported
-            out_rep = track.outbound.reported
-            if in_rep not in _ACTIVE and out_rep not in _ACTIVE:
-                continue
-            directions: list[str] = []
-            if in_rep in _ACTIVE:
-                directions.append("inbound")
-            if out_rep in _ACTIVE:
-                directions.append("outbound")
-            duplex_reported = in_rep in _ACTIVE and out_rep in _ACTIVE
-            hs = self._handshakes.get(key)
+            listen = submit_port(session.remote_port)
             rows.append(
                 {
-                    "remote_addr": peer.remote_addr,
-                    "remote_port": peer.remote_port if out_rep in _ACTIVE else 0,
-                    "directions": directions,
-                    "state_inbound": in_rep.value if in_rep else None,
-                    "state_outbound": out_rep.value if out_rep else None,
-                    "duplex": duplex_reported,
-                    "n2n_version": peer.n2n_version,
-                    "diffusion_mode": peer.diffusion_mode,
-                    "peer_sharing": peer.peer_sharing,
-                    "peras_support": peer.peras_support,
-                    "handshake_at": hs.at.isoformat() if hs else None,
-                    "first_seen": (
-                        _as_aware(peer.first_seen).isoformat() if peer.first_seen else None
-                    ),
-                    "last_signal": (
-                        _as_aware(peer.last_signal).isoformat() if peer.last_signal else None
-                    ),
-                    "last_updated": _as_aware(peer.last_updated).isoformat(),
+                    "session_id": session.session_id,
+                    "epoch_id": session.epoch_id,
+                    "remote_addr": session.remote_addr,
+                    "remote_port": listen,
+                    "local_addr": session.local_addr,
+                    "local_port": session.local_port,
+                    "we_dialed": session.we_dialed,
+                    "ig_temperature": session.ig_temperature.value,
+                    "outbound_temperature": session.outbound_temperature.value,
+                    "useful": session.useful,
+                    "n2n_version": session.n2n_version,
+                    "diffusion_mode": session.diffusion_mode,
+                    "peer_sharing": session.peer_sharing,
+                    "peras_support": session.peras_support,
+                    "first_seen": _as_aware(session.opened_at).isoformat(),
+                    "last_signal": _as_aware(
+                        session.last_signal or session.opened_at
+                    ).isoformat(),
+                    "opened_at": _as_aware(session.opened_at).isoformat(),
                 }
             )
-        rows.sort(key=lambda r: r["remote_addr"])
+        rows.sort(key=lambda r: (r["remote_addr"], r["remote_port"], r["session_id"]))
         return rows
+
+    # ------------------------------------------------------------------
+    # internals
+    # ------------------------------------------------------------------
+
+    def _new_session(
+        self,
+        *,
+        local_addr: str,
+        local_port: int,
+        remote_addr: str,
+        remote_port: int,
+        at: datetime,
+        ns: str | None,
+    ) -> PeerSession:
+        return PeerSession(
+            epoch_id=self.epoch_id,
+            session_id=uuid.uuid4().hex,
+            local_addr=local_addr,
+            local_port=local_port,
+            remote_addr=remote_addr,
+            remote_port=remote_port,
+            opened_at=at,
+            last_ns=ns,
+            last_signal=at,
+        )
+
+    def _is_close_event(self, event: PeerEvent, new_state: PeerState) -> bool:
+        ns = event.ns
+        if ns in (
+            "Net.InboundGovernor.Remote.MuxErrored",
+            "Net.InboundGovernor.Remote.ResponderErrored",
+            "Net.ConnectionManager.Remote.ConnectionHandler.Error",
+            "Net.InboundGovernor.Remote.DemotedToColdRemote",
+        ):
+            return True
+        return ns == "Net.PeerSelection.Actions.StatusChanged" and new_state == PeerState.COLD
+
+    def _find_open(
+        self, local_addr: str, local_port: int, remote_addr: str, remote_port: int
+    ) -> PeerSession | None:
+        key = connection_key(local_addr, local_port, remote_addr, remote_port)
+        found = self._open.get(key)
+        if found is not None:
+            return found
+        for session in self._open.values():
+            if session.remote_addr == remote_addr and session.remote_port == remote_port:
+                return session
+        return None
+
+    def _rekey_local(self, session: PeerSession, local_addr: str, local_port: int) -> None:
+        if session.local_addr == local_addr and session.local_port == local_port:
+            return
+        placeholder = session.local_addr in ("0.0.0.0", "::", "") or session.local_port == 0
+        if not placeholder:
+            return
+        old = session.conn_key
+        session.local_addr = local_addr
+        session.local_port = local_port
+        self._open.pop(old, None)
+        self._open[session.conn_key] = session
+
+    def _session_for_event(self, event: PeerEvent, at: datetime) -> PeerSession:
+        session = self._find_open(
+            event.local_addr, event.local_port, event.remote_addr, event.remote_port
+        )
+        if session is not None:
+            self._rekey_local(session, event.local_addr, event.local_port)
+            return session
+        session = self._new_session(
+            local_addr=event.local_addr,
+            local_port=event.local_port,
+            remote_addr=event.remote_addr,
+            remote_port=event.remote_port,
+            at=at,
+            ns=event.ns,
+        )
+        if event.ns == "Net.PeerSelection.Actions.StatusChanged":
+            session.we_dialed = True
+        self._open[session.conn_key] = session
+        self._opened_count += 1
+        return session
+
+    def _apply_outbound(
+        self,
+        session: PeerSession,
+        new_state: PeerState,
+        event: PeerEvent,
+        at: datetime,
+    ) -> list[PeerReport]:
+        reports: list[PeerReport] = []
+        ns = event.ns
+        session.we_dialed = True if session.we_dialed is None else session.we_dialed
+
+        if ns in (
+            "Net.InboundGovernor.Remote.MuxErrored",
+            "Net.InboundGovernor.Remote.ResponderErrored",
+            "Net.ConnectionManager.Remote.ConnectionHandler.Error",
+        ) or "ConnectionHandler.Error" in ns:
+            reason = self._death_reason(ns)
+            return self._close_session(session, at, reason)
+
+        if new_state == PeerState.COOLING:
+            session.outbound_temperature = PeerState.COOLING
+            return reports
+
+        if new_state == PeerState.COLD:
+            return self._close_session(session, at, CloseReason.COOLING_TO_COLD)
+
+        old = session.outbound_temperature
+        session.outbound_temperature = new_state
+        if new_state in _ACTIVE:
+            reports.extend(self._temperature_report(session, PeerDirection.OUTBOUND, old, new_state, at))
+        return reports
+
+    def _apply_inbound(
+        self,
+        session: PeerSession,
+        new_state: PeerState,
+        event: PeerEvent,
+        at: datetime,
+    ) -> list[PeerReport]:
+        ns = event.ns
+        if ns == "Net.InboundGovernor.Remote.MuxErrored":
+            return self._close_session(session, at, CloseReason.IG_MUX_ERROR)
+        if ns == "Net.InboundGovernor.Remote.ResponderErrored":
+            return self._close_session(session, at, CloseReason.IG_RESPONDER_ERROR)
+        if ns == "Net.ConnectionManager.Remote.ConnectionHandler.Error":
+            return self._close_session(session, at, CloseReason.HANDLER_ERROR)
+
+        if new_state == PeerState.COLD:
+            return self._close_session(session, at, CloseReason.DEMOTED_COLD)
+
+        old = session.ig_temperature
+        session.ig_temperature = new_state
+        if new_state in _ACTIVE:
+            return self._temperature_report(session, PeerDirection.INBOUND, old, new_state, at)
+        return []
+
+    def _death_reason(self, ns: str) -> CloseReason:
+        if "MuxErrored" in ns:
+            return CloseReason.IG_MUX_ERROR
+        if "ResponderErrored" in ns:
+            return CloseReason.IG_RESPONDER_ERROR
+        return CloseReason.HANDLER_ERROR
+
+    def _temperature_report(
+        self,
+        session: PeerSession,
+        direction: PeerDirection,
+        old: PeerState,
+        new: PeerState,
+        at: datetime,
+    ) -> list[PeerReport]:
+        submitted_attr = "ig_submitted" if direction == PeerDirection.INBOUND else "out_submitted"
+        already = getattr(session, submitted_attr)
+        if already == new:
+            return []
+        if new == PeerState.WARM and already is None:
+            # Open already advertised Warm. Skip duplicate cold_to_warm.
+            setattr(session, submitted_attr, PeerState.WARM)
+            return []
+        if new == PeerState.WARM and already == PeerState.HOT:
+            change = PeerEventChangeType.HOT_WARM
+        elif new == PeerState.HOT:
+            change = PeerEventChangeType.WARM_HOT
+        elif new == PeerState.WARM:
+            change = PeerEventChangeType.COLD_WARM
+        else:
+            return []
+        setattr(session, submitted_attr, new)
+        _ = old
+        return [
+            self._report(
+                session,
+                direction=direction,
+                change_type=change,
+                state=new.value,
+                at=at,
+                event_role=EventRole.TEMPERATURE,
+            )
+        ]
+
+    def _open_report(self, session: PeerSession, at: datetime) -> PeerReport:
+        session.opened_submitted = True
+        if session.ig_temperature in _ACTIVE:
+            session.ig_submitted = PeerState.WARM
+        if session.outbound_temperature in _ACTIVE:
+            session.out_submitted = PeerState.WARM
+        direction = (
+            PeerDirection.OUTBOUND if session.we_dialed else PeerDirection.INBOUND
+        )
+        return self._report(
+            session,
+            direction=direction,
+            change_type=PeerEventChangeType.COLD_WARM,
+            state=PeerState.WARM.value,
+            at=at,
+            event_role=EventRole.OPEN,
+        )
+
+    def _close_session(
+        self, session: PeerSession, at: datetime, reason: CloseReason
+    ) -> list[PeerReport]:
+        if session.closed_at is not None:
+            return []
+        key = session.conn_key
+        session.closed_at = at
+        session.close_reason = reason
+        session.ig_temperature = PeerState.COLD
+        session.outbound_temperature = PeerState.COLD
+        session.last_signal = at
+        self._open.pop(key, None)
+        self._closed[session.session_id] = session
+        self._close_counts.add(reason)
+        self._sync_ip_peer(session)
+        direction = (
+            PeerDirection.OUTBOUND if session.we_dialed else PeerDirection.INBOUND
+        )
+        if reason in (CloseReason.COOLING_TO_COLD,) or (
+            session.we_dialed and reason == CloseReason.NODE_EPOCH
+        ):
+            direction = PeerDirection.OUTBOUND
+        return [
+            self._report(
+                session,
+                direction=direction,
+                change_type=PeerEventChangeType.WARM_COLD,
+                state=PeerState.COLD.value,
+                at=at,
+                event_role=EventRole.CLOSE,
+                close_reason=reason,
+            )
+        ]
+
+    def _epoch_report(self, at: datetime, ns: str) -> PeerReport:
+        dummy = Peer(
+            ns=ns or "epoch",
+            local_addr="0.0.0.0",
+            local_port=0,
+            remote_addr="0.0.0.0",
+            remote_port=0,
+            first_seen=at,
+            last_signal=at,
+            last_updated=at,
+        )
+        return PeerReport(
+            peer=dummy,
+            direction=PeerDirection.INBOUND,
+            change_type=PeerEventChangeType.WARM_COLD,
+            state=PeerState.COLD.value,
+            at=at,
+            remote_port=0,
+            event_role=EventRole.EPOCH,
+            epoch_id=self.epoch_id,
+            session_id=None,
+            close_reason=CloseReason.NODE_EPOCH,
+            we_dialed=None,
+        )
+
+    def _report(
+        self,
+        session: PeerSession,
+        *,
+        direction: PeerDirection,
+        change_type: PeerEventChangeType,
+        state: str,
+        at: datetime,
+        event_role: EventRole,
+        close_reason: CloseReason | None = None,
+    ) -> PeerReport:
+        return PeerReport(
+            peer=session.as_peer(),
+            direction=direction,
+            change_type=change_type,
+            state=state,
+            at=at,
+            remote_port=submit_port(session.remote_port),
+            event_role=event_role,
+            epoch_id=session.epoch_id,
+            session_id=session.session_id,
+            close_reason=close_reason,
+            we_dialed=session.we_dialed,
+        )
+
+    def _touch_session(self, session: PeerSession, at: datetime) -> None:
+        session.last_signal = at
+        if session.warm_since is None and (
+            session.ig_temperature in _ACTIVE or session.outbound_temperature in _ACTIVE
+        ):
+            session.warm_since = at
+
+    def _maybe_mark_useful(self, session: PeerSession, now: datetime) -> None:
+        if not session.open or session.useful:
+            return
+        ig = session.ig_temperature
+        out = session.outbound_temperature
+        if ig == PeerState.HOT or out == PeerState.HOT:
+            session.useful = True
+            return
+        if ig not in _ACTIVE and out not in _ACTIVE:
+            return
+        if session.warm_since is None:
+            session.warm_since = now
+        if self.stable_seconds == 0:
+            session.useful = True
+            return
+        if now - _as_aware(session.warm_since) >= timedelta(seconds=self.stable_seconds):
+            session.useful = True
+
+    def _sync_ip_peer(self, session: PeerSession) -> None:
+        key = session.remote_addr
+        peer = self.peers.get(key)
+        if peer is None:
+            peer = session.as_peer()
+            self.peers[key] = peer
+        else:
+            if peer.first_seen is None or session.opened_at < peer.first_seen:
+                peer.first_seen = session.opened_at
+            peer.last_signal = session.last_signal or peer.last_signal
+            peer.last_updated = session.last_signal or peer.last_updated
+            peer.ns = session.last_ns
+            if session.n2n_version is not None:
+                peer.n2n_version = session.n2n_version
+                peer.diffusion_mode = session.diffusion_mode
+                peer.peer_sharing = session.peer_sharing
+                peer.peras_support = session.peras_support
+            if submit_port(session.remote_port) and (
+                not peer.remote_port or session.we_dialed
+            ):
+                peer.remote_port = submit_port(session.remote_port)
+            peer.local_addr = session.local_addr
+            peer.local_port = session.local_port
+
+        ig = PeerState.UNCONNECTED
+        out = PeerState.UNCONNECTED
+        for open_s in self._open.values():
+            if open_s.remote_addr != key:
+                continue
+            if open_s.ig_temperature == PeerState.HOT or (
+                open_s.ig_temperature == PeerState.WARM and ig != PeerState.HOT
+            ):
+                ig = open_s.ig_temperature
+            if open_s.outbound_temperature == PeerState.HOT or (
+                open_s.outbound_temperature == PeerState.WARM and out != PeerState.HOT
+            ):
+                out = open_s.outbound_temperature
+            if open_s.outbound_temperature == PeerState.COOLING and out not in _ACTIVE:
+                out = PeerState.COOLING
+        if not any(s.remote_addr == key for s in self._open.values()):
+            ig = PeerState.COLD
+            out = PeerState.COLD
+        peer.state_inbound = ig
+        peer.state_outbound = out
+        peer.duplex = False
