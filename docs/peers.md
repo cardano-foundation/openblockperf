@@ -18,11 +18,12 @@ restart close it.
    (`n2n_version`, `diffusion_mode`, `peer_sharing`, `peras_support`).
 3. Two temperature tracks on the same session when `connectionId` matches:
    `ig_temperature` (InboundGovernor Remote) and `outbound_temperature`
-   (PeerSelection StatusChanged).
+   (PeerSelection StatusChanged or Selection Promote/Demote *Done).
 4. **Do not** treat `InboundGovernor.Local` as outbound n2n. That namespace
    is n2c / unix. Outbound n2n is PeerSelection.
-5. `we_dialed` is true after StatusChanged `ColdToWarm` / PromoteColdDone
-   on that connection. Otherwise unknown or they dialed.
+5. `we_dialed` is true after StatusChanged `ColdToWarm`, PromoteColdDone,
+   or a ChainSync/BlockFetch **client** line on that connection. Otherwise
+   unknown or they dialed.
 6. Useful is a **local list flag** only: Hot on either track, or Warm held
    for `peer_event_stable_seconds` (default 15). Backend always gets open
    and close, including short HS flicker.
@@ -34,6 +35,11 @@ restart close it.
    submits `event_role=epoch`.
 9. Traceroute / RTT stay later. Trigger would be first Warm. Not in these
    logs (`TraceEmitDeltaQ` is empty).
+10. Outbound n2n is **not** InboundGovernor. `Promote*Done` / `Demote*Done`
+    under `Net.PeerSelection.Selection` are the outbound governor steps
+    (needed when `Actions.StatusChanged` is missing). `ChainSync.Client`
+    and `BlockFetch.Client` also mark that session we-dialed and outbound
+    Hot. Those IPs were showing up as `/peers` relevance orphans.
 
 ## What is submitted (`POST /submit/peerevent`)
 
@@ -64,6 +70,12 @@ Ephemeral remote ports (`>= 32768`) are submitted as `0`. Listen ports are kept.
 - `Net.InboundGovernor.Remote.PromotedToWarmRemote` / `PromotedToHotRemote`
 - `Net.InboundGovernor.Remote.DemotedToWarmRemote` / `DemotedToColdRemote`
 - `Net.PeerSelection.Actions.StatusChanged`
+- `Net.PeerSelection.Selection.PromoteColdDone` / `PromoteWarmDone`
+  (and BigLedgerPeerDone variants)
+- `Net.PeerSelection.Selection.DemoteHotDone` / `DemoteWarmDone`
+  (and BigLedgerPeerDone variants)
+- `ChainSync.Client.DownloadedHeader` and `BlockFetch.Client.*` (outbound
+  Hot; we are the initiator)
 - `Net.InboundGovernor.Remote.MuxErrored` / `ResponderErrored`
 - `Net.ConnectionManager.Remote.ConnectionHandler.Error`
 - `Net.Server.Remote.Stopped` / `Net.Server.Local.Stopped`
@@ -72,9 +84,8 @@ Ephemeral remote ports (`>= 32768`) are submitted as `0`. Listen ports are kept.
 - `Startup.DiffusionInit` (optional non-Net restart confirm)
 
 **Not used to drive the FSM:** ConnectionManagerCounters, Mux.State,
-TraceEmitDeltaQ, Promote*Done (redundant with StatusChanged), MaturedConnections.
-
-HandshakeQuery is ignored (query-only). PromoteColdFailed stays out of scope.
+TraceEmitDeltaQ, MaturedConnections. HandshakeQuery is ignored (query-only).
+PromoteColdFailed stays out of scope.
 
 Parent `Net.ConnectionManager.Remote` should stay Info **without**
 `maxFrequency`. Throttle **only** `ConnectionManagerCounters`.
@@ -92,7 +103,8 @@ curl -s http://127.0.0.1:14041/metrics
 
 `GET /peers` is **useful open** sessions (IP, listen port if known, ig and
 outbound temperatures, HS options, first_seen, last_signal, local 30m
-header/body relevance). No `duplex` field.
+header/body relevance). No `duplex` field. Outbound Hot comes from
+PeerSelection *Done / StatusChanged or from header/body **client** lines.
 
 `?all=1` or `/peers/sessions` includes short HS that are not yet useful.
 

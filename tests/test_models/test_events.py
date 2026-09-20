@@ -41,6 +41,12 @@ class TestDownloadedHeaderEvent:
     def test_remote_port(self, downloaded_header_event):
         assert downloaded_header_event.remote_port == 5355
 
+    def test_local_addr(self, downloaded_header_event):
+        assert downloaded_header_event.local_addr == "172.0.118.125"
+
+    def test_local_port(self, downloaded_header_event):
+        assert downloaded_header_event.local_port == 30002
+
     def test_at_is_timezone_aware(self, downloaded_header_event):
         assert downloaded_header_event.at.tzinfo is not None
 

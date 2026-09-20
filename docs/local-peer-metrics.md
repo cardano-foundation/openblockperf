@@ -23,7 +23,9 @@ Each row includes `session_id`, `epoch_id`, `we_dialed`, ig/outbound
 temperatures, HS options, `first_seen`, `last_signal`.
 
 `GET /peers?all=1` or `/peers/sessions` includes all currently open
-sessions (short HS too).
+sessions (short HS too). Header/body **client** IPs that were only in
+`relevance_orphans` become useful outbound sessions (`we_dialed`,
+`outbound_temperature=Hot`).
 
 **Do not** expose a `duplex` field. Soft TTL (`peer_signal_ttl_seconds`,
 default 30m) closes stale open sessions when leave lines are missing.

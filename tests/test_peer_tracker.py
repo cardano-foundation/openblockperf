@@ -8,6 +8,7 @@ from openblockperf.models.events import (
     NetworkShutdownEvent,
     NodeEpochStartEvent,
     PeerEventChangeType,
+    PeerSelectionDoneEvent,
     PromotedPeerEvent,
     StatusChangedEvent,
 )
@@ -577,3 +578,174 @@ class TestTwoConnectionsSameIp:
         rows = tracker.all_open_session_rows()
         ports = sorted(r["remote_port"] for r in rows)
         assert ports == [0, 3001]
+
+
+def _selection_done(
+    *,
+    at: str,
+    ns: str,
+    remote_addr: str = "88.211.220.4",
+    remote_port: int = 3001,
+    extra: dict | None = None,
+) -> PeerSelectionDoneEvent:
+    kind = ns.rsplit(".", 1)[-1]
+    data = {
+        "kind": kind,
+        "peer": {"address": remote_addr, "port": str(remote_port)},
+    }
+    if extra:
+        data.update(extra)
+    return PeerSelectionDoneEvent.model_validate(
+        {
+            "at": at,
+            "ns": ns,
+            "data": data,
+            "sev": "Info",
+            "thread": "211",
+            "host": "test",
+        }
+    )
+
+
+class TestPeerSelectionDoneParse:
+    def test_promote_warm_done_is_outbound_hot(self):
+        ev = _selection_done(
+            at="2026-09-15T19:07:40.421097967Z",
+            ns="Net.PeerSelection.Selection.PromoteWarmDone",
+            extra={"actualActive": 20, "targetActive": 20},
+        )
+        assert ev.state == "Hot"
+        assert ev.direction == "outbound"
+        assert ev.change_type == PeerEventChangeType.WARM_HOT
+        assert ev.remote_addr == "88.211.220.4"
+        assert ev.remote_port == 3001
+        assert ev.local_port == 0
+
+    def test_promote_cold_done_ipv6(self):
+        ev = _selection_done(
+            at="2026-09-20T10:00:00.000000Z",
+            ns="Net.PeerSelection.Selection.PromoteColdDone",
+            remote_addr="2a01:2a8:a23d:16::17",
+            remote_port=3001,
+            extra={"actualEstablished": 27, "targetEstablished": 30},
+        )
+        assert ev.state == "Warm"
+        assert ev.local_addr == "::"
+        assert ev.remote_addr == "2a01:2a8:a23d:16::17"
+
+
+class TestOutboundSelectionDone:
+    def test_promote_cold_then_warm_marks_we_dialed_hot(self):
+        tracker = PeerTracker({}, stable_seconds=15)
+        tracker.open_handshake(
+            local_addr="10.0.0.1",
+            local_port=3001,
+            remote_addr="88.211.220.4",
+            remote_port=3001,
+            n2n_version=14,
+            diffusion_mode="InitiatorAndResponderDiffusionMode",
+            peer_sharing="PeerSharingEnabled",
+            peras_support="PerasUnsupported",
+            at=datetime(2026, 9, 15, 19, 7, 40, tzinfo=UTC),
+            ns="hs",
+        )
+        follow = tracker.apply_event(
+            _selection_done(
+                at="2026-09-15T19:07:40.420000Z",
+                ns="Net.PeerSelection.Selection.PromoteColdDone",
+                extra={"actualEstablished": 19, "targetEstablished": 20},
+            )
+        )
+        assert follow == []
+        hot = tracker.apply_event(
+            _selection_done(
+                at="2026-09-15T19:07:40.421000Z",
+                ns="Net.PeerSelection.Selection.PromoteWarmDone",
+                extra={"actualActive": 20, "targetActive": 20},
+            )
+        )
+        assert len(hot) == 1
+        assert hot[0].we_dialed is True
+        assert hot[0].direction == PeerDirection.OUTBOUND
+        assert hot[0].change_type == PeerEventChangeType.WARM_HOT
+        counts = tracker.diagnostic_counts()
+        assert counts["out_hot"] == 1
+        assert counts["useful"] == 1
+        row = tracker.useful_session_rows()[0]
+        assert row["we_dialed"] is True
+        assert row["outbound_temperature"] == "Hot"
+
+    def test_demote_warm_done_closes_planned(self):
+        tracker = PeerTracker({}, stable_seconds=0)
+        tracker.apply_event(
+            _selection_done(
+                at="2026-09-15T19:00:00.000000Z",
+                ns="Net.PeerSelection.Selection.PromoteColdDone",
+            )
+        )
+        leaves = tracker.apply_event(
+            _selection_done(
+                at="2026-09-15T19:00:10.000000Z",
+                ns="Net.PeerSelection.Selection.DemoteWarmDone",
+                extra={"actualEstablished": 19, "targetEstablished": 20},
+            )
+        )
+        assert len(leaves) == 1
+        assert leaves[0].close_reason == CloseReason.COOLING_TO_COLD
+        assert tracker.diagnostic_counts()["open"] == 0
+
+
+class TestOutboundClientFromHeader:
+    def test_header_orphan_opens_we_dialed_hot_session(self):
+        tracker = PeerTracker({}, stable_seconds=15)
+        reports = tracker.note_outbound_client(
+            local_addr="172.0.118.125",
+            local_port=30002,
+            remote_addr="5.161.57.109",
+            remote_port=3001,
+            at=datetime(2026, 9, 20, 9, 0, 0, tzinfo=UTC),
+            ns="ChainSync.Client.DownloadedHeader",
+        )
+        roles = [r.event_role for r in reports]
+        assert EventRole.OPEN in roles
+        assert EventRole.TEMPERATURE in roles
+        row = tracker.useful_session_rows()[0]
+        assert row["remote_addr"] == "5.161.57.109"
+        assert row["we_dialed"] is True
+        assert row["outbound_temperature"] == "Hot"
+        assert tracker.diagnostic_counts()["out_hot"] == 1
+
+    def test_header_does_not_merge_onto_inbound_ephemeral_session(self):
+        tracker = PeerTracker({}, stable_seconds=0)
+        tracker.open_handshake(
+            local_addr="10.0.0.1",
+            local_port=3001,
+            remote_addr="5.161.57.109",
+            remote_port=45000,
+            n2n_version=14,
+            diffusion_mode="InitiatorAndResponderDiffusionMode",
+            peer_sharing="PeerSharingEnabled",
+            peras_support="PerasUnsupported",
+            at=datetime(2026, 9, 20, 9, 0, 0, tzinfo=UTC),
+            ns="hs",
+        )
+        tracker.apply_event(
+            _promoted(
+                at="2026-09-20T09:00:01.000000Z",
+                remote_addr="5.161.57.109",
+                remote_port=45000,
+                hot=True,
+            )
+        )
+        tracker.note_outbound_client(
+            local_addr="10.0.0.1",
+            local_port=3001,
+            remote_addr="5.161.57.109",
+            remote_port=3001,
+            at=datetime(2026, 9, 20, 9, 0, 2, tzinfo=UTC),
+            ns="ChainSync.Client.DownloadedHeader",
+        )
+        assert tracker.diagnostic_counts()["open"] == 2
+        assert tracker.diagnostic_counts()["out_hot"] == 1
+        assert tracker.diagnostic_counts()["ig_hot"] == 1
+

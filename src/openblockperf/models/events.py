@@ -7,7 +7,7 @@ Implements the BaseEvent model for all events from the log messages of the node.
 import enum
 import re
 from datetime import datetime
-from ipaddress import ip_address
+from ipaddress import IPv6Address, ip_address
 from typing import Any
 
 from pydantic import (
@@ -125,6 +125,14 @@ class DownloadedHeaderEvent(BlockSampleEvent):
         return self.data.slot
 
     @property
+    def local_addr(self) -> str:
+        return self.data.peer.connectionId.local_addr
+
+    @property
+    def local_port(self) -> int:
+        return self.data.peer.connectionId.local_port
+
+    @property
     def remote_addr(self) -> str:
         """Ip address of peer the header was downloaded from"""
         return self.data.peer.connectionId.remote_addr
@@ -169,6 +177,14 @@ class SendFetchRequestEvent(BlockSampleEvent):
     def block_hash(self):
         """The block hash this fetch request tries to receive"""
         return self.data.head
+
+    @property
+    def local_addr(self) -> str:
+        return self.data.peer.connectionId.local_addr
+
+    @property
+    def local_port(self) -> int:
+        return self.data.peer.connectionId.local_port
 
     @property
     def remote_addr(self) -> str:
@@ -224,6 +240,14 @@ class CompletedBlockFetchEvent(BlockSampleEvent):
     @property
     def block_size(self) -> int:
         return self.data.size
+
+    @property
+    def local_addr(self) -> str:
+        return self.data.peer.connectionId.local_addr
+
+    @property
+    def local_port(self) -> int:
+        return self.data.peer.connectionId.local_port
 
     @property
     def remote_addr(self) -> str:
@@ -385,6 +409,51 @@ class PeerEventChangeType(enum.Enum):
         }
 
 
+# Outbound governor *Done traces. Payload is peer {address, port}, no full connectionId.
+# StatusChanged is the same temperature view when Actions is logged; these fire
+# under Net.PeerSelection.Selection even when Actions is Silence.
+PEER_SELECTION_DONE_NAMESPACES: dict[str, tuple[str, PeerEventChangeType]] = {
+    "Net.PeerSelection.Selection.PromoteColdDone": (
+        "Warm",
+        PeerEventChangeType.COLD_WARM,
+    ),
+    "Net.PeerSelection.Selection.PromoteColdBigLedgerPeerDone": (
+        "Warm",
+        PeerEventChangeType.COLD_WARM,
+    ),
+    "Net.PeerSelection.Selection.PromoteWarmDone": (
+        "Hot",
+        PeerEventChangeType.WARM_HOT,
+    ),
+    "Net.PeerSelection.Selection.PromoteWarmBigLedgerPeerDone": (
+        "Hot",
+        PeerEventChangeType.WARM_HOT,
+    ),
+    "Net.PeerSelection.Selection.DemoteHotDone": (
+        "Warm",
+        PeerEventChangeType.HOT_WARM,
+    ),
+    "Net.PeerSelection.Selection.DemoteHotBigLedgerPeerDone": (
+        "Warm",
+        PeerEventChangeType.HOT_WARM,
+    ),
+    "Net.PeerSelection.Selection.DemoteWarmDone": (
+        "Cold",
+        PeerEventChangeType.WARM_COLD,
+    ),
+    "Net.PeerSelection.Selection.DemoteWarmBigLedgerPeerDone": (
+        "Cold",
+        PeerEventChangeType.WARM_COLD,
+    ),
+}
+
+PEER_SELECTION_DEMOTE_WARM_NAMESPACES = frozenset(
+    ns
+    for ns, (state, _change) in PEER_SELECTION_DONE_NAMESPACES.items()
+    if state == "Cold"
+)
+
+
 class PeerEvent(BaseEvent):
     """The PeerEvent combines all details from individual events that provide
     Peer status change relevant data.
@@ -417,6 +486,8 @@ class PeerEvent(BaseEvent):
         _data = data.get("data")
         if ns == "Net.PeerSelection.Actions.StatusChanged":
             data = cls.parse_statuschange_data(data)
+        elif ns in PEER_SELECTION_DONE_NAMESPACES:
+            data = cls.parse_selection_done_data(data)
         else:
             data = cls.parse_simple_data(data)
         return data
@@ -480,6 +551,35 @@ class PeerEvent(BaseEvent):
         data["remote_addr"] = conid.get("remoteAddress").get("address")
         data["remote_port"] = conid.get("remoteAddress").get("port")
 
+        return data
+
+    @classmethod
+    def parse_selection_done_data(cls, data) -> dict:
+        """Parse PeerSelection.Selection *Done (we dialed this peer).
+
+        Example PromoteWarmDone:
+            ns Net.PeerSelection.Selection.PromoteWarmDone
+            data.peer {address, port}  (no local connectionId)
+        """
+        ns = data.get("ns")
+        state, change_type = PEER_SELECTION_DONE_NAMESPACES[ns]
+        payload = data.get("data") or {}
+        peer = payload.get("peer") or {}
+        addr = peer.get("address")
+        port = peer.get("port")
+        if not addr or port is None:
+            raise ValueError(f"Selection Done missing peer address/port: {peer!r}")
+        try:
+            parsed = ip_address(addr)
+        except ValueError as e:
+            raise ValueError(f"Invalid peer address in {ns}: {e}") from e
+        data["state"] = state
+        data["direction"] = "outbound"
+        data["change_type"] = change_type
+        data["local_addr"] = "::" if isinstance(parsed, IPv6Address) else "0.0.0.0"
+        data["local_port"] = 0
+        data["remote_addr"] = addr
+        data["remote_port"] = int(port)
         return data
 
     @classmethod
@@ -657,6 +757,19 @@ class StatusChangedEvent(PeerEvent):
 
     def __repr__(self):
         return f"StatusChanged(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, state={self.state}, direction={self.direction}, change_type={self.change_type}, from={self.remote_addr}:{self.remote_port})"
+
+
+class PeerSelectionDoneEvent(PeerEvent):
+    """Net.PeerSelection.Selection Promote*Done / Demote*Done.
+
+    Outbound governor completed a temperature step. We dialed this peer.
+    """
+
+    def __repr__(self):
+        return (
+            f"PeerSelectionDone(at={self.at.strftime('%Y-%m-%d %H:%M:%S')}, "
+            f"ns={self.ns}, state={self.state}, from={self.remote_addr}:{self.remote_port})"
+        )
 
 
 class PromotedPeerEvent(PeerEvent):

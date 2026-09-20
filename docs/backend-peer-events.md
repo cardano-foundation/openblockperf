@@ -43,8 +43,10 @@ HandshakeSuccess is available. Throttle only `ConnectionManagerCounters`.
 ## 1. Client behaviour
 
 1. HandshakeSuccess opens a session and submits `event_role=open`.
-2. IG Remote promote/demote and PeerSelection StatusChanged update
-   temperatures on that session (`event_role=temperature`).
+2. IG Remote promote/demote, PeerSelection StatusChanged, and Selection
+   Promote/Demote *Done update temperatures on that session
+   (`event_role=temperature`). ChainSync/BlockFetch **client** lines attach
+   or open a we-dialed session at outbound Hot.
 3. MuxErrored / Handler.Error / ResponderErrored / DemotedToCold /
    CoolingToCold close the session (`event_role=close` + `close_reason`).
 4. Server Stopped / CM Shutdown close **all** open sessions with

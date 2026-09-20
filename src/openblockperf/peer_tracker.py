@@ -1,8 +1,10 @@
 """Connection-session tracking from Net.* logs.
 
 A session is one TCP connectionId (local+remote addr/port) in one node epoch.
-HandshakeSuccess opens it. InboundGovernor and PeerSelection temperatures fill
-it. MuxErrored / demote / CoolingToCold / node epoch close it.
+HandshakeSuccess opens it. IG Remote, PeerSelection StatusChanged, and
+Selection Promote/Demote *Done fill temperatures. ChainSync/BlockFetch
+client lines mark we-dialed outbound Hot. MuxErrored / demote /
+CoolingToCold / node epoch close it.
 
 Useful is a local-list flag (Hot, or Warm held for stable_seconds). Backend
 always gets open/close so short handshakes still count as signs of life.
@@ -15,7 +17,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from openblockperf.logging import logger
-from openblockperf.models.events import PeerEvent, PeerEventChangeType
+from openblockperf.models.events import (
+    PEER_SELECTION_DEMOTE_WARM_NAMESPACES,
+    PEER_SELECTION_DONE_NAMESPACES,
+    PeerEvent,
+    PeerEventChangeType,
+)
 from openblockperf.models.peer import (
     CloseReason,
     EventRole,
@@ -415,6 +422,67 @@ class PeerTracker:
             hit = True
         return hit
 
+    def note_outbound_client(
+        self,
+        *,
+        local_addr: str,
+        local_port: int,
+        remote_addr: str,
+        remote_port: int,
+        at: datetime,
+        ns: str,
+    ) -> list[PeerReport]:
+        """ChainSync/BlockFetch client activity. We dialed; outbound Hot.
+
+        Header/body orphans happen when we never saw IG promote for this
+        connection. Create or attach a session from the client connectionId.
+        """
+        at = _as_aware(at)
+        session = self._find_open(local_addr, local_port, remote_addr, remote_port)
+        reports: list[PeerReport] = []
+        if session is None:
+            session = self._new_session(
+                local_addr=local_addr,
+                local_port=local_port,
+                remote_addr=remote_addr,
+                remote_port=remote_port,
+                at=at,
+                ns=ns,
+            )
+            session.we_dialed = True
+            session.outbound_temperature = PeerState.HOT
+            self._open[session.conn_key] = session
+            self._opened_count += 1
+            reports.append(self._open_report(session, at))
+            reports.extend(
+                self._temperature_report(
+                    session,
+                    PeerDirection.OUTBOUND,
+                    PeerState.UNCONNECTED,
+                    PeerState.HOT,
+                    at,
+                )
+            )
+        else:
+            self._rekey_local(session, local_addr, local_port)
+            session.we_dialed = True
+            session.last_ns = ns
+            if not session.opened_submitted:
+                reports.append(self._open_report(session, session.opened_at))
+            old = session.outbound_temperature
+            session.outbound_temperature = PeerState.HOT
+            if old != PeerState.HOT:
+                reports.extend(
+                    self._temperature_report(
+                        session, PeerDirection.OUTBOUND, old, PeerState.HOT, at
+                    )
+                )
+        session.last_ns = ns
+        self._touch_session(session, at)
+        self._maybe_mark_useful(session, at)
+        self._sync_ip_peer(session)
+        return reports
+
     def diagnostic_counts(self) -> dict[str, int]:
         """Session gauges for operator diagnostics. Not node Warm/Hot boxes."""
         counts = {
@@ -524,6 +592,8 @@ class PeerTracker:
             "Net.InboundGovernor.Remote.DemotedToColdRemote",
         ):
             return True
+        if ns in PEER_SELECTION_DEMOTE_WARM_NAMESPACES:
+            return True
         return ns == "Net.PeerSelection.Actions.StatusChanged" and new_state == PeerState.COLD
 
     def _find_open(
@@ -565,7 +635,9 @@ class PeerTracker:
             at=at,
             ns=event.ns,
         )
-        if event.ns == "Net.PeerSelection.Actions.StatusChanged":
+        if event.ns == "Net.PeerSelection.Actions.StatusChanged" or (
+            event.ns in PEER_SELECTION_DONE_NAMESPACES
+        ):
             session.we_dialed = True
         self._open[session.conn_key] = session
         self._opened_count += 1

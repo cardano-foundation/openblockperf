@@ -8,6 +8,7 @@ from openblockperf.config import AppSettings
 from openblockperf.errors import EventError, InvalidEventDataError, UnknowEventNameSpaceError
 from openblockperf.logging import logger
 from openblockperf.models.events import (
+    PEER_SELECTION_DONE_NAMESPACES,
     AddedToCurrentChainEvent,
     BlockSampleEvent,
     CompletedBlockFetchEvent,
@@ -19,6 +20,7 @@ from openblockperf.models.events import (
     NetworkShutdownEvent,
     NodeEpochStartEvent,
     PeerEvent,
+    PeerSelectionDoneEvent,
     PromotedPeerEvent,
     SendFetchRequestEvent,
     StatusChangedEvent,
@@ -70,6 +72,7 @@ class EventHandler:
         "Net.InboundGovernor.Remote.InboundGovernorCounters": InboundGovernorCountersEvent,
         "Net.InboundGovernor.Remote.ResponderErrored": ConnectionLostEvent,
         "Net.PeerSelection.Actions.StatusChanged": StatusChangedEvent,
+        **dict.fromkeys(PEER_SELECTION_DONE_NAMESPACES, PeerSelectionDoneEvent),
         "Net.Server.Remote.Stopped": NetworkShutdownEvent,
         "Net.Server.Local.Stopped": NetworkShutdownEvent,
         "Net.Server.Remote.Started": NodeEpochStartEvent,
@@ -179,7 +182,7 @@ class EventHandler:
         group.add_event(event)
 
         if isinstance(event, DownloadedHeaderEvent):
-            self.peer_tracker.touch_signal(event.remote_addr, event.at)
+            await self._note_outbound_client(event)
             if event.remote_addr not in before_headers and event.remote_addr in group.header_announcer_ips:
                 rank = group.header_announcer_rank(event.remote_addr)
                 if rank is not None:
@@ -195,8 +198,10 @@ class EventHandler:
                         f"new header announced {ordinal} from {event.remote_addr} "
                         f"{count_by_rank.get(rank, 0)}\n"
                     )
+        elif isinstance(event, SendFetchRequestEvent):
+            await self._note_outbound_client(event)
         elif isinstance(event, CompletedBlockFetchEvent):
-            self.peer_tracker.touch_signal(event.remote_addr, event.at)
+            await self._note_outbound_client(event)
             if not body_before and group.block_completed is event:
                 group.body_relevance_recorded = True
                 self.peer_relevance.record_body(event.remote_addr, event.at)
@@ -204,6 +209,21 @@ class EventHandler:
                 logger.opt(raw=True).info(
                     f"new body served by {event.remote_addr} {score.bodies_count}\n"
                 )
+
+    async def _note_outbound_client(self, event) -> None:
+        """ChainSync/BlockFetch client lines mean we dialed and this session is Hot."""
+        if not self.peer_tracker.enabled():
+            return
+        reports = self.peer_tracker.note_outbound_client(
+            local_addr=event.local_addr,
+            local_port=event.local_port,
+            remote_addr=event.remote_addr,
+            remote_port=event.remote_port,
+            at=event.at,
+            ns=event.ns,
+        )
+        for report in reports:
+            await self._submit_report(report)
 
     @dispatch_event.register
     async def _on_peer_event(self, event: PeerEvent):
@@ -309,6 +329,10 @@ class EventHandler:
     @dispatch_peer_event.register
     async def _on_peer_status_changed(self, event: StatusChangedEvent, peer: Peer):
         logger.debug("Peer status changed", event=event, peer=peer)
+
+    @dispatch_peer_event.register
+    async def _on_peer_selection_done(self, event: PeerSelectionDoneEvent, peer: Peer):
+        logger.debug("Peer selection done", event=event, peer=peer)
 
     @dispatch_peer_event.register
     async def _on_peer_promoted(self, event: PromotedPeerEvent, peer: Peer):
