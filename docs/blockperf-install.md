@@ -122,19 +122,38 @@ Calidus-key information:
 
 The config file path defaults to `${INSTALL_DIR}/config.json` (installer default install dir: `/opt/cardano/openblockperf/config.json`).
 
-When a new config file is written, the installer sets:
+When a new config file is written, the installer sets a full
+`AppSettings` template (defaults match `src/openblockperf/config.py`).
+Leaving values as written does not change client behaviour. Edit in place
+to override.
 
-- `api_key` (if provided)
+Written keys:
+
+- `api_key` (if provided; else empty string, set before start)
+- `api_url` (`null` = use SRV discovery)
+- `api_srv` (default `_obpf._tcp.network.cardano.org`)
+- `api_request_timeout_ms` (default `8000`)
+- `api_request_retries` (default `2`)
 - `network`
-- `log_level` (default `WARNING`; valid values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `EXCEPTION`)
+- `log_level` (installer note only; service log level is
+  `OPENBLOCKPERF_LOG_LEVEL` / CLI. Default written: `WARNING`)
 - `node_name`
-- `node_config` (path to cardano-node `config.json`)
-- `node_unit_name` (journald: systemd unit to follow; logfile: line filter, usually JSON `host` or empty)
-- `tracer_log_file` (optional; if set, read tracer JSON from this file and follow rotations)
+- `node_config` (path to cardano-node `config.json`; installer note,
+  ignored by AppSettings)
+- `node_unit_name` (journald: systemd unit to follow; logfile: line filter,
+  usually JSON `host` or empty)
+- `tracer_log_file` (`null` = journald mode; path = logfile mode)
 - `local_addr` (default `0.0.0.0`)
 - `local_port` (default `3001`)
+- `obfuscate_ips` (default `[]`; private/loopback/link-local always masked)
+- `ekg_url` (default `http://localhost:12798/metrics`)
+- `sync_check_enabled` (default `true`)
+- `sync_check_interval` (default `15`)
+- `sync_check_threshold` (default `99.9`)
+- `block_sample_check_interval` (default `2`)
+- `min_age` (default `10`)
 - `peer_event_stable_seconds` (default `15`)
-- `peer_signal_ttl_seconds` (default `1800`) soft-demote Warm/Hot after no signal
+- `peer_signal_ttl_seconds` (default `1800`)
 - `peer_traceroute_enabled` (default `false`)
 - `peer_count_stats_interval` (default `5`)
 - `peer_prune_idle_seconds` (default `600`)
@@ -142,68 +161,56 @@ When a new config file is written, the installer sets:
 - `local_metrics_bind` (default `127.0.0.1`)
 - `local_metrics_port` (default `14041`)
 
-Further optional keys (not written by the installer; defaults apply if omitted).
 All keys also accept matching `OPENBLOCKPERF_*` environment variables.
-
-**Shell / CLI convenience:**
-
-- `OPENBLOCKPERF_CONFIG` path to the client config file. Used when `--config`
-  is omitted. The installer wrapper always exports this; the installer can also
-  add it to the service user's `.bashrc` / `.profile` if not already set.
+`OPENBLOCKPERF_CONFIG` is the path to this file (wrapper exports it).
 
 **API discovery and HTTP:**
 
-- `api_srv` (default `_obpf._tcp.network.cardano.org`) DNS SRV name used to
-  discover API edges
+- `api_srv` DNS SRV name used to discover API edges
 - `api_url` skip SRV discovery and use a full API base URL (for example a
-  local backend)
-- `api_request_timeout_ms` (default `8000`) HTTP timeout per API request in
-  milliseconds (submit, registration, health probes)
-- `api_request_retries` (default `2`) extra retries on the same host after a
-  timeout or connection error; after those fail, service mode fails over to
-  the next ranked edge
+  local backend). Keep `null` for normal installs.
+- `api_request_timeout_ms` HTTP timeout per API request in milliseconds
+  (submit, registration, health probes)
+- `api_request_retries` extra retries on the same host after a timeout or
+  connection error; after those fail, service mode fails over to the next
+  ranked edge
 
 **Privacy:**
 
-- `obfuscate_ips` (default `[]`) extra IP addresses that must never be sent to
-  the backend. Private, loopback, and link-local addresses are always
-  obfuscated to `0.0.0.0` without listing them here.
+- `obfuscate_ips` extra IP addresses that must never be sent to the backend.
+  Private, loopback, and link-local addresses are always obfuscated to
+  `0.0.0.0` without listing them here.
 
 **Sync gate (EKG):**
 
-- `ekg_url` (default `http://localhost:12798/metrics`) EKG metrics endpoint
-  used to decide whether the node is synced
-- `sync_check_enabled` (default `true`) when `true`, the client waits until
-  sync progress reaches the threshold before submitting samples
-- `sync_check_interval` (default `15`) seconds between sync polls
-- `sync_check_threshold` (default `99.9`) minimum replay progress percent to
-  treat the node as synced
+- `ekg_url` EKG metrics endpoint used to decide whether the node is synced
+- `sync_check_enabled` when `true`, the client waits until sync progress
+  reaches the threshold before submitting samples
+- `sync_check_interval` seconds between sync polls
+- `sync_check_threshold` minimum replay progress percent to treat the node
+  as synced
 
 **Sampling cadence:**
 
-- `block_sample_check_interval` (default `2`) seconds between checks for
-  complete block-sample groups
-- `min_age` (default `10`) seconds a complete sample group must age before
-  submit
+- `block_sample_check_interval` seconds between checks for complete
+  block-sample groups
+- `min_age` seconds a complete sample group must age before submit
 
-**Peer events** (written by the installer with the defaults below; edit in
-place to change behaviour). See [peers.md](peers.md) and
-[local-peer-metrics.md](local-peer-metrics.md).
+**Peer events** (see [peers.md](peers.md) and
+[local-peer-metrics.md](local-peer-metrics.md)):
 
-- `peer_event_stable_seconds` (default `15`) how long Warm/Hot must last before
-  an enter is submitted (all clients report cold_to_warm + warm_to_hot + leaves)
-- `peer_signal_ttl_seconds` (default `1800`) demote Warm/Hot to Cold when
-  `last_signal` is older than this (peerevent / handshake / header / body);
-  `0` disables
-- `peer_traceroute_enabled` (default `false`) optional traceroute enrichment
-  (not implemented yet)
-- `peer_count_stats_interval` (default `5`) seconds to wait after peer
-  counters change before logging `peerCountStats` (debounce); `0` disables
-- `peer_prune_idle_seconds` (default `600`) drop fully inactive peers from the
-  local list after this idle time
-- `local_metrics_enabled` (default `false`) serve Prometheus + JSON peer lists
-- `local_metrics_bind` (default `127.0.0.1`)
-- `local_metrics_port` (default `14041`) avoid node `12798` / Prometheus `9090`
+- `peer_event_stable_seconds` how long Warm must last before `/peers`
+  marks useful (Hot is immediate; open/close always submitted)
+- `peer_signal_ttl_seconds` close open sessions when `last_signal` is older
+  than this; `0` disables
+- `peer_traceroute_enabled` optional traceroute enrichment (not implemented)
+- `peer_count_stats_interval` seconds to wait after peer counters change
+  before logging `peerCountStats` (debounce); `0` disables
+- `peer_prune_idle_seconds` drop fully inactive peers from the local list
+  after this idle time
+- `local_metrics_enabled` serve Prometheus + JSON peer lists
+- `local_metrics_bind`
+- `local_metrics_port` avoid node `12798` / Prometheus `9090`
 
 The client resolves SRV targets as FQDNs and calls
 `https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy
@@ -235,8 +242,8 @@ If you choose to keep the existing config file, update these keys manually as ne
 - `node_unit_name`
 - `tracer_log_file`
 - `api_srv` / `api_url` (if you override backend discovery)
-- peer-event / local-metrics keys if you want the same defaults as a fresh install
-  (`peer_event_stable_seconds`, `local_metrics_*`, …)
+- `obfuscate_ips` / sync / sampling / peer-event / local-metrics keys if you
+  want the same full template as a fresh install
 
 ## Systemd and cardano-node
 

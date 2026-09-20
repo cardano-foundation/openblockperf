@@ -205,7 +205,7 @@ async def test_service_mode_ranks_and_selects_lowest_rtt():
     assert [e.host for e in pool.ranked] == ["fast.example.test", "slow.example.test"]
 
 
-def test_apply_ranked_logs_full_list_at_info():
+def test_apply_ranked_logs_one_row_per_edge():
     settings = AppSettings(network=Network.PREPROD)
     pool = EndpointPool(settings, service_mode=True)
     ranked = [
@@ -229,15 +229,19 @@ def test_apply_ranked_logs_full_list_at_info():
     finally:
         logger.remove(sink_id)
 
-    payload = json.loads(messages[-1])
-    assert list(payload.keys())[0] == "kind"
-    assert payload["kind"] == "apiEdgeRanking"
-    assert payload["selected"] == "https://fast.example.test:443/preprod/api/v0/"
-    assert payload["healthy"] == 2
-    assert payload["probed"] == 3
-    assert [edge["host"] for edge in payload["edges"]] == ["fast.example.test", "slow.example.test"]
-    assert payload["edges"][0]["rtt_ms"] == 5.0
-    assert "\n" not in messages[-1]
+    assert len(messages) == 3
+    assert "API edges ranked by RTT" in messages[0]
+    assert "srv=_obpf._tcp.example.test" in messages[0]
+    assert "healthy=2" in messages[0]
+    assert "probed=3" in messages[0]
+    assert "selected=https://fast.example.test:443/preprod/api/v0/" in messages[0]
+    assert "fast.example.test:443" in messages[1]
+    assert "5.0 ms" in messages[1]
+    assert "selected" in messages[1]
+    assert "slow.example.test:443" in messages[2]
+    assert "25.0 ms" in messages[2]
+    assert "selected" not in messages[2]
+    assert all("\n" not in msg for msg in messages)
 
 
 @pytest.mark.asyncio

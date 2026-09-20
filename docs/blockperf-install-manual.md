@@ -74,30 +74,51 @@ sudo chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}"
 
 ## 6) Write config file
 
-Create `${INSTALL_DIR}/config.json` with the same keys written by the installer.
+Create `${INSTALL_DIR}/config.json` with the same full `AppSettings` template
+the installer writes (defaults match `src/openblockperf/config.py`).
 
-- Journald mode: omit `tracer_log_file` (or leave it empty) and set `node_unit_name` to the cardano-node systemd unit (for example `cnode.service`).
-- Logfile mode: set `tracer_log_file` to the absolute JSON logfile path. Set `node_unit_name` to the tracer JSON `host` field, or to `""` to accept all lines. Do not use the systemd unit name as the logfile filter unless that string appears in each log line.
+- Journald mode: set `tracer_log_file` to `null` and set `node_unit_name` to
+  the cardano-node systemd unit (for example `cnode.service`).
+- Logfile mode: set `tracer_log_file` to the absolute JSON logfile path. Set
+  `node_unit_name` to the tracer JSON `host` field, or to `""` to accept all
+  lines. Do not use the systemd unit name as the logfile filter unless that
+  string appears in each log line.
 
 ```bash
-# Journald example uses NODE_UNIT_NAME.
+# Journald example uses NODE_UNIT_NAME and tracer_log_file=null.
 # Logfile example: set TRACER_LOG_FILE and use host filter, e.g.
 #   CONFIG_NODE_UNIT_NAME="$(jq -r '.host' <(tail -n 1 "${TRACER_LOG_FILE}"))"
 #   or CONFIG_NODE_UNIT_NAME=""
 CONFIG_NODE_UNIT_NAME="${CONFIG_NODE_UNIT_NAME:-${NODE_UNIT_NAME}}"
+if [[ -n "${TRACER_LOG_FILE:-}" ]]; then
+  TRACER_LOG_FILE_JSON="\"${TRACER_LOG_FILE}\""
+else
+  TRACER_LOG_FILE_JSON="null"
+fi
 
 sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
 {
   "_comment": "OpenBlockPerf client configuration",
   "api_key": "",
+  "api_url": null,
+  "api_srv": "_obpf._tcp.network.cardano.org",
+  "api_request_timeout_ms": 8000,
+  "api_request_retries": 2,
   "network": "${NETWORK}",
   "log_level": "WARNING",
   "node_name": "${NODE_NAME}",
   "node_config": "${NODE_CONFIG_PATH}",
   "node_unit_name": "${CONFIG_NODE_UNIT_NAME}",
-  "tracer_log_file": "${TRACER_LOG_FILE}",
+  "tracer_log_file": ${TRACER_LOG_FILE_JSON},
   "local_addr": "0.0.0.0",
   "local_port": 3001,
+  "obfuscate_ips": [],
+  "ekg_url": "http://localhost:12798/metrics",
+  "sync_check_enabled": true,
+  "sync_check_interval": 15,
+  "sync_check_threshold": 99.9,
+  "block_sample_check_interval": 2,
+  "min_age": 10,
   "peer_event_stable_seconds": 15,
   "peer_signal_ttl_seconds": 1800,
   "peer_traceroute_enabled": false,
@@ -111,17 +132,14 @@ EOF
 sudo chmod 664 "${INSTALL_DIR}/config.json"
 ```
 
-If `TRACER_LOG_FILE` is empty, remove the `tracer_log_file` key (or leave it empty) so blockperf stays in journald mode.
-
-Further optional keys (not written above; defaults apply if omitted). Matching
-`OPENBLOCKPERF_*` environment variables also work.
+Matching `OPENBLOCKPERF_*` environment variables also work.
 
 **API discovery and HTTP:**
 
 - `api_srv` (default `_obpf._tcp.network.cardano.org`) DNS SRV name for API
   edge discovery
 - `api_url` skip SRV and use a full base URL such as
-  `http://localhost:8000/mainnet/api/v0`
+  `http://localhost:8000/mainnet/api/v0` (keep `null` for normal installs)
 - `api_request_timeout_ms` (default `8000`) HTTP timeout per API request in
   milliseconds
 - `api_request_retries` (default `2`) extra same-host retries after timeout or

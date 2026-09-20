@@ -1913,26 +1913,42 @@ write_config_file() {
 
     ok "Writing config file: ${CONFIG_FILE}"
     mkdir -p "$(dirname "${CONFIG_FILE}")"
-    local tracer_log_file_line=""
+
+    # Nullable AppSettings fields: JSON null (not "") so behaviour matches
+    # Python defaults when the operator leaves them alone.
+    local api_url_json="null"
+    local tracer_log_file_json="null"
     if [[ -n "${TRACER_LOG_FILE}" ]]; then
-        tracer_log_file_line=$'\n  "tracer_log_file": '"$(json_string "${TRACER_LOG_FILE}")"$','
+        tracer_log_file_json="$(json_string "${TRACER_LOG_FILE}")"
     fi
 
-    # Build JSON using json_string() so special characters are safely escaped.
-    # Peer-event / local-metrics keys are written with AppSettings defaults so
-    # operators can flip them in place without looking up field names.
+    # Full AppSettings template with defaults that match src/openblockperf/config.py.
+    # Operators can edit in place without hunting docs for field names.
+    # log_level / node_config are installer notes (extra=ignore on AppSettings);
+    # log level for the service is OPENBLOCKPERF_LOG_LEVEL / CLI, not this key.
     cat > "${CONFIG_FILE}" <<EOF
 {
   "_comment": "OpenBlockPerf client configuration. Documentation: https://openblockperf.readthedocs.io",
   "api_key": $(json_string "${API_KEY_TO_INSTALL}"),
+  "api_url": ${api_url_json},
+  "api_srv": "_obpf._tcp.network.cardano.org",
+  "api_request_timeout_ms": 8000,
+  "api_request_retries": 2,
   "network": $(json_string "${NETWORK}"),
   "log_level": "WARNING",
   "node_name": $(json_string "${NODE_NAME}"),
   "node_config": $(json_string "${NODE_CONFIG_PATH}"),
   "node_unit_name": $(json_string "${CONFIG_NODE_UNIT_NAME}"),
-${tracer_log_file_line}
+  "tracer_log_file": ${tracer_log_file_json},
   "local_addr": "0.0.0.0",
   "local_port": 3001,
+  "obfuscate_ips": [],
+  "ekg_url": "http://localhost:12798/metrics",
+  "sync_check_enabled": true,
+  "sync_check_interval": 15,
+  "sync_check_threshold": 99.9,
+  "block_sample_check_interval": 2,
+  "min_age": 10,
   "peer_event_stable_seconds": 15,
   "peer_signal_ttl_seconds": 1800,
   "peer_traceroute_enabled": false,

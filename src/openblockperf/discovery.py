@@ -13,7 +13,7 @@ import httpx
 
 from openblockperf.config import DEFAULT_API_SRV, AppSettings
 from openblockperf.errors import DiscoveryError
-from openblockperf.logging import log_json_event, logger
+from openblockperf.logging import logger
 
 API_REQUEST_TIMEOUT = 8.0
 API_REQUEST_RETRIES = 2
@@ -129,6 +129,21 @@ async def rank_healthy_endpoints(targets: list[SrvTarget], network: str) -> list
     return healthy
 
 
+def _log_ranked_edges(ranked: list[EdgeEndpoint], *, srv_name: str, probed: int) -> None:
+    """One INFO line for the ranking header, then one INFO line per edge (RTT order)."""
+    selected = ranked[0]
+    logger.info(
+        f"API edges ranked by RTT srv={srv_name} "
+        f"healthy={len(ranked)} probed={probed} selected={selected.base_url}"
+    )
+    for i, endpoint in enumerate(ranked, start=1):
+        rtt = f"{endpoint.rtt_ms:.1f} ms" if endpoint.rtt_ms is not None else "n/a"
+        host = endpoint.host or "-"
+        port = endpoint.port if endpoint.port is not None else "-"
+        mark = "  selected" if i == 1 else ""
+        logger.info(f"  {i}  {rtt:>10}  {host}:{port}{mark}")
+
+
 class EndpointPool:
     """Holds discovered API edges and advances through them on failover.
 
@@ -211,23 +226,7 @@ class EndpointPool:
     def _apply_ranked(self, ranked: list[EdgeEndpoint], *, srv_name: str, probed: int) -> None:
         self.ranked = ranked
         self.index = 0
-        fastest = ranked[0]
-        log_json_event(
-            "apiEdgeRanking",
-            srv=srv_name,
-            selected=fastest.base_url,
-            healthy=len(ranked),
-            probed=probed,
-            edges=[
-                {
-                    "host": endpoint.host,
-                    "port": endpoint.port,
-                    "rtt_ms": round(endpoint.rtt_ms, 1) if endpoint.rtt_ms is not None else None,
-                    "url": endpoint.base_url,
-                }
-                for endpoint in ranked
-            ],
-        )
+        _log_ranked_edges(ranked, srv_name=srv_name, probed=probed)
 
     async def _refresh_unlocked(self, *, retry_until_healthy: bool) -> None:
         if self.settings.api_url:

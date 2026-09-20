@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import Callable
 
 import psutil
-import rich
 from rich.console import Console
 
 from openblockperf.apiclient import BlockperfApiClient
@@ -542,23 +541,30 @@ class Blockperf:
         if not self.settings.sync_check_enabled:
             return
 
+        waiting_logged = False
         while True:
             try:
                 rpl_prg = await self.ekg.get("cardano_node_metrics_blockReplayProgress_real")
                 synced = rpl_prg is not None and rpl_prg >= self.settings.sync_check_threshold
                 if synced:
                     self.node_synced_event.set()
+                    waiting_logged = False
                 else:
                     self.node_synced_event.clear()
-                    msg = "Node not yet synced!"
-                    rich.print(f"[yellow]{msg}[/yellow]")
-                    logger.info(msg)
+                    waiting_logged = self._log_node_waiting(waiting_logged)
             except EkgError as exc:
-                logger.error(str(exc))
-                # EKG unreachable — treat as not-synced and keep waiting
+                # EKG down (node restart) is the same wait as not-synced.
                 self.node_synced_event.clear()
-                rich.print(f"[red]EKG unreachable: {exc}[/red]")
+                logger.debug(f"EKG unreachable: {exc}")
+                waiting_logged = self._log_node_waiting(waiting_logged)
             await asyncio.sleep(self.settings.sync_check_interval)
+
+    @staticmethod
+    def _log_node_waiting(already: bool) -> bool:
+        if already:
+            return True
+        logger.info("Node not yet synced! waiting...")
+        return True
 
     async def refresh_api_endpoints_task(self) -> None:
         """Re-resolve SRV records once a day and switch to the new fastest edge."""
