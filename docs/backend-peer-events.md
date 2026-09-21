@@ -27,9 +27,9 @@ Related:
 1. Keep the four `change_type` values so v0.0.42 ingest still works.
 2. Client adds omit-none fields: `node_generation`, `session_id`, `event_role`,
   `close_reason`, `we_dialed`. Handshake fields stay optional too.
-3. Identity is a **session** (`session_id` + `node_generation` + connection).
-  Remote IP is still the catalog / geo key. Ephemeral `remote_port` is
-   submitted as `0`.
+3. Identity is a **session** (`session_id` unique with `client_id`).
+   `node_generation` + connectionId are client-side context. Remote IP is
+   the catalog / geo key. Ephemeral `remote_port` is submitted as `0`.
 4. **Do not** use `duplex`. Ignore it if still present (`false`).
 5. On `event_role=node_restart` (and/or `close_reason=node_restart` on each
   session): mark all still-open sessions for that client terminated.
@@ -42,6 +42,27 @@ Related:
    validation / bad IP to 4xx, unexpected to 5xx so B→E metrics move.
    A will **not** see those codes (see hop path below). That is an
    aggregation-infra limit, not a reason to keep quiet success at E.
+
+## Decisions (2026-09-21) – multi-session inbound
+
+Agreed with backend after cn011 / apikey 9 observation (burst of N
+concurrent inbound `session_id`s for one `remote_addr`, submit port `0`,
+often TTL together ~30m).
+
+1. Storage identity stays **`(client_id, session_id)`**. Persist every
+   open/close. **Do not** make `(client, remote_addr, inbound)` the
+   session key.
+2. Same remote IP can have several real TCP sessions at once (distinct
+   ephemeral source ports in the tracer). Client submits those as
+   `remote_port=0`, so ops tables look identical except `session_id`.
+   That is intentional. Client will **not** dedupe emit by IP.
+3. Ops CLI may collapse inbound **display** by `remote_addr` (optional
+   `n=` when more than one open session). **Do not** collapse in storage.
+4. Operator “peer count” / analytics: count **unique remote IPs** (or
+   unique useful IPs) separately from raw open **session** rows.
+5. Optional later (client): debug/enrichment field for the real ephemeral
+   remote port or full connection id. Not for catalog uniqueness, geo,
+   or peer row key.
 
 ### Hop path (A–E)
 
@@ -287,16 +308,19 @@ Recommended shape:
 Join rules:
 
 - Blocksamples: client + remote IP + time overlap with
-`[opened_at, closed_at]`. Prefer `we_dialed=true` sessions for header
-announcers (only outbound ChainSync client can announce to us).
+  `[opened_at, closed_at]`. Prefer `we_dialed=true` sessions for header
+  announcers (only outbound ChainSync client can announce to us).
 - Conn-explore: by IP, not by session.
+- Ops peer list: unique IP (inbound collapse OK for display). Analytics:
+  sessions vs unique IPs as separate metrics.
 
 
 
 ### Out of scope
 
 Traceroute, PromoteColdFailed, CM error streams as their own types,
-`/submit/peerrelevance`.
+`/submit/peerrelevance`. Client-side dedupe of multi-TCP inbound by IP.
+Ephemeral remote_port / connectionId enrichment field (optional later).
 
 ---
 
