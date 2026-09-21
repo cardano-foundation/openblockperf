@@ -134,6 +134,17 @@ Not node Warm/Hot box names.
 }
 ```
 
+Optional temporary debug:
+
+```json
+{
+  "peer_audit_log_file": "/opt/cardano/openblockperf/peer-audit.jsonl"
+}
+```
+
+Appends JSONL (`parse` / `enrich` / `submit` / `counts`) for peer lifecycle
+analysis. Set to `null` or remove when done.
+
 `peer_event_stable_seconds` only gates the useful flag / `/peers` list.
 Handshake open and close are always submitted.
 

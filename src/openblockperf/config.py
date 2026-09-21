@@ -68,6 +68,9 @@ class AppSettings(BaseSettings):
     local_metrics_bind: str = "127.0.0.1"
     # 14041: avoid cardano-node 12798 and Prometheus default 9090.
     local_metrics_port: int = Field(default=14041, ge=1, le=65535)
+    # Temporary JSONL audit of peer parse/submit/counts. null = off.
+    # Example: /opt/cardano/openblockperf/peer-audit.jsonl
+    peer_audit_log_file: Path | None = None
     block_sample_check_interval: int = 2  # Interval in seconds to check for groups/blocks
     min_age: int = 10  # Wait x seconds before even processing a group/block
     node_name: str = socket.gethostname()  # This clients hostname

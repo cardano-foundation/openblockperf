@@ -126,7 +126,8 @@ sudo tee "${INSTALL_DIR}/config.json" >/dev/null <<EOF
   "peer_prune_idle_seconds": 600,
   "local_metrics_enabled": false,
   "local_metrics_bind": "127.0.0.1",
-  "local_metrics_port": 14041
+  "local_metrics_port": 14041,
+  "peer_audit_log_file": null
 }
 EOF
 sudo chmod 664 "${INSTALL_DIR}/config.json"

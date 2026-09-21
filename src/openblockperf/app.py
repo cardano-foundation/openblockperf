@@ -146,6 +146,7 @@ class Blockperf:
         # Wait for tasks to finish cancellation
         if self.tasks:
             await asyncio.gather(*self.tasks.values(), return_exceptions=True)
+        self.handler.close_peer_audit()
         await self.api.close()
 
     def create_task(
