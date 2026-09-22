@@ -64,6 +64,25 @@ often TTL together ~30m).
    remote port or full connection id. Not for catalog uniqueness, geo,
    or peer row key.
 
+## Decisions (2026-09-22) – HS lost on outbound (fixed in client)
+
+Overnight audit on a joint node+client restart showed HandshakeSuccess **was**
+parsed for outbound dials (listen remote_port, n2n filled on open), then IG
+`DemotedToColdRemote` ~5s later closed the whole session while outbound
+PeerSelection / ChainSync client stayed on the same connectionId. A second
+open (header / StatusChanged) reused the TCP without a new HS → lasting Hot
+sessions submitted with `n2n_version` absent. Backend ops lists therefore
+looked “outbound without handshake.”
+
+**Client fix:** IG DemotedToCold clears the inbound track only when outbound
+is still Warm/Hot/Cooling. Full `close_reason=demoted_cold` only when there
+is no active outbound track. No new peerevent fields.
+
+**Backend action:** drop / ignore prior peerevent and peer_session rows for
+the two test clients collected before this client build. After redeploy,
+new joint runtimes should keep n2n on the lasting outbound session_id.
+No schema change required for this bug.
+
 ### Hop path (A–E)
 
 | Hop | Role |

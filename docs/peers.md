@@ -46,6 +46,11 @@ fill it. MuxErrored, orderly demote, CoolingToCold, or a node restart close it.
     `peras_support`) come **only** from HandshakeSuccess on that connection.
     Null means we did not see that HS (typical when the client attaches
     after the TCP session already exists). Not "feature off".
+13. **IG `DemotedToCold` does not end the session** when outbound is still
+    Warm/Hot/Cooling (duplex TCP). Clear the inbound track only. Full close
+    on IG demote only when there is no active outbound track. Overnight
+    audit (2026-09-22): early demote was closing HS-bearing sessions and a
+    later header/StatusChanged reopen lost n2n.
 
 ## What is submitted (`POST /submit/peerevent`)
 

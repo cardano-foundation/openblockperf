@@ -4,7 +4,9 @@ A session is one TCP connectionId (local+remote addr/port) in one node
 generation (cardano-node / diffusion start). HandshakeSuccess opens it.
 IG Remote, PeerSelection StatusChanged, and Selection Promote/Demote *Done
 fill temperatures. ChainSync/BlockFetch client lines mark we-dialed outbound
-Hot. MuxErrored / demote / CoolingToCold / node restart close it.
+Hot. MuxErrored / outbound Cold / CoolingToCold / node restart close it.
+IG DemotedToCold only clears the inbound track when outbound is still
+Warm/Hot/Cooling (same TCP, duplex); it does not end the session.
 
 Useful is a local-list flag (Hot, or Warm held for stable_seconds). Backend
 always gets open/close so short handshakes still count as signs of life.
@@ -690,6 +692,17 @@ class PeerTracker:
             return self._close_session(session, at, CloseReason.HANDLER_ERROR)
 
         if new_state == PeerState.COLD:
+            # Duplex / IAR: IG may demote inbound while outbound stays live.
+            # Closing the whole session here dropped HS and caused a second
+            # open without n2n (audit 2026-09-22). Clear IG track only.
+            if session.outbound_temperature in _ACTIVE or (
+                session.outbound_temperature == PeerState.COOLING
+            ):
+                session.ig_temperature = PeerState.UNCONNECTED
+                session.ig_submitted = None
+                self._touch_session(session, at)
+                self._sync_ip_peer(session)
+                return []
             return self._close_session(session, at, CloseReason.DEMOTED_COLD)
 
         old = session.ig_temperature

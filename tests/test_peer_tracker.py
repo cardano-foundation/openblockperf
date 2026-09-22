@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from openblockperf.models.events import (
     ConnectionLostEvent,
+    DemotedPeerEvent,
     HandshakeSuccessEvent,
     NetworkShutdownEvent,
     NodeEpochStartEvent,
@@ -163,6 +164,35 @@ def _ns_event(cls, *, at: str, ns: str):
             "at": at,
             "ns": ns,
             "data": {"kind": "test"},
+            "sev": "Info",
+            "thread": "1",
+            "host": "test",
+        }
+    )
+
+
+def _demoted(
+    *,
+    at: str,
+    remote_addr: str,
+    remote_port: int,
+    cold: bool = True,
+    local_addr: str = "10.0.0.1",
+    local_port: int = 3001,
+) -> DemotedPeerEvent:
+    kind = "DemotedToColdRemote" if cold else "DemotedToWarmRemote"
+    return DemotedPeerEvent.model_validate(
+        {
+            "at": at,
+            "ns": f"Net.InboundGovernor.Remote.{kind}",
+            "data": {
+                "kind": kind,
+                "connectionId": {
+                    "localAddress": {"address": local_addr, "port": str(local_port)},
+                    "remoteAddress": {"address": remote_addr, "port": str(remote_port)},
+                },
+                "result": {"kind": "OperationSuccess"},
+            },
             "sev": "Info",
             "thread": "1",
             "host": "test",
@@ -750,4 +780,112 @@ class TestOutboundClientFromHeader:
         assert tracker.diagnostic_counts()["open"] == 2
         assert tracker.diagnostic_counts()["out_hot"] == 1
         assert tracker.diagnostic_counts()["ig_hot"] == 1
+
+
+class TestIgDemoteKeepsOutboundSession:
+    """Audit 2026-09-22: IG DemotedToCold ~5s after HS killed duplex sessions.
+
+    Outbound StatusChanged / headers continued on the same connectionId; a new
+    session opened without n2n. Keep the session when outbound is still active.
+    """
+
+    def test_demoted_cold_clears_ig_only_when_outbound_hot(self):
+        tracker = PeerTracker({}, stable_seconds=0)
+        opens = tracker.open_handshake(
+            local_addr="10.0.0.1",
+            local_port=3002,
+            remote_addr="35.221.102.191",
+            remote_port=3001,
+            n2n_version=15,
+            diffusion_mode="InitiatorAndResponderDiffusionMode",
+            peer_sharing="PeerSharingEnabled",
+            peras_support="PerasUnsupported",
+            at=datetime(2026, 9, 21, 22, 44, 40, tzinfo=UTC),
+            ns="Net.ConnectionManager.Remote.ConnectionHandler.HandshakeSuccess",
+        )
+        assert len(opens) == 1
+        sid = opens[0].session_id
+        assert opens[0].peer.n2n_version == 15
+
+        hot = tracker.apply_event(
+            _status_changed(
+                at="2026-09-21T22:44:40.216000Z",
+                transition="WarmToHot",
+                local="10.0.0.1:3002",
+                remote="35.221.102.191:3001",
+            )
+        )
+        assert any(r.event_role == EventRole.TEMPERATURE for r in hot)
+        assert tracker.diagnostic_counts()["out_hot"] == 1
+
+        demote = tracker.apply_event(
+            _demoted(
+                at="2026-09-21T22:44:45.215000Z",
+                remote_addr="35.221.102.191",
+                remote_port=3001,
+                local_addr="10.0.0.1",
+                local_port=3002,
+                cold=True,
+            )
+        )
+        assert demote == []
+        assert tracker.diagnostic_counts()["open"] == 1
+        assert tracker.diagnostic_counts()["closed_demoted_cold"] == 0
+        assert tracker.diagnostic_counts()["out_hot"] == 1
+        row = tracker.all_open_session_rows()[0]
+        assert row["session_id"] == sid
+        assert row["n2n_version"] == 15
+        assert row["ig_temperature"] == "Unconnected"
+        assert row["outbound_temperature"] == "Hot"
+        assert row["we_dialed"] is True
+
+        more = tracker.note_outbound_client(
+            local_addr="10.0.0.1",
+            local_port=3002,
+            remote_addr="35.221.102.191",
+            remote_port=3001,
+            at=datetime(2026, 9, 21, 22, 45, 6, tzinfo=UTC),
+            ns="ChainSync.Client.DownloadedHeader",
+        )
+        assert all(r.event_role != EventRole.OPEN for r in more)
+        assert tracker.diagnostic_counts()["open"] == 1
+        assert tracker.all_open_session_rows()[0]["n2n_version"] == 15
+
+    def test_demoted_cold_still_closes_inbound_only_session(self):
+        tracker = PeerTracker({}, stable_seconds=0)
+        opens = tracker.open_handshake(
+            local_addr="10.0.0.1",
+            local_port=3001,
+            remote_addr="198.51.100.50",
+            remote_port=45000,
+            n2n_version=15,
+            diffusion_mode="InitiatorAndResponderDiffusionMode",
+            peer_sharing="PeerSharingEnabled",
+            peras_support="PerasUnsupported",
+            at=datetime(2026, 9, 21, 22, 0, 0, tzinfo=UTC),
+            ns="hs",
+        )
+        sid = opens[0].session_id
+        tracker.apply_event(
+            _promoted(
+                at="2026-09-21T22:00:01.000000Z",
+                remote_addr="198.51.100.50",
+                remote_port=45000,
+                hot=False,
+            )
+        )
+        closes = tracker.apply_event(
+            _demoted(
+                at="2026-09-21T22:00:10.000000Z",
+                remote_addr="198.51.100.50",
+                remote_port=45000,
+                cold=True,
+            )
+        )
+        assert len(closes) == 1
+        assert closes[0].event_role == EventRole.CLOSE
+        assert closes[0].close_reason == CloseReason.DEMOTED_COLD
+        assert closes[0].session_id == sid
+        assert tracker.diagnostic_counts()["open"] == 0
+        assert tracker.diagnostic_counts()["closed_demoted_cold"] == 1
 
