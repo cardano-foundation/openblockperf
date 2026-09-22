@@ -2,6 +2,7 @@ from functools import singledispatchmethod
 
 from pydantic import ValidationError
 
+from openblockperf.amaru import AmaruPeerBridge, is_amaru_message, parse_amaru_peer_action
 from openblockperf.apiclient import BlockperfApiClient
 from openblockperf.blocksamplegroup import BlockSampleGroup
 from openblockperf.config import AppSettings
@@ -109,6 +110,11 @@ class EventHandler:
         self.peer_audit: PeerAuditLog | None = None
         if settings.peer_audit_log_file is not None:
             self.peer_audit = PeerAuditLog(settings.peer_audit_log_file)
+        self.amaru_bridge = AmaruPeerBridge(
+            self.peer_tracker,
+            default_local_addr=settings.local_addr,
+            default_local_port=int(settings.local_port),
+        )
 
     def close_peer_audit(self) -> None:
         if self.peer_audit is not None:
@@ -121,9 +127,40 @@ class EventHandler:
 
     async def handle_message(self, raw_message: dict):
         """Parse a raw log dict and dispatch it to the appropriate handler."""
+        kind = self.settings.node_kind
+        amaru = is_amaru_message(raw_message)
+
+        if kind == "haskell" and amaru:
+            raise UnknowEventNameSpaceError()
+        if kind == "amaru" and not amaru:
+            raise UnknowEventNameSpaceError()
+        if kind == "amaru" or (kind == "auto" and amaru):
+            return await self._handle_amaru_message(raw_message)
+
         event = self._make_event_from_message(raw_message)
         self._audit_parse(event)
         return await self.dispatch_event(event)
+
+    async def _handle_amaru_message(self, raw_message: dict):
+        """Amaru peer-session path (v0). Blocksamples not parsed yet."""
+        action = parse_amaru_peer_action(raw_message)
+        if action is None:
+            raise UnknowEventNameSpaceError()
+        reports = self.amaru_bridge.apply_action(action)
+        if self.peer_audit is not None:
+            self.peer_audit.parse(
+                at=action.at,
+                ns=action.ns,
+                event_type="AmaruPeer",
+                local_addr=self.amaru_bridge.listen_addr,
+                local_port=self.amaru_bridge.listen_port,
+                remote_addr=action.remote_addr,
+                remote_port=action.remote_port,
+                note=action.kind.value,
+            )
+        for report in reports:
+            await self._submit_report(report)
+        return len(reports)
 
     async def flush_peer_reports(self) -> int:
         """Mark useful sessions, TTL-close stale ones, prune idle. Returns submit count."""

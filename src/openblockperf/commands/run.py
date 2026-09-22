@@ -69,6 +69,7 @@ async def run_cmd(
 
     console.print(f"[bold cyan]Network:[/] {settings.network.value}")
     console.print(f"[bold cyan]Node Name:[/] {settings.node_name}")
+    console.print(f"[bold cyan]Node Kind:[/] {settings.node_kind}")
     console.print(f"[bold cyan]Node Unit Name:[/] {settings.node_unit_name}")
     console.print(f"[bold cyan]Tracer Log File:[/] {settings.tracer_log_file}")
     if settings.api_url:

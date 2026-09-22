@@ -424,6 +424,74 @@ class PeerTracker:
             hit = True
         return hit
 
+    def set_outbound_temperature(
+        self,
+        *,
+        local_addr: str,
+        local_port: int,
+        remote_addr: str,
+        remote_port: int,
+        state: PeerState,
+        at: datetime,
+        ns: str,
+        we_dialed: bool | None = None,
+    ) -> list[PeerReport]:
+        """Set outbound track without a PeerEvent (Amaru local_use mapping).
+
+        Does not invent a session. Open must come from handshake first.
+        """
+        at = _as_aware(at)
+        session = self._find_open(local_addr, local_port, remote_addr, remote_port)
+        if session is None:
+            return []
+        self._rekey_local(session, local_addr, local_port)
+        if we_dialed is True:
+            session.we_dialed = True
+        session.last_ns = ns
+        self._touch_session(session, at)
+
+        reports: list[PeerReport] = []
+        if not session.opened_submitted:
+            reports.append(self._open_report(session, session.opened_at))
+
+        if state not in (PeerState.WARM, PeerState.HOT):
+            self._sync_ip_peer(session)
+            return reports
+
+        old = session.outbound_temperature
+        session.outbound_temperature = state
+        if old != state:
+            reports.extend(
+                self._temperature_report(
+                    session, PeerDirection.OUTBOUND, old, state, at
+                )
+            )
+        self._maybe_mark_useful(session, at)
+        self._sync_ip_peer(session)
+        return reports
+
+    def close_connection(
+        self,
+        *,
+        local_addr: str,
+        local_port: int,
+        remote_addr: str,
+        remote_port: int,
+        at: datetime,
+        ns: str,
+        reason: CloseReason,
+        we_dialed: bool | None = None,
+    ) -> list[PeerReport]:
+        """Close an open session by connection endpoints (Amaru die lines)."""
+        at = _as_aware(at)
+        session = self._find_open(local_addr, local_port, remote_addr, remote_port)
+        if session is None:
+            return []
+        if we_dialed is True:
+            session.we_dialed = True
+        session.last_ns = ns
+        return self._close_session(session, at, reason)
+
     def note_outbound_client(
         self,
         *,

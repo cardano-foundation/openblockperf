@@ -77,8 +77,8 @@ class TestSettingsDefaults:
     def test_default_peer_signal_ttl_seconds_is_1800(self, default_settings):
         assert default_settings.peer_signal_ttl_seconds == 1800
 
-    def test_default_peer_traceroute_enabled_is_false(self, default_settings):
-        assert default_settings.peer_traceroute_enabled is False
+    def test_default_node_kind_is_auto(self, default_settings):
+        assert default_settings.node_kind == "auto"
 
     def test_default_local_metrics_port_is_14041(self, default_settings):
         assert default_settings.local_metrics_enabled is False

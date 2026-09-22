@@ -5,7 +5,7 @@ It reads the nodes logs and collects the entries it is interested in. These
 can be categorize into three main parts.
 
 * **Block timings** is about measuring different times regarding to a specific block.
-    See blocksamples.md
+    See blocksample.md
 * **Node Peers** is about connection sessions (HandshakeSuccess, temperatures,
     node generation / restart). See peers.md.
     Backend ingest notes: backend-peer-events.md, backend-blocksample.md
@@ -13,6 +13,13 @@ can be categorize into three main parts.
     Local metrics: local-peer-metrics.md
 * **Transactions** is about the transactions this node sees and has seen.
     Transactions have not been implemented yet
+
+### Log parsing
+
+- Haskell baseline (namespaces for blocksamples, peering, restarts):
+  [haskell-log-parsing.md](haskell-log-parsing.md)
+- Amaru mapping (peer events first; blocksamples not ready yet):
+  [amaru-log-parsing.md](amaru-log-parsing.md)
 
 Everything is specific to the local cardano-node this client is supposed to
 run with.

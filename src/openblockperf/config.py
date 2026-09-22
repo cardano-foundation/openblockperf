@@ -2,7 +2,7 @@ import socket
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import Field
 from pydantic_settings import (
@@ -14,6 +14,9 @@ from pydantic_settings import (
 )
 
 DEFAULT_API_SRV = "_obpf._tcp.network.cardano.org"
+
+# haskell = cardano-tracer ns JSON; amaru = fields.message JSON; auto = detect per line
+NodeKind = Literal["auto", "haskell", "amaru"]
 
 
 class Network(Enum):
@@ -76,6 +79,8 @@ class AppSettings(BaseSettings):
     node_name: str = socket.gethostname()  # This clients hostname
     node_unit_name: str = "cardano-tracer"
     tracer_log_file: Path | None = None
+    # Log dialect: haskell cardano-tracer, amaru Rust node, or auto-detect per line.
+    node_kind: NodeKind = "auto"
     # Ekg endpoint url
     ekg_url: str = "http://localhost:12798/metrics"
 
