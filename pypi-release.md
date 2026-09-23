@@ -10,19 +10,20 @@ producer and the rest of the network. Running it on a producer is possible
 but not recommended. In normal operation it runs as a systemd service.
 
 ## Release notes
-- v0.0.42 - 2026-09-18
-  - peer events unified: every client reports the same temperature lifecycle
-    (`cold_to_warm`, `warm_to_hot`, `hot_to_warm`, `warm_to_cold`); no levels
-  - legacy `peer_events_level` in config is ignored
-  - HandshakeSuccess enrichment on peerevent submit when CM logs are present:
-    optional `n2n_version`, `diffusion_mode`, `peer_sharing`, `peras_support`
-  - abrupt connection loss (`MuxErrored`, `ConnectionHandler.Error`,
-    `ResponderErrored`) counts as Cold leave so live peer counts track the node
-  - CM / server shutdown wipes the peer FSM (no restart ghosts)
-  - peer presence: `first_seen` / `last_signal` on `/peers`; bumped by peerevent,
-    handshake, header, body
-  - soft TTL (`peer_signal_ttl_seconds`, default 1800): demote Warm/Hot after
-    30m without a signal (inbound + outbound); submits `warm_to_cold` if reported
+- v0.0.42 - 2026-09-23
+  - first production-ready release for Haskell cardano-node relays
+  - blocksample and peerevent parsing aligned for normal TraceOptions installs
+  - peerevents: same four `change_type` values for every client; `peer_events_level` ignored
+  - peerevents: connection sessions (not IP-keyed maps); omit-none fields
+    `event_role`, `session_id`, `node_generation`, `close_reason`, `we_dialed`
+  - HandshakeSuccess opens a session and may enrich with `n2n_version`,
+    `diffusion_mode`, `peer_sharing`, `peras_support`
+  - abrupt loss (`MuxErrored`, `ConnectionHandler.Error`, `ResponderErrored`)
+    closes the session; node restart closes open sessions then submits
+    `event_role=node_restart`
+  - soft TTL (`peer_signal_ttl_seconds`, default 1800) closes stale Warm/Hot
+  - local `/peers`: useful open sessions with `opened_at` / `last_signal`
+    (no `duplex`, no `first_seen`)
   - still no dial-fail / PromoteColdFailed submits
 - v0.0.41 - 2026-09-17
   - blocksample submit adds optional 2nd/3rd header announcers:
@@ -61,6 +62,8 @@ but not recommended. In normal operation it runs as a systemd service.
   - use SRV targets by RTT rank and failover;  
 
 ## Installation
+This release targets Haskell cardano-node relays. Use the installer below.
+
 You can install the package from PyPI:
 
 ```bash

@@ -163,9 +163,6 @@ Written keys:
 - `local_metrics_enabled` (default `false`)
 - `local_metrics_bind` (default `127.0.0.1`)
 - `local_metrics_port` (default `14041`)
-- `peer_audit_log_file` (`null` = off). Temporary JSONL of peer parse /
-  enrich / submit / counts for lifecycle debugging. Example:
-  `/opt/cardano/openblockperf/peer-audit.jsonl`. Disable when done.
 All keys also accept matching `OPENBLOCKPERF_*` environment variables.
 `OPENBLOCKPERF_CONFIG` is the path to this file (wrapper exports it).
 
@@ -216,12 +213,6 @@ All keys also accept matching `OPENBLOCKPERF_*` environment variables.
 - `local_metrics_enabled` serve Prometheus + JSON peer lists
 - `local_metrics_bind`
 - `local_metrics_port` avoid node `12798` / Prometheus `9090`
-
-**Debug (temporary):**
-
-- `peer_audit_log_file` path to append-only JSONL (`parse`, `enrich`,
-  `submit`, `counts`). Off when `null`. Use for a few hours after a joint
-  node+client restart, then turn off.
 The client resolves SRV targets as FQDNs and calls
 `https://{fqdn}:{port}/{network}/api/v0/...`. `blockperf run` ranks healthy
 edges by RTT; `register-ip` / `register-calidus` probe health, shuffle healthy

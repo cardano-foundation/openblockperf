@@ -28,7 +28,6 @@ from openblockperf.models.events import (
     SwitchedToAForkEvent,
 )
 from openblockperf.models.peer import Peer
-from openblockperf.peer_audit import PeerAuditLog
 from openblockperf.peer_relevance import PeerRelevanceTracker
 from openblockperf.peer_tracker import PeerReport, PeerTracker
 
@@ -107,19 +106,11 @@ class EventHandler:
             traceroute_enabled=settings.peer_traceroute_enabled,
         )
         self.peer_relevance = PeerRelevanceTracker()
-        self.peer_audit: PeerAuditLog | None = None
-        if settings.peer_audit_log_file is not None:
-            self.peer_audit = PeerAuditLog(settings.peer_audit_log_file)
         self.amaru_bridge = AmaruPeerBridge(
             self.peer_tracker,
             default_local_addr=settings.local_addr,
             default_local_port=int(settings.local_port),
         )
-
-    def close_peer_audit(self) -> None:
-        if self.peer_audit is not None:
-            self.peer_audit.close()
-            self.peer_audit = None
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -138,7 +129,6 @@ class EventHandler:
             return await self._handle_amaru_message(raw_message)
 
         event = self._make_event_from_message(raw_message)
-        self._audit_parse(event)
         return await self.dispatch_event(event)
 
     async def _handle_amaru_message(self, raw_message: dict):
@@ -147,17 +137,6 @@ class EventHandler:
         if action is None:
             raise UnknowEventNameSpaceError()
         reports = self.amaru_bridge.apply_action(action)
-        if self.peer_audit is not None:
-            self.peer_audit.parse(
-                at=action.at,
-                ns=action.ns,
-                event_type="AmaruPeer",
-                local_addr=self.amaru_bridge.listen_addr,
-                local_port=self.amaru_bridge.listen_port,
-                remote_addr=action.remote_addr,
-                remote_port=action.remote_port,
-                note=action.kind.value,
-            )
         for report in reports:
             await self._submit_report(report)
         return len(reports)
@@ -171,61 +150,7 @@ class EventHandler:
         pruned = self.peer_tracker.prune_cold(self.settings.peer_prune_idle_seconds)
         if pruned:
             logger.debug("Pruned idle cold peers", count=pruned)
-        if self.peer_audit is not None:
-            self.peer_audit.counts(self.peer_tracker, reason="flush")
         return len(reports)
-
-    def _audit_parse(self, event) -> None:
-        if self.peer_audit is None:
-            return
-        if isinstance(
-            event,
-            (
-                PeerEvent,
-                HandshakeSuccessEvent,
-                NetworkShutdownEvent,
-                NodeEpochStartEvent,
-            ),
-        ):
-            extra: dict = {}
-            if isinstance(event, HandshakeSuccessEvent):
-                extra = {
-                    "n2n_version": event.n2n_version,
-                    "diffusion_mode": event.diffusion_mode,
-                    "peer_sharing": event.peer_sharing,
-                    "peras_support": event.peras_support,
-                }
-            elif isinstance(event, PeerEvent):
-                extra = {
-                    "state": event.state if isinstance(event.state, str) else getattr(event.state, "value", event.state),
-                    "direction": event.direction.value
-                    if hasattr(event.direction, "value")
-                    else str(event.direction),
-                    "change_type": event.change_type.value
-                    if hasattr(event.change_type, "value")
-                    else str(event.change_type),
-                }
-            self.peer_audit.parse(
-                at=event.at,
-                ns=getattr(event, "ns", None) or "",
-                event_type=type(event).__name__,
-                local_addr=getattr(event, "local_addr", None),
-                local_port=getattr(event, "local_port", None),
-                remote_addr=getattr(event, "remote_addr", None),
-                remote_port=getattr(event, "remote_port", None),
-                **extra,
-            )
-        elif isinstance(event, (DownloadedHeaderEvent, SendFetchRequestEvent, CompletedBlockFetchEvent)):
-            self.peer_audit.parse(
-                at=event.at,
-                ns=event.ns,
-                event_type=type(event).__name__,
-                local_addr=event.local_addr,
-                local_port=event.local_port,
-                remote_addr=event.remote_addr,
-                remote_port=event.remote_port,
-                note="outbound_client_mini_protocol",
-            )
 
     # ------------------------------------------------------------------
     # Internal: parsing
@@ -347,8 +272,6 @@ class EventHandler:
     async def _submit_report(self, report: PeerReport) -> None:
         if not report.change_type.is_reportable():
             return
-        if self.peer_audit is not None:
-            self.peer_audit.submit(report)
         reason = report.close_reason.value if report.close_reason else "-"
         logger.opt(raw=True).info(
             f"{report.peer.remote_addr} {report.event_role.value} "
@@ -396,20 +319,6 @@ class EventHandler:
             f"v={event.n2n_version} mode={event.diffusion_mode} "
             f"share={event.peer_sharing} peras={event.peras_support}\n"
         )
-        if not reports and self.peer_audit is not None:
-            existing = self.peer_tracker._find_open(
-                event.local_addr, event.local_port, event.remote_addr, event.remote_port
-            )
-            self.peer_audit.enrich(
-                at=event.at,
-                session_id=existing.session_id if existing else None,
-                remote_addr=event.remote_addr,
-                remote_port=event.remote_port,
-                n2n_version=event.n2n_version,
-                diffusion_mode=event.diffusion_mode,
-                peer_sharing=event.peer_sharing,
-                peras_support=event.peras_support,
-            )
         for report in reports:
             await self._submit_report(report)
 
