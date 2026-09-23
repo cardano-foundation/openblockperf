@@ -203,6 +203,6 @@ default `0.0.0.0:3000`. For logfile mode set `node_unit_name` to `""`
 disable until Amaru has an equivalent. JSON journal lines need
 `AMARU_WITH_JSON_TRACES` (or `--with-json-traces`).
 
-Still missing for blocksamples: ask Amaru for header-from-peer, fetch
-request, completed fetch (with peer + size), and prefer adopt lines that
-name the peer / conn_id.
+Still missing for blocksamples in INFO scraping: dedicated signals instead.
+Full catalogue for the Amaru team (startup, blocksample with deltas, battles,
+rollbacks, peer session changes): [obpf-amaru-signals.md](obpf-amaru-signals.md).

@@ -20,6 +20,8 @@ can be categorize into three main parts.
   [haskell-log-parsing.md](haskell-log-parsing.md)
 - Amaru mapping (peer events first; blocksamples not ready yet):
   [amaru-log-parsing.md](amaru-log-parsing.md)
+- Amaru oBPF signal catalogue (for node team / journal):
+  [obpf-amaru-signals.md](obpf-amaru-signals.md)
 
 ### Installers
 
