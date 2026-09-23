@@ -78,7 +78,7 @@ Align to session roles in [peers.md](peers.md): `open` / `temperature` /
 |---------|-------|----------------|
 | Session key | `conn_id` (monotonic int) | Prefer `conn_id` as primary key while open. Also keep `peer` addr+port. |
 | Remote | `fields.peer` | Split `host:port` (bracket IPv6 later). Ephemeral remote port → submit `0` like Haskell. |
-| Local | only `listen_addr` on `manager.listen.started` (here `0.0.0.0:5001`) | Cache listen addr/port at start; use as `local_*` on every session. Missing → `0.0.0.0` / configured `local_port`. |
+| Local | only `listen_addr` on `manager.listen.started` (stock Amaru default `0.0.0.0:3000`; sample log used `:5001`) | Cache listen addr/port at start; use as `local_*` on every session. Missing → `0.0.0.0` / configured `local_port`. |
 | Direction | `role` on died_handled; prior `manager.peer.connect` | `initiator` or saw `connect`/`connected` → outbound / `we_dialed=true`. Else inbound / unknown until evidence. |
 | HS options | not on `handshake_completed` | `n2n_version` / `peer_sharing` / `peras_support` stay null in v0. Ignore `connection.handshake_query_reply` (no `conn_id` / peer; same as ignoring Haskell HandshakeQuery). |
 | Duplex flags | `full_duplex`, `advertisable` | Log locally if useful. **Do not** submit duplex fields (same rule as Haskell). |
@@ -189,17 +189,19 @@ Config:
 ```json
 {
   "node_kind": "amaru",
-  "tracer_log_file": "/path/to/amaru.json.log",
-  "node_unit_name": "",
-  "local_port": 5001,
+  "tracer_log_file": null,
+  "node_unit_name": "amaru.service",
+  "local_port": 3000,
   "sync_check_enabled": false
 }
 ```
 
-`node_kind` default is `auto`. For logfile mode set `node_unit_name` to
-`""` (Amaru lines have no `host` field). Point `local_port` at the Amaru
-listen port. EKG sync gate is Haskell-oriented; disable until Amaru has
-an equivalent.
+Or run `blockperf-install-amaru.sh` (see [blockperf-install-amaru.md](blockperf-install-amaru.md)).
+`node_kind` default is `auto`. Stock Amaru listen is `AMARU_LISTEN_ADDRESS`
+default `0.0.0.0:3000`. For logfile mode set `node_unit_name` to `""`
+(Amaru lines have no `host` field). EKG sync gate is Haskell-oriented;
+disable until Amaru has an equivalent. JSON journal lines need
+`AMARU_WITH_JSON_TRACES` (or `--with-json-traces`).
 
 Still missing for blocksamples: ask Amaru for header-from-peer, fetch
 request, completed fetch (with peer + size), and prefer adopt lines that

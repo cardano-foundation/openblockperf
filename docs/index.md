@@ -21,6 +21,13 @@ can be categorize into three main parts.
 - Amaru mapping (peer events first; blocksamples not ready yet):
   [amaru-log-parsing.md](amaru-log-parsing.md)
 
+### Installers
+
+- Haskell cardano-node: [blockperf-install.md](blockperf-install.md)
+  (`blockperf-install.sh`)
+- Amaru: [blockperf-install-amaru.md](blockperf-install-amaru.md)
+  (`blockperf-install-amaru.sh`)
+
 Everything is specific to the local cardano-node this client is supposed to
 run with.
 

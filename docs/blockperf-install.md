@@ -1,6 +1,9 @@
 # OpenBlockPerf Installer Guide
 
-This document describes how to install, reinstall, remove, and validate the OpenBlockPerf client with `blockperf-install.sh`.
+This document describes how to install, reinstall, remove, and validate the OpenBlockPerf client with `blockperf-install.sh` on a **Haskell cardano-node** host (CNTools / TraceOptions).
+
+For **Amaru** (Rust) nodes use the dedicated script instead:
+[blockperf-install-amaru.md](blockperf-install-amaru.md) (`blockperf-install-amaru.sh`).
 
 ## Quick start
 
