@@ -1,96 +1,49 @@
 """Shared pytest fixtures for the openblockperf test suite."""
 
+import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from openblockperf.config import AppSettings, Network
 
+# Shared with the Rust spike under rust/. Keep payloads in testdata/.
+_TESTDATA = Path(__file__).resolve().parents[1] / "testdata"
+
+
+def _load_testdata_json(relative: str) -> dict:
+    path = _TESTDATA / relative
+    with path.open(encoding="utf-8") as fh:
+        return json.load(fh)
+
+
 # ---------------------------------------------------------------------------
-# Raw event payloads
+# Raw event payloads (from testdata/events/)
 # ---------------------------------------------------------------------------
-# These dicts mirror exactly what the cardano-tracer / journald pipeline
-# delivers.  They are session-scoped because they are plain dicts – read-only
-# and cheap to keep alive for the whole run.
 
 
 @pytest.fixture(scope="session")
 def raw_downloaded_header() -> dict:
-    return {
-        "at": "2025-09-12T16:51:39.269022269Z",
-        "ns": "ChainSync.Client.DownloadedHeader",
-        "data": {
-            "block": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1",
-            "blockNo": 3600148,
-            "kind": "DownloadedHeader",
-            "peer": {"connectionId": "172.0.118.125:30002 167.235.223.34:5355"},
-            "slot": 91039899,
-        },
-        "sev": "Info",
-        "thread": "96913",
-        "host": "test-node",
-    }
+    return _load_testdata_json("events/downloaded_header.json")
 
 
 @pytest.fixture(scope="session")
 def raw_send_fetch_request() -> dict:
-    return {
-        "at": "2025-09-12T16:52:11.098464254Z",
-        "ns": "BlockFetch.Client.SendFetchRequest",
-        "data": {
-            "head": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1",
-            "kind": "SendFetchRequest",
-            "length": 1,
-            "peer": {"connectionId": "172.0.118.125:30002 167.235.223.34:5355"},
-        },
-        "sev": "Info",
-        "thread": "88864",
-        "host": "test-node",
-    }
+    return _load_testdata_json("events/send_fetch_request.json")
 
 
 @pytest.fixture(scope="session")
 def raw_completed_block_fetch() -> dict:
-    return {
-        "at": "2025-09-12T16:52:11.263418188Z",
-        "ns": "BlockFetch.Client.CompletedBlockFetch",
-        "data": {
-            "block": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1",
-            "delay": 0.165,
-            "kind": "CompletedBlockFetch",
-            "peer": {"connectionId": "172.0.118.125:30002 167.235.223.34:5355"},
-            "size": 87654,
-        },
-        "sev": "Info",
-        "thread": "88863",
-        "host": "test-node",
-    }
+    return _load_testdata_json("events/completed_block_fetch.json")
 
 
 @pytest.fixture(scope="session")
 def raw_added_to_current_chain() -> dict:
     # Note: the hash in "headers" is intentionally double-quoted — that is
     # how cardano-tracer emits it and AddedToCurrentChainEvent.block_hash
-    # must strip those quotes.
-    return {
-        "at": "2025-09-12T16:52:11.400000000Z",
-        "ns": "ChainDB.AddBlockEvent.AddedToCurrentChain",
-        "data": {
-            "headers": [
-                {
-                    "blockNo": "3600148",
-                    "hash": '"9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1"',
-                    "kind": "ShelleyBlock",
-                    "slotNo": "91039899",
-                }
-            ],
-            "kind": "AddedToCurrentChain",
-            "newtip": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1@91039899",
-        },
-        "sev": "Notice",
-        "thread": "27",
-        "host": "test-node",
-    }
+    # must strip those quotes. See testdata/events/added_to_current_chain.json.
+    return _load_testdata_json("events/added_to_current_chain.json")
 
 
 # Parsed event model fixtures

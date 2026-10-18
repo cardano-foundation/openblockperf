@@ -1,0 +1,11 @@
+{
+  "at": "2026-01-01T00:00:00Z",
+  "ns": "Net.PeerSelection.Actions.StatusChanged",
+  "data": {
+    "kind": "PeerStatusChanged",
+    "peerStatusChangeType": "ColdToWarm (Just 10.0.0.1:3001) 203.0.113.10:3001"
+  },
+  "sev": "Info",
+  "thread": "1",
+  "host": "test"
+}

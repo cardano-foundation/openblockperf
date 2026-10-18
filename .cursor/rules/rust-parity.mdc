@@ -1,0 +1,19 @@
+---
+description: Rust explore-first parity rules for openblockperf
+globs:
+  - rust/**/*
+  - testdata/**/*
+  - docs/rust-parity.md
+  - src/openblockperf/**/*
+  - tests/**/*
+---
+
+# Rust / Python parity
+
+- Python under `src/openblockperf/` is the source of truth until the parity gate in `docs/rust-parity.md` passes.
+- Rust lives only under `rust/`. Do not start a separate repo for the spike.
+- Shared golden inputs/outputs belong in `testdata/`. Both pytest and `cargo test` should consume them.
+- When changing event parse, peer_tracker FSM, blocksample rules, or API payloads in Python, update `testdata/` and the checklist in `docs/rust-parity.md`.
+- During explore phase, Rust need not land in the same PR as a Python behavior change, but leave a parity note.
+- Installers (`blockperf-install*.sh`) stay Python until a binary is SPO-tested.
+- Hot modules: `peer_tracker`, `models/events`, `blocksamplegroup`, `logreader`, `discovery`, `apiclient`, `calidus`.

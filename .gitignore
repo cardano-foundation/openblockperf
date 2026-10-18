@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 *.egg-info
 
+# Rust
+rust/target/
+
 # Environment variables
 .envrc
 .env

@@ -1,0 +1,23 @@
+{
+  "at": "2026-01-01T00:00:02Z",
+  "ns": "Net.InboundGovernor.Remote.PromotedToHotRemote",
+  "data": {
+    "kind": "PromotedToHotRemote",
+    "connectionId": {
+      "localAddress": {
+        "address": "10.0.0.1",
+        "port": "3001"
+      },
+      "remoteAddress": {
+        "address": "203.0.113.10",
+        "port": "6000"
+      }
+    },
+    "result": {
+      "kind": "OperationSuccess"
+    }
+  },
+  "sev": "Info",
+  "thread": "1",
+  "host": "test"
+}

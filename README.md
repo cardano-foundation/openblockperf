@@ -3,6 +3,10 @@
 # OpenBlockperf
 *- A cli tool and systemd service to capture and share network metrics from a cardano relay node.*
 
+> **Rust explore:** an experimental in-repo port lives under [`rust/`](rust/).
+> Python on PyPI remains the production client. See
+> [`docs/rust-parity.md`](docs/rust-parity.md) for status and the parity gate.
+
 The OpenBlockperf Client is a cli tool that collects various data points from
 a local Cardano relay node, run by a stake pool operator. If you are setting up or
 operating a stake pool, start with this guideline:

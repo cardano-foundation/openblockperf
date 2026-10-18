@@ -1,0 +1,10 @@
+{
+  "at": "2026-01-01T00:00:00Z",
+  "ns": "Net.Server.Remote.Started",
+  "data": {
+    "kind": "test"
+  },
+  "sev": "Info",
+  "thread": "1",
+  "host": "test"
+}

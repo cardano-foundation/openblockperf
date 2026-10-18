@@ -1,0 +1,6 @@
+{
+  "token": "proof-token-example",
+  "ip": "203.0.113.50",
+  "hostname": "relay.example",
+  "expires_at": "2026-01-01T01:00:00Z"
+}

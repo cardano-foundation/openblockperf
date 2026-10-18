@@ -1,0 +1,19 @@
+{
+  "at": "2025-09-12T16:52:11.400000000Z",
+  "ns": "ChainDB.AddBlockEvent.AddedToCurrentChain",
+  "data": {
+    "headers": [
+      {
+        "blockNo": "3600148",
+        "hash": "\"9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1\"",
+        "kind": "ShelleyBlock",
+        "slotNo": "91039899"
+      }
+    ],
+    "kind": "AddedToCurrentChain",
+    "newtip": "9d096f3fbe809021bcb78d6391751bf2725787380ea367bbe2fb93634ac613b1@91039899"
+  },
+  "sev": "Notice",
+  "thread": "27",
+  "host": "test-node"
+}
